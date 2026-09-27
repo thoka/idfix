@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# oc-sub launcher. Claude Code puts the plugin's bin/ folder on the PATH of
+# its Bash tool, so this script runs as the bare command `oc-sub`. It also
+# works as a symlink, for example from ~/.local/bin/oc-sub.
+set -euo pipefail
+
+root="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+
+# Use bun from the PATH. If it is missing, ask mise for the pinned version.
+if command -v bun >/dev/null 2>&1 && bun --version >/dev/null 2>&1; then
+  bun_cmd=(bun)
+elif command -v mise >/dev/null 2>&1; then
+  version="$(sed -n 's/^bun *= *"\(.*\)"/\1/p' "$root/mise.toml")"
+  bun_cmd=(mise exec "bun@${version:-latest}" -- bun)
+else
+  echo "oc-sub: bun is not installed. Install bun (https://bun.sh) or mise." >&2
+  exit 1
+fi
+
+# A plugin that Claude Code copied into its cache has no node_modules yet.
+# Install the locked runtime dependencies once.
+if [ ! -d "$root/node_modules/@opencode-ai/sdk" ]; then
+  (cd "$root" && "${bun_cmd[@]}" install --frozen-lockfile --production >&2)
+fi
+
+exec "${bun_cmd[@]}" "$root/src/cli.ts" "$@"

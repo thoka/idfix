@@ -101,7 +101,7 @@ Then ask Claude, for example: "Delegate step 4 to the opencode coder." Claude in
 
 Research needs no agent file in your project. `oc-sub up` starts the server with `OPENCODE_CONFIG_DIR` set to the `opencode/` folder of the plugin. opencode loads the agents of that folder for every project, after the project `.opencode` folder. An agent from `OPENCODE_CONFIG_DIR` overrides a project agent with the same name.
 
-The plugin serves two agents there: the `researcher`, and its hidden `reader` subagent. The researcher cannot fetch pages itself. It calls `reader`, which fetches the pages in a fresh context and returns at most 600 words of quotes with URLs. This keeps the cost low, because each fetched page would otherwise stay in the context of the researcher until the run ends.
+The plugin serves two agents there: the `researcher`, and its hidden `reader` subagent. The researcher cannot fetch pages itself. It calls `reader`, which fetches the pages in a fresh context and returns at most 600 words of quotes with URLs. The reader fetches only the URLs that it gets, and it stops after six steps (`steps: 6`). Without this limit, one reader call with an open task made 42 fetches. This keeps the cost low, because each fetched page would otherwise stay in the context of the researcher until the run ends.
 
 After an update of the plugin, run `oc-sub restart`. The running server keeps the plugin folder that it got at start in `OPENCODE_CONFIG_DIR`, and a plugin update can install into a new folder.
 

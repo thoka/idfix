@@ -51,5 +51,7 @@ describe("plugin config directory", () => {
     const reader = readFileSync(path.join(agentsDir, "reader.md"), "utf8");
     expect(reader).toContain("mode: subagent");
     expect(reader).toContain("hidden: true");
+    // A step limit keeps one reader call from crawling a whole site.
+    expect(reader).toMatch(/^steps: \d+$/m);
   });
 });

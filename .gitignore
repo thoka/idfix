@@ -1,3 +1,4 @@
 .opencode/*
 !.opencode/agents/
 node_modules/
+.worktrees/

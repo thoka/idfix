@@ -4,7 +4,12 @@
 
 In the project terminator (September 2026), four research runs with the template `researcher.md` cost 0.22 to 0.70 USD each. The earlier runs in [EXPERIENCE.md](EXPERIENCE.md) cost 0.08 to 0.09 USD.
 
-Root cause: the template denies the `task` tool, so the researcher fetches every page itself. Each page stays in its context until the run ends, and the model reads the whole context again at every step. In the most expensive run, 67 fetches returned up to 51,000 characters each. The context grew to 395,000 tokens over 80 steps. The model re-read 17.3 million tokens of cached context, and these re-reads made up 75 percent of the cost.
+Two causes add up. A later analysis of the stored sessions found the first one. It is described in [EXPERIENCE.md](EXPERIENCE.md#price-per-token-after-the-key-rotation).
+
+1. The price per token went up. Up to 14:03 on 2026-09-28, the runs paid about 0.04 USD per million input tokens and 0.015 USD per million cached tokens. From 18:27, after a rotation of the OpenRouter key, every run paid 0.15 and 0.030 USD for the same model. At the old prices, the most expensive run would have cost about 0.33 USD instead of 0.70 USD.
+2. The context grows with each fetched page. This part is below.
+
+Root cause of the context growth: the template denies the `task` tool, so the researcher fetches every page itself. Each page stays in its context until the run ends, and the model reads the whole context again at every step. In the most expensive run, 67 fetches returned up to 51,000 characters each. The context grew to 395,000 tokens over 80 steps. The model re-read 17.3 million tokens of cached context, and these re-reads made up 75 percent of the cost.
 
 The option `compaction.prune` of opencode does not help. It prunes tool output only after the run ends, and it skips the current user turn (`packages/opencode/src/session/compaction.ts`).
 
@@ -50,3 +55,13 @@ Root cause: the agent files deny the `question` tool and use `deny` for risky co
 1. Research first, with a report in `docs/research/`. How do established tools let an orchestrator answer the question or the permission request of a subagent? Cover at least opencode itself (the `question` tool, `ask` permissions, the server endpoints and events in 1.18.32), `opencode-mcp`, the Claude Agent SDK (`canUseTool`), the Agent Client Protocol (`session/request_permission`), the A2A protocol (`input-required`), MCP elicitation, the OpenAI Agents SDK, and LangGraph (`interrupt`). Name the pattern that most of them share, and what `oc-sub` can reuse.
 2. Decide the design with the user, based on the report.
 3. Implement it in small steps with tests. The likely parts: the agent files allow `question` and use `ask` for risky commands. `oc-sub watch` shows a pending request and ends. A new command answers or rejects it in the same session.
+
+## Step 5: Cheap routing on OpenRouter
+
+Status: open.
+
+Root cause: since the key rotation, OpenRouter routes GLM 5.3 Flash to a provider at 0.15 USD per million input tokens, although providers at 0.045 USD exist. A routing rule in the opencode configuration had no effect in a test (see [EXPERIENCE.md](EXPERIENCE.md#price-per-token-after-the-key-rotation)).
+
+1. The user checks the OpenRouter settings of the old and the new keys, and sets a routing default for the new keys if OpenRouter offers one.
+2. A research run finds out how opencode 1.18.32 passes OpenRouter routing options (`provider.openrouter.models.<id>.options.provider`), and why the test had no effect.
+3. If a configuration works, the plugin sets it in `opencode/opencode.json`, so that every project gets it through `OPENCODE_CONFIG_DIR`. A tiny test run makes sure that the price per input token is below 0.08 USD.

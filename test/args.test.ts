@@ -81,6 +81,48 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["status", "--dir=/w", "--all"])).toThrow(/--all and --dir/);
   });
 
+  test("answer with answers, --reply, and --reject", () => {
+    expect(parseArgs(["answer", "que_1", "Option A"])).toEqual({
+      command: "answer",
+      request: "que_1",
+      reject: false,
+      reply: undefined,
+      answers: ["Option A"],
+    });
+    expect(parseArgs(["answer", "per_1", "--dir", "/w", "--reply", "always"])).toEqual({
+      command: "answer",
+      request: "per_1",
+      dir: "/w",
+      reject: false,
+      reply: "always",
+      answers: [],
+    });
+    expect(parseArgs(["answer", "que_1", "--reject"])).toEqual({
+      command: "answer",
+      request: "que_1",
+      reject: true,
+      reply: undefined,
+      answers: [],
+    });
+    expect(parseArgs(["answer", "que_1", "a 1", "a 2", "--url=http://h:1"])).toEqual({
+      command: "answer",
+      request: "que_1",
+      url: "http://h:1",
+      reject: false,
+      reply: undefined,
+      answers: ["a 1", "a 2"],
+    });
+  });
+
+  test("answer rejects bad flag combinations and a missing request ID", () => {
+    expect(() => parseArgs(["answer"])).toThrow(/request ID/);
+    expect(() => parseArgs(["answer", "que_1"])).toThrow(/answer per question/);
+    expect(() => parseArgs(["answer", "que_1", "--reply", "sometimes"])).toThrow(/--reply must be once, always, or reject/);
+    expect(() => parseArgs(["answer", "que_1", "--reply", "once", "--reject"])).toThrow(/--reject and --reply/);
+    expect(() => parseArgs(["answer", "que_1", "--reject", "Option A"])).toThrow(/--reject takes no answers/);
+    expect(() => parseArgs(["answer", "que_1", "--reply"])).toThrow(/needs a value/);
+  });
+
   test("ping parses like status", () => {
     expect(parseArgs(["ping"])).toEqual({ command: "ping" });
     expect(parseArgs(["ping", "--dir", "/w"])).toEqual({ command: "ping", dir: "/w" });

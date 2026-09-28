@@ -7,6 +7,7 @@ This file holds the details for the skill `oc-sub`. [SKILL.md](SKILL.md) has the
 - [Setup](#setup)
 - [Commands](#commands)
 - [Follow-up messages](#follow-up-messages)
+- [Questions and permission requests](#questions-and-permission-requests)
 - [Cost and tokens](#cost-and-tokens)
 - [Agent files](#agent-files)
 - [Reasoning effort](#reasoning-effort)
@@ -31,13 +32,14 @@ Every command accepts `--url URL`. The default URL comes from the environment va
 | `oc-sub down [--port N] [--force]` | Stops the server that `oc-sub up` started on the target port (see `--port` above). If a session that `oc-sub run` started is still busy, it lists the session and exits with code 1. `--force` stops the server anyway and kills the running sessions. |
 | `oc-sub restart [--port N] [--force]` | Runs `down`, then `up` on the same target port. |
 | `oc-sub run --agent NAME --dir DIR (--brief FILE \| TEXT) [--title T]` | Creates a session in DIR and sends the brief to the agent without waiting. It prints three lines: the session ID, the `opencode attach ...` command, and the path of the run record `.opencode/runs/<session-id>.json`. |
-| `oc-sub status [--dir DIR \| --all]` | One line per session: ID, state (`busy`, `idle`, `retry`), title. Without `--all`, it lists the folder and each of its git worktrees. A session of another worktree shows its folder at the end (`.worktrees/x` when it is inside the folder, else absolute). With `--all`, it lists the running sessions of all projects and their worktrees, each with the absolute folder, or `no running sessions`. |
+| `oc-sub status [--dir DIR \| --all]` | One line per session: ID, state (`busy`, `waiting`, `idle`, `retry`), title. `waiting` means that the session has a pending question or permission request and waits for an answer. Without `--all`, it lists the folder and each of its git worktrees. A session of another worktree shows its folder at the end (`.worktrees/x` when it is inside the folder, else absolute). With `--all`, it lists the running sessions of all projects and their worktrees, each with the absolute folder, or `no running sessions`. A directory that fails to list prints `warning: <directory>: <message>` to stderr and does not stop the listing. |
 | `oc-sub ping [--dir DIR]` | Shows which OpenRouter key the server uses for DIR, where it comes from (project key file, environment, or global auth.json), and whether OpenRouter accepts it. Prints a SHA-256 fingerprint of the key, never the key itself. Warns when the server does not use the project key file, because the cost then goes to another key. |
-| `oc-sub watch SESSION [--dir DIR] [--json]` | Prints one short line per tool call, failed tool call, assistant text, and session error. When the session and its subagent sessions are idle, it prints a summary line and exits with code 0. The summary covers the session and all of its subagent sessions (see [Cost and tokens](#cost-and-tokens)). With `--json`, it prints the events as JSON lines, and the summary goes to stderr. |
+| `oc-sub watch SESSION [--dir DIR] [--json]` | Prints one short line per tool call, failed tool call, assistant text, and session error. When the session and its subagent sessions are idle, it prints a summary line and exits with code 0. The summary covers the session and all of its subagent sessions (see [Cost and tokens](#cost-and-tokens)). When the session or one of its subagent sessions has a pending question or permission request, it prints one block per request and exits with code 3 (see [Questions and permission requests](#questions-and-permission-requests)). With `--json`, it prints the events as JSON lines, and the summary and the request blocks go to stderr. |
 | `oc-sub log SESSION [--dir DIR]` | Prints the last assistant text (the report of the agent) and a line with the cost and the tokens. The totals cover the session and all of its subagent sessions. |
 | `oc-sub abort SESSION [--dir DIR]` | Stops the session. |
+| `oc-sub answer REQUEST_ID [--dir DIR] (--reply once\|always\|reject \| --reject \| ANSWER...)` | Answers a pending question or permission request of the run in DIR. The command looks the ID up in the two pending lists to learn its kind. A question takes one positional ANSWER per question, in order. An ANSWER is the label of an option or free text. `--reject` rejects a question. A permission request takes `--reply once`, `--reply always`, or `--reply reject`. An unknown ID, a wrong kind, and a wrong answer count stop with an error before anything is sent. After the answer, start `watch` again. |
 
-Exit codes: 0 for success, 1 for an error, 2 for wrong arguments. If no server runs, `status` prints `no server on <url>` and exits with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
+Exit codes: 0 for success, 1 for an error, 2 for wrong arguments, 3 when `watch` found a pending question or permission request (the run is paused). If no server runs, `status` prints `no server on <url>` and exits with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
 
 ### Watch in the background
 
@@ -54,6 +56,41 @@ idle after 6m12s, 41 tool calls, cost $0.0816 (subagents $0.0665 in 4 sessions),
 ```
 
 The cost and the tokens cover the session and all of its subagent sessions. Without subagent sessions, the line omits the part in parentheses. The watch ends only when the session and its subagent sessions are all done. You can start `watch` right after `run`. A session that the server has not yet marked busy does not end the watch.
+
+### Questions and permission requests
+
+An agent can ask a question with the `question` tool, and a command outside its allowlist can raise a permission request. Both pause the session until an answer arrives. There is no timeout. The session stays `busy` in the status map, so `watch` detects the pause through the two pending lists of the server.
+
+When `watch` finds a pending request for the watched session or for one of its subagent sessions, it prints one block per request and ends with exit code 3:
+
+```
+question que_01j4 in ses_9f2a
+  1. [Delete file] Should I delete build/tmp.txt?
+     - Yes: delete the file
+     - No: keep the file
+answer with: oc-sub answer que_01j4 --dir /path/to/worktree "<answer>" (or --reject)
+
+The session waits for an answer. After answering, watch again.
+```
+
+To answer, run the command from the hint. For a question, pass one answer per question, in order. The answer is the label of an option or free text:
+
+```
+oc-sub answer que_01j4 --dir /path/to/worktree "Yes"
+oc-sub answer que_01j4 --dir /path/to/worktree --reject
+```
+
+For a permission request, pass the reply:
+
+```
+oc-sub answer per_07b1 --dir /path/to/worktree --reply once
+```
+
+- `once` allows the tool call one time. `always` allows it for the rest of the session. `reject` refuses it.
+- `--reject` on a question makes the tool call of the agent fail. The agent then continues and can react to it.
+- Decide yourself whether the request is safe. For a risky command or a deletion, ask the user first.
+- After the answer, start `watch` again to follow the rest of the run.
+- `oc-sub status` shows the session as `waiting` while it pauses.
 
 ### Commands for the user
 
@@ -94,8 +131,9 @@ Research needs no agent file in the project. `oc-sub up` starts `opencode serve`
 
 Permission rules:
 
-- Each key is `allow`, `ask`, or `deny`. Use `deny` instead of `ask`, because nobody answers questions in a run.
-- For `bash`, `edit`, and `read`, you can give a map of patterns. The last pattern that matches wins, so put `"*": deny` first and the allowed commands after it.
+- Each key is `allow`, `ask`, or `deny`. `ask` pauses the run with a permission request. `oc-sub watch` shows it and ends with exit code 3, and `oc-sub answer` replies. Use `deny` only for what the agent must never do, for example reading `.env` files.
+- Allow the `question` tool. The agent then asks instead of guessing or looking for a detour.
+- For `bash`, `edit`, and `read`, you can give a map of patterns. The last pattern that matches wins, so put the catch-all `"*": ask` first and the allowed commands after it.
 - `external_directory: deny` keeps the agent inside the project folder. `task: deny` stops it from starting more agents.
 - Deny `*.env` and `*.env.*` for `read`.
 - Adapt the `bash` allowlist to the test command of the project, for example `"uv run pytest*": allow` or `"npm test*": allow`.
@@ -148,6 +186,7 @@ For research, name the output file, for example `docs/research/<topic>.md`, and 
 ## Known behavior of the server
 
 - `GET /session/status?directory=<dir>` lists only sessions that are not idle. An empty object means that no session is busy. `oc-sub watch` handles this, also for the subagent sessions of the watched session.
+- A session that waits for a question or a permission answer counts as `busy` in `GET /session/status`. The pending requests are visible in `GET /question` and `GET /permission`. `oc-sub watch` and `oc-sub status` read them for you.
 - The end of an `opencode run --attach` process does not mean the end of the session. Ask the server, for example with `oc-sub status --dir <dir>`.
 - A research agent cannot read files outside its project folder (`external_directory: deny`). Copy the needed context into the worktree or into the brief.
 - `opencode session list` shows all sessions. `opencode -s <id>` opens a finished session.

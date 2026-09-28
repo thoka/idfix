@@ -9,6 +9,7 @@ import { ping } from "./ping";
 import { watch } from "./watch";
 import { log } from "./log";
 import { abort } from "./abort";
+import { answer } from "./answer";
 
 const HELP = `oc-sub - drive an opencode server for subagent runs
 
@@ -22,6 +23,7 @@ Usage:
   oc-sub watch SESSION [--dir DIR] [--json]
   oc-sub log SESSION [--dir DIR]
   oc-sub abort SESSION [--dir DIR]
+  oc-sub answer REQUEST_ID [--dir DIR] (--reply once|always|reject | --reject | ANSWER...)
 
 Every command accepts:
   --url URL   opencode server URL (default: $OC_SUB_URL or http://127.0.0.1:8767)
@@ -61,6 +63,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return log(args);
     case "abort":
       return abort(args);
+    case "answer":
+      return answer(args);
   }
 }
 

@@ -62,6 +62,16 @@ export function belongsToSession(event: Event, sessionId: string): boolean {
   return eventSessionId(event) === sessionId;
 }
 
+/**
+ * The events that announce a new pending question or permission request.
+ * The published v1 SDK gen does not know these event types, so the type is
+ * read as a plain string.
+ */
+export function isRequestAskedEvent(event: Event): boolean {
+  const type = event.type as string;
+  return type === "question.asked" || type === "permission.asked";
+}
+
 export type WatchLine = {
   kind: "tool" | "tool-failed" | "text" | "error";
   line: string;

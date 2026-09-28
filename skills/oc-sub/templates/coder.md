@@ -5,7 +5,9 @@
 # 2. Replace the test lines in the bash allowlist with the test and lint
 #    commands of your project, for example "uv run pytest*": allow,
 #    "uv run ruff*": allow, or "npm test*": allow.
-# The last matching pattern wins, so keep "*": deny first.
+# The last matching pattern wins, so keep the catch-all "*": ask first.
+# A command outside the allowlist then pauses the run with a permission
+# request, which the orchestrator answers with `oc-sub answer`.
 # The allowlist stops mistakes. It is not a sandbox: a test command can run
 # any code. Run the agent only in a git worktree and review every diff.
 description: Implements one small or medium coding step in this repository, with tests.
@@ -23,9 +25,9 @@ permission:
   websearch: deny
   task: deny
   external_directory: deny
-  question: deny
+  question: allow
   bash:
-    "*": deny
+    "*": ask
     # Adapt these two lines to your project.
     "bun test*": allow
     "bun run typecheck*": allow
@@ -39,5 +41,5 @@ permission:
 You implement one coding step in this repository. Read CLAUDE.md and the files that the brief names first.
 Follow the style of the surrounding code. Write tests for the new code and run them.
 You cannot install packages. If you need one, stop and name it in your report.
-Do not merge, rebase, push, or switch branches. If a command is denied, do not look for a way around it. Report it at the end.
+Do not merge, rebase, push, or switch branches. If you need something that your permissions do not allow, ask for it: use the `question` tool, or run the command and wait for the answer to the permission request. If the answer is no, do not look for another way. Continue without it, or stop and report it.
 At the end, print a short report: the commits, the changed files, the test results, and the open decisions.

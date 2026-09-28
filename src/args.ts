@@ -15,7 +15,11 @@ export type ParsedArgs =
   | { command: "ping"; url?: string; dir?: string }
   | { command: "watch"; url?: string; session: string; dir?: string; json: boolean }
   | { command: "log"; url?: string; session: string; dir?: string }
-  | { command: "abort"; url?: string; session: string; dir?: string };
+  | { command: "abort"; url?: string; session: string; dir?: string }
+  | { command: "answer"; url?: string; request: string; dir?: string; reply?: Reply; reject: boolean; answers: string[] };
+
+/** The reply values of a permission request. */
+export type Reply = "once" | "always" | "reject";
 
 type Flags = Map<string, string | true>;
 type Globals = { url?: string };
@@ -200,6 +204,45 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "abort": {
       const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "url"]), new Set<string>());
       return { command: "abort", url: globals.url, session: requireSession(positionals), dir: optionalString(flags, "dir") };
+    }
+    case "answer": {
+      const { flags, positionals, globals } = collectFlags(
+        rest,
+        new Set(["dir", "url", "reply", "reject"]),
+        new Set(["reject"]),
+      );
+      const request = positionals[0];
+      if (request === undefined || request.trim().length === 0) {
+        throw new UsageError("a request ID is required");
+      }
+      const answers = positionals.slice(1);
+      const replyRaw = optionalString(flags, "reply");
+      let reply: Reply | undefined;
+      if (replyRaw !== undefined) {
+        if (replyRaw !== "once" && replyRaw !== "always" && replyRaw !== "reject") {
+          throw new UsageError(`--reply must be once, always, or reject, got "${replyRaw}"`);
+        }
+        reply = replyRaw;
+      }
+      const reject = flags.get("reject") === true;
+      if (reject && reply !== undefined) {
+        throw new UsageError("--reject and --reply cannot be combined");
+      }
+      if (reject && answers.length > 0) {
+        throw new UsageError("--reject takes no answers");
+      }
+      if (!reject && reply === undefined && answers.length === 0) {
+        throw new UsageError("give one answer per question, --reply once|always|reject, or --reject");
+      }
+      return {
+        command: "answer",
+        url: globals.url,
+        request,
+        dir: optionalString(flags, "dir"),
+        reply,
+        reject,
+        answers,
+      };
     }
     default:
       throw new UsageError(`unknown command "${head}"`);

@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { resolvePort, resolveServerUrl, type Env } from "./config";
-import { assertUsable, makeClient, probeServer, unwrap } from "./client";
+import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "./client";
+import { listPendingRequests } from "./requests";
 import { readDirs, serveDirsPath } from "./state";
 
 /**
@@ -63,16 +64,66 @@ const defaultDeps: StatusDeps = { worktreesOf, exists: existsSync };
 /** A session as status shows it: ID, title, whether it is a child, and its state. */
 type ListedSession = { id: string; title: string; child: boolean; state: string };
 
+/**
+ * The state of one session. A busy session with a pending question or
+ * permission request is not making progress: it waits for an answer.
+ */
+export function sessionState(state: string | undefined, waiting: ReadonlySet<string>, id: string): string {
+  if (state === "busy" && waiting.has(id)) return "waiting";
+  return state ?? "idle";
+}
+
+/**
+ * The sessions of one directory that have a pending question or permission
+ * request. A failure of the two pending lists must not break the listing,
+ * so it only costs the waiting display.
+ */
+async function waitingSessions(baseUrl: string, directory: string, env: Env): Promise<Set<string>> {
+  try {
+    const pending = await listPendingRequests(baseUrl, directory, env);
+    return new Set(pending.map((entry) => entry.request.sessionID));
+  } catch {
+    return new Set();
+  }
+}
+
 /** The sessions of one directory, with the state from the status map. A session missing from the map is idle. */
-async function listSessions(client: OpencodeClient, directory: string): Promise<ListedSession[]> {
+async function listSessions(
+  client: OpencodeClient,
+  baseUrl: string,
+  directory: string,
+  env: Env,
+): Promise<ListedSession[]> {
   const sessions = unwrap(await client.session.list({ query: { directory } }), "list sessions");
   const states = unwrap(await client.session.status({ query: { directory } }), "session status");
+  const waiting = await waitingSessions(baseUrl, directory, env);
   return sessions.map((session) => ({
     id: session.id,
     title: session.title,
     child: session.parentID !== undefined,
-    state: states[session.id]?.type ?? "idle",
+    state: sessionState(states[session.id]?.type, waiting, session.id),
   }));
+}
+
+/**
+ * The sessions of one directory, or nothing with a warning on stderr when
+ * the directory fails. One broken project must not stop the listing of the
+ * others, for example when its configuration references a missing key file.
+ */
+async function listSessionsSafe(
+  client: OpencodeClient,
+  baseUrl: string,
+  directory: string,
+  env: Env,
+): Promise<ListedSession[]> {
+  try {
+    return await listSessions(client, baseUrl, directory, env);
+  } catch (error) {
+    // unwrap already prefixed the message with what failed, so use it as is.
+    const message = error instanceof Error ? error.message : errorMessage(error);
+    console.error(`warning: ${directory}: ${message}`);
+    return [];
+  }
 }
 
 /** `oc-sub status [--dir DIR | --all]`: one line per session: ID, state, title. */
@@ -105,7 +156,7 @@ export async function status(
 
     const running: string[] = [];
     for (const directory of directories) {
-      for (const session of await listSessions(client, directory)) {
+      for (const session of await listSessionsSafe(client, baseUrl, directory, env)) {
         // Child sessions are internal subagent runs of a listed parent.
         if (session.child || session.state === "idle") continue;
         running.push(formatStatusLine(session.id, session.state, session.title, directory));
@@ -121,7 +172,7 @@ export async function status(
 
   const directory = path.resolve(args.dir ?? process.cwd());
   for (const dir of deps.worktreesOf(directory)) {
-    for (const session of await listSessions(client, dir)) {
+    for (const session of await listSessionsSafe(client, baseUrl, dir, env)) {
       // Child sessions are internal subagent runs, not first-class sessions.
       if (session.child) continue;
       const folder = dir === directory ? undefined : displayFolder(dir, directory);

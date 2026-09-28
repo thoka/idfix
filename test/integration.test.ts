@@ -255,6 +255,73 @@ test.skipIf(!hasOpencode)(
 );
 
 test.skipIf(!hasOpencode)(
+  "pending question and permission lists and answer against a server without pending requests",
+  async () => {
+    // A real pending question needs an agent that calls the question tool,
+    // and that needs a model call. This test therefore checks the list
+    // endpoints and the answer command against a server with no pending
+    // requests. The pause-and-answer flow itself is covered by the fake
+    // server tests in test/watch-pending.test.ts and test/answer.test.ts.
+    const port = await findFreePort();
+    const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-questions-"));
+    const dataDir = path.join(workDir, "data");
+    const stateHome = path.join(workDir, "state");
+    const { OPENCODE_CONFIG_DIR: _outer, ...baseEnv } = process.env as Record<string, string | undefined>;
+    const env: Record<string, string> = {
+      ...baseEnv,
+      XDG_DATA_HOME: dataDir,
+      XDG_STATE_HOME: stateHome,
+    } as Record<string, string>;
+    const url = `http://127.0.0.1:${port}`;
+    const pidFile = path.join(stateHome, "oc-sub", `serve-${port}.pid`);
+
+    try {
+      const started = runCli(workDir, ["up", "--url", url], env);
+      expect(started.code).toBe(0);
+
+      // The pending lists of a real 1.18.x server answer with an empty
+      // array. This checks that the routes exist and that they accept the
+      // directory query.
+      const scopedQuestions = await fetch(`${url}/question?directory=${encodeURIComponent(workDir)}`);
+      expect(scopedQuestions.status).toBe(200);
+      expect(await scopedQuestions.json()).toEqual([]);
+      const scopedPermissions = await fetch(`${url}/permission?directory=${encodeURIComponent(workDir)}`);
+      expect(scopedPermissions.status).toBe(200);
+      expect(await scopedPermissions.json()).toEqual([]);
+      const unscopedQuestions = await fetch(`${url}/question`);
+      expect(unscopedQuestions.status).toBe(200);
+      expect(await unscopedQuestions.json()).toEqual([]);
+
+      // answer: an unknown request ID stops with a clear error.
+      const answered = runCli(workDir, ["answer", "que_missing", "--url", url, "--dir", workDir, "--reject"], env);
+      expect(answered.code).toBe(1);
+      expect(answered.stderr).toContain("no pending request que_missing");
+
+      // Usage errors exit with code 2.
+      const badReply = runCli(workDir, ["answer", "que_missing", "--url", url, "--reply", "sometimes"], env);
+      expect(badReply.code).toBe(2);
+      const noReply = runCli(workDir, ["answer", "que_missing", "--url", url], env);
+      expect(noReply.code).toBe(2);
+
+      const stopped = runCli(workDir, ["down", "--url", url], env);
+      expect(stopped.code).toBe(0);
+    } finally {
+      // Make sure no server survives the test.
+      if (existsSync(pidFile)) {
+        const pid = Number(readFileSync(pidFile, "utf8").trim());
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  },
+  { timeout: 120_000 },
+);
+
+test.skipIf(!hasOpencode)(
   "a server with a password: a wrong password gives a clear error",
   async () => {
     const port = await findFreePort();

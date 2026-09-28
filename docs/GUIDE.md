@@ -125,11 +125,12 @@ A short live view is also available in the shell:
 oc-sub watch ses_abc123 --dir /path/to/worktree
 ```
 
-It prints one short line per tool call. When the run ends, it prints a summary line with the cost. The cost covers the session and all of its subagent sessions.
+It prints one short line per tool call. When the run ends, it prints a summary line with the cost. The cost covers the session and all of its subagent sessions. When the run pauses on a question or a permission request, it prints the request and ends. Claude answers it and watches again.
 
 ## Follow up, abort, and read the cost
 
 - **Follow up**: tell Claude what to change. Claude sends the message into the same session with `opencode run --attach ... --session <id>`. You can also type into the attached opencode interface yourself.
+- **Questions**: an agent can ask a question, and a command outside its allowlist can raise a permission request. The run then pauses until Claude answers. `oc-sub watch` ends with exit code 3 and prints the request. Claude decides whether it is safe, asks you if it is not, and answers with `oc-sub answer <request-id> ...`. Then Claude watches again.
 - **Abort**: tell Claude to stop the run, or run `oc-sub abort <session-id> --dir <worktree>`.
 - **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and a line with the cost in USD and the tokens. The cost covers the session and all of its subagent sessions. With subagents, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. This cost is an estimate: opencode multiplies the tokens by the prices in its model catalog from models.dev. The real charge is on the activity page of OpenRouter. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
 
@@ -148,6 +149,7 @@ It prints one short line per tool call. When the run ends, it prints a summary l
 | `oc-sub: command not found` | The plugin is not enabled in this session. Run `claude plugin list`, then `/reload-plugins`. |
 | `opencode run` hangs | The command waits for input. Add `< /dev/null`. |
 | `oc-sub status` shows nothing | The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. `oc-sub status --all` shows the running sessions of all projects and their worktrees, each with its folder. |
+| A run seems stuck | The agent may wait for an answer to a question or a permission request. Run `oc-sub watch <session-id> --dir <worktree>` again. It ends with exit code 3 and prints the request. |
 | The agent cannot read a file | The agent cannot leave its project folder. Copy the file into the worktree, or put its content into the brief. |
 | A run takes very long | The step is too big. Abort it and split the brief into smaller steps. |
 | `oc-sub ping` shows an old key after a configuration change | The server caches the configuration. Run `oc-sub restart`. |

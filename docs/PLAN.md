@@ -48,7 +48,7 @@ Status: done. See [EXPERIENCE.md](EXPERIENCE.md#research-agents-of-the-plugin-in
 
 ## Step 4: Questions and permission requests go to the orchestrator
 
-Status: open.
+Status: done. A live test on 2026-09-28 paused on a question and on a permission request, and `oc-sub answer` resumed the run both times.
 
 Root cause: the agent files deny the `question` tool and use `deny` for risky commands, because "nobody answers questions in a run" (`skills/oc-sub/reference.md`). A denied agent gets an error and looks for a detour. In the step 1 run, GLM tried `rm` after the allowlist blocked the deletion of a file. opencode has the missing channel already. The `question` tool and the `ask` permission pause the session, and the server lists and answers the pending requests.
 
@@ -74,3 +74,12 @@ Root cause: the first step 4 run read the same 75 lines of one file 40 times in 
 
 1. `oc-sub watch` counts tool calls with the same tool and the same input in a row. At five, it prints a warning with the call, and it ends with its own exit code. The orchestrator then aborts the run or sends a correction.
 2. Tests with invented events.
+
+## Step 7: Agent files keep the default system prompt
+
+Status: open, waiting for the decision of the user.
+
+Root cause: the body of an opencode agent file replaces the default system prompt of opencode (`packages/opencode/src/session/llm/request.ts:60` in v1.18.32). GLM then works without the default guidance. In the TUI, with the default prompt, GLM continued 449 of 1,008 partial file reads with an `offset` and never repeated a call. In `oc-sub` runs, with our agent prompts, it continued only 29 of 776, and two runs looped 111 and 536 times on the same call.
+
+1. A/B test: the same small coding brief two or three times with the current `coder`, and with a `coder` without a body whose role rules come through the `system` field of the prompt request.
+2. If the test confirms it, the agent files lose their body, and `oc-sub run` sends the role rules as `system`.

@@ -169,11 +169,13 @@ For questions it posts `{answers: [[label], ...]}`; for permissions `{reply: "on
 
 ## 6. Open questions
 
-- Exact live event names and payload shapes of a 1.18.32 server (`permission.asked` vs the stale gen's `permission.updated`) — verify with one `GET /doc` fetch or one test run before implementing the watcher. (Section 1.4)
-- Whether the `./v2` export client of `@opencode-ai/sdk@1.18.32` works unchanged against a 1.18.x server (auth, directory query, headers), or whether raw fetch is cleaner.
-- The ID prefix of permission requests (`que_` for questions is confirmed; permissions not verified).
-- Whether a question asked inside a child (`task`) session surfaces correctly through `GET /question` and the global event stream of the same server instance — expected yes (global lists, global `sessionID` field), but not tested.
-- Whether `GET /permission` / `GET /question` accept a `directory` query parameter like other instance routes (the SDK v2 gen suggests query params exist; not verified per-endpoint).
+Status after the implementation of step 4 (2026-09-28). The integration test against a real `opencode serve` 1.18.32 server answered the first two.
+
+- ~~Whether `GET /permission` / `GET /question` accept a `directory` query parameter like other instance routes.~~ **Answered.** Both endpoints answer HTTP 200 with `[]` with the `directory` query and without it (test/integration.test.ts). Whether the server *filters* by directory stays unverified, because a pending request is needed to tell filtering from ignoring. `oc-sub` sends the directory everywhere, so it works in both cases.
+- ~~Whether a question asked inside a child (`task`) session surfaces through `GET /question` and the global event stream.~~ **Still open.** Creating a real pending request needs a model call, which the tests must not make. The watch side is covered: the filter checks the request's `sessionID` against the watched session and all of its descendants (test/watch-pending.test.ts), so a request of a child session is found as soon as the server lists it.
+- Exact live event names and payload shapes of a 1.18.32 server (`permission.asked` vs the stale gen's `permission.updated`). Still unverified. The watcher no longer depends on them: it treats both event types as a trigger to re-read the two lists, and the 2 second status poll is the fallback that catches everything.
+- Whether the `./v2` export client of `@opencode-ai/sdk@1.18.32` works unchanged against a 1.18.x server. **Decided without testing it:** `oc-sub` uses raw fetch for these routes, like `probeServer` for the health check (src/requests.ts). The v2 client stays unused.
+- The ID prefix of permission requests (`que_` for questions is confirmed). Still unverified. `oc-sub answer` does not guess from the prefix, it looks the ID up in both lists.
 
 ## 7. Sources
 

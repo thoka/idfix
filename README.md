@@ -55,7 +55,7 @@ bun run typecheck   # tsc --noEmit
 
 `oc-sub` drives an opencode server: start it, launch subagent runs, watch them live, and read the results. Entry point: `src/cli.ts`. Run it with `bin/oc-sub`, `bun run src/cli.ts`, or `bun src/cli.ts`. With the plugin enabled, Claude runs it as `oc-sub`.
 
-The server URL comes from `--url` or the environment variable `OC_SUB_URL`, default `http://127.0.0.1:8767`. With `--port N`, `up`, `down`, and `restart` target port N and keep the host of the URL; a `--url` flag whose port differs from `--port` is a usage error. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: oc-sub up` and exit with code 1. If a server answers with HTTP 401 or 403, every command exits with code 1 and says that the server rejected the password in `OPENCODE_SERVER_PASSWORD`, or that it needs one. `up` then does not start a second server. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `ping`, `watch`, `log`, and `abort` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
+The server URL comes from `--url` or the environment variable `OC_SUB_URL`, default `http://127.0.0.1:8767`. With `--port N`, `up`, `down`, and `restart` target port N and keep the host of the URL; a `--url` flag whose port differs from `--port` is a usage error. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: oc-sub up` and exit with code 1. If a server answers with HTTP 401 or 403, every command exits with code 1 and says that the server rejected the password in `OPENCODE_SERVER_PASSWORD`, or that it needs one. `up` then does not start a second server. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `ping`, `watch`, `log`, `abort`, and `answer` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
 
 ### oc-sub up
 
@@ -111,9 +111,11 @@ The run record is a JSON file `.opencode/runs/<session-id>.json` in the current 
 bun run src/cli.ts status [--dir DIR | --all]
 ```
 
-One line per session: ID, state (`busy`, `idle`, or `retry`), title. Without `--all`, it lists the sessions of the directory and of each of its git worktrees. A session of the directory itself has no suffix. A session of another worktree gets its folder at the end: relative to the directory when the worktree is inside it (for example `.worktrees/x`), else absolute. Child sessions (internal subagent runs) are not listed. If no server runs, it prints `no server on <url>` and exits with code 0.
+One line per session: ID, state (`busy`, `waiting`, `idle`, or `retry`), title. A session with a pending question or permission request shows `waiting` instead of `busy`, because it makes no progress until it gets an answer. Without `--all`, it lists the sessions of the directory and of each of its git worktrees. A session of the directory itself has no suffix. A session of another worktree gets its folder at the end: relative to the directory when the worktree is inside it (for example `.worktrees/x`), else absolute. Child sessions (internal subagent runs) are not listed. If no server runs, it prints `no server on <url>` and exits with code 0.
 
 With `--all`, it lists the running sessions of all projects, each as `<id> <state> <title> (<absolute folder>)`. Idle sessions and child sessions are not listed. The folders come from the folders of past `oc-sub run` calls, from the projects that the server knows, and from their git worktrees. Folders that no longer exist are skipped. When no session runs, it prints `no running sessions`. `--all` and `--dir` together are a usage error.
+
+A directory that fails to list does not stop the listing. It prints `warning: <directory>: <message>` to stderr, and the command continues with the next directory. This covers a project whose configuration references a missing key file.
 
 ### oc-sub ping
 
@@ -145,7 +147,21 @@ bun run src/cli.ts watch SESSION [--dir DIR] [--json]
 
 Follows the server's event stream and prints one short line per event of that session: tool calls with their main argument (`tool bash: git status`), failed tool calls (`tool bash failed: ...`), finished assistant texts (`assistant: ...`), and session errors. When the session and its subagent sessions become idle, it prints a summary line with the elapsed time, the number of tool calls, the cost in USD, and the tokens, and exits with code 0. The cost and the tokens cover the session and all of its subagent sessions (child sessions, recursively). With subagent sessions, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. Without subagent sessions, the line shows only the total.
 
-It never misses the end of a run: it checks the status of the session and of all its subagent sessions when it starts, after every reconnect of the event stream, and every two seconds as a safety net. The final summary is computed from the messages of the session tree, not from the watched events. The server lists only sessions that are not idle in `GET /session/status`. A session that is missing from that map has either ended, or it was started a moment ago and the server has not marked it busy yet. So `watch` reads the messages of a missing main session. If the last message is a finished assistant message, the session has ended, and the watch ends at once. Otherwise the watch ends only when the session was quiet for 10 seconds (no update and no new message). This closes the race when `watch` starts right after `run`. A missing subagent session counts as ended. With `--json`, it prints the filtered events as JSON lines instead, and the summary goes to stderr.
+When the session or one of its subagent sessions has a pending question or permission request, the run is paused. `watch` then prints one block per request with the request ID, the session ID, and the content, plus the exact `oc-sub answer ...` command, and exits with code 3. It detects the pause at the start, in every status poll, and on the `question.asked` and `permission.asked` events, so a request that was already pending is found too.
+
+It never misses the end of a run: it checks the status of the session and of all its subagent sessions when it starts, after every reconnect of the event stream, and every two seconds as a safety net. The final summary is computed from the messages of the session tree, not from the watched events. The server lists only sessions that are not idle in `GET /session/status`. A session that is missing from that map has either ended, or it was started a moment ago and the server has not marked it busy yet. So `watch` reads the messages of a missing main session. If the last message is a finished assistant message, the session has ended, and the watch ends at once. Otherwise the watch ends only when the session was quiet for 10 seconds (no update and no new message). This closes the race when `watch` starts right after `run`. A missing subagent session counts as ended. With `--json`, it prints the filtered events as JSON lines instead, and the summary and the request blocks go to stderr.
+
+### oc-sub answer
+
+```
+bun run src/cli.ts answer REQUEST_ID [--dir DIR] (--reply once|always|reject | --reject | ANSWER...)
+```
+
+Answers a pending question or permission request of the run in DIR. The command looks the request ID up in the two pending lists of the server (`GET /question` and `GET /permission`) to learn its kind. If the ID is in neither list, it stops with an error.
+
+For a question, pass one positional ANSWER per question, in order. The answer is the label of an option or free text. `--reject` rejects the question, and the tool call of the agent fails with a clear message. For a permission request, `--reply` is required: `once` allows the tool call one time, `always` allows it for the rest of the session, and `reject` refuses it.
+
+An unknown ID, a wrong kind (for example `--reply` on a question), and an answer count that does not match the questions stop with an error before anything is sent. After the answer, start `watch` again to follow the rest of the run.
 
 ### oc-sub log
 
@@ -174,7 +190,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 
 ## Tests
 
-`bun test` runs the unit tests in `test/` (argument parsing, event filtering and line formatting, cost and token summary, the end check of a session missing from the status map, the child sessions of a session and their usage, run records, state files, the process check of `down`, client helpers) and one integration test. The integration test starts a real `opencode serve` on a free port from 8790 upward, runs `up`, creates a session over the SDK without sending any prompt, checks `status`, runs `abort`, and stops the server with `restart` and `down`. It never calls a model and costs nothing. It skips itself with a clear message when the command `opencode` is not on the PATH.
+`bun test` runs the unit tests in `test/` (argument parsing, event filtering and line formatting, cost and token summary, the end check of a session missing from the status map, the child sessions of a session and their usage, run records, state files, the process check of `down`, client helpers, the pending question and permission requests, and the pause detection of `watch` against a fake server) and integration tests. The integration tests start a real `opencode serve` on a free port from 8790 upward, run `up`, create sessions over the SDK without sending any prompt, check `status`, run `abort`, check the pending lists and `answer` against a server without pending requests, and stop the server with `restart` and `down`. They never call a model and cost nothing. They skip themselves with a clear message when the command `opencode` is not on the PATH.
 
 ## Layout
 
@@ -185,10 +201,11 @@ bun run src/cli.ts log <session-id> --dir <repo>
 - `src/summary.ts` — cost/token accounting and formatting (pure)
 - `src/events.ts` — event filtering and watch lines (pure)
 - `src/tree.ts` — the descendant sessions of a session, their messages, and their cost
+- `src/requests.ts` — pending questions and permissions: list, filter, format, answer
 - `src/runs.ts` — run records under `.opencode/runs/`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
 - `src/state.ts` — per-user state files of the server (PID, log, folders with runs)
-- `src/up.ts`, `src/down.ts`, `src/run.ts`, `src/status.ts`, `src/ping.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts` — the commands
+- `src/up.ts`, `src/down.ts`, `src/run.ts`, `src/status.ts`, `src/ping.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts`, `src/answer.ts` — the commands
 
 ## License
 

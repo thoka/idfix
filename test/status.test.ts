@@ -6,6 +6,7 @@ import {
   displayFolder,
   formatStatusLine,
   parseWorktreeList,
+  sessionState,
   status,
   uniqueDirectories,
   worktreesOf,
@@ -14,23 +15,38 @@ import {
 
 const DIR = "/repo";
 
-function captureLog(): { lines: string[]; restore: () => void } {
+function captureLog(): { lines: string[]; errors: string[]; restore: () => void } {
   const lines: string[] = [];
-  const spy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+  const errors: string[] = [];
+  const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
     lines.push(args.map((part) => String(part)).join(" "));
   });
-  return { lines, restore: () => spy.mockRestore() };
+  const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    errors.push(args.map((part) => String(part)).join(" "));
+  });
+  return {
+    lines,
+    errors,
+    restore: () => {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+    },
+  };
 }
 
 type FakeSession = { id: string; directory: string; title: string; parentID?: string };
 
 type FakeServer = { url: string; port: number; stop: () => void };
 
-/** A fake opencode server for /global/health, /session, /session/status, and /project. */
+/** A fake opencode server for /global/health, /session, /session/status, /project, and the pending lists. */
 function startFakeServer(options: {
   sessions?: FakeSession[];
   states?: Record<string, { type: string }>;
   projects?: Array<{ id: string; worktree: string }>;
+  questions?: Array<Record<string, unknown>>;
+  permissions?: Array<Record<string, unknown>>;
+  /** Directories whose session listing fails, as a broken project does. */
+  brokenDirectories?: string[];
 }): FakeServer {
   const server = Bun.serve({
     port: 0,
@@ -39,7 +55,17 @@ function startFakeServer(options: {
       const url = new URL(request.url);
       if (url.pathname === "/global/health") return Response.json({ healthy: true, version: "1.0.0" });
       if (url.pathname === "/project") return Response.json(options.projects ?? []);
+      if (url.pathname === "/question") return Response.json(options.questions ?? []);
+      if (url.pathname === "/permission") return Response.json(options.permissions ?? []);
       const directory = url.searchParams.get("directory") ?? "";
+      if (url.pathname === "/session" || url.pathname === "/session/status") {
+        if (options.brokenDirectories?.includes(directory)) {
+          return Response.json(
+            { name: "Error", data: { message: 'bad file reference: "{file:~/.config/p/openrouter.key}"' } },
+            { status: 500 },
+          );
+        }
+      }
       if (url.pathname === "/session") {
         return Response.json(options.sessions?.filter((session) => session.directory === directory) ?? []);
       }
@@ -66,7 +92,7 @@ async function runStatus(options: {
   all?: boolean;
   deps?: Partial<StatusDeps>;
   env?: Record<string, string | undefined>;
-}): Promise<{ code: number; lines: string[] }> {
+}): Promise<{ code: number; lines: string[]; errors: string[] }> {
   const captured = captureLog();
   try {
     const code = await status(
@@ -74,7 +100,7 @@ async function runStatus(options: {
       options.env ?? {},
       { ...testDeps, ...options.deps },
     );
-    return { code, lines: captured.lines };
+    return { code, lines: captured.lines, errors: captured.errors };
   } finally {
     captured.restore();
   }
@@ -197,6 +223,18 @@ describe("worktreesOf", () => {
   });
 });
 
+describe("sessionState", () => {
+  test("shows a busy session with a pending request as waiting", () => {
+    expect(sessionState("busy", new Set(["ses_1"]), "ses_1")).toBe("waiting");
+  });
+
+  test("keeps busy, retry, and idle as they are", () => {
+    expect(sessionState("busy", new Set(), "ses_1")).toBe("busy");
+    expect(sessionState("retry", new Set(["ses_1"]), "ses_1")).toBe("retry");
+    expect(sessionState(undefined, new Set(["ses_1"]), "ses_1")).toBe("idle");
+  });
+});
+
 describe("status", () => {
   test("lists the sessions of the directory without a folder suffix", async () => {
     const server = startFakeServer({ sessions: [{ id: "ses_root", directory: DIR, title: "Root run" }] });
@@ -204,6 +242,24 @@ describe("status", () => {
       const { code, lines } = await runStatus({ server, dir: DIR, deps: { worktreesOf: () => [DIR] } });
       expect(code).toBe(0);
       expect(lines).toEqual(["ses_root idle Root run"]);
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("shows a busy session with a pending question as waiting", async () => {
+    const server = startFakeServer({
+      sessions: [
+        { id: "ses_wait", directory: DIR, title: "Waiting run" },
+        { id: "ses_busy", directory: DIR, title: "Busy run" },
+      ],
+      states: { ses_wait: { type: "busy" }, ses_busy: { type: "busy" } },
+      questions: [{ id: "que_1", sessionID: "ses_wait", questions: [] }],
+    });
+    try {
+      const { code, lines } = await runStatus({ server, dir: DIR, deps: { worktreesOf: () => [DIR] } });
+      expect(code).toBe(0);
+      expect(lines).toEqual(["ses_wait waiting Waiting run", "ses_busy busy Busy run"]);
     } finally {
       server.stop();
     }
@@ -327,6 +383,56 @@ describe("status", () => {
     } finally {
       server.stop();
       rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("--all warns about a broken directory and lists the others", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-state-"));
+    const server = startFakeServer({
+      sessions: [
+        { id: "ses_ok", directory: "/proj", title: "Good run" },
+        { id: "ses_broken", directory: "/broken", title: "Broken run" },
+      ],
+      states: { ses_ok: { type: "busy" }, ses_broken: { type: "busy" } },
+      projects: [
+        { id: "p1", worktree: "/proj" },
+        { id: "p2", worktree: "/broken" },
+      ],
+      brokenDirectories: ["/broken"],
+    });
+    try {
+      const { code, lines, errors } = await runStatus({ server, all: true, env: { XDG_STATE_HOME: stateHome } });
+      expect(code).toBe(0);
+      expect(lines).toEqual(["ses_ok busy Good run (/proj)"]);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatch(/^warning: \/broken: list sessions: bad file reference/);
+    } finally {
+      server.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("warns about a broken worktree and lists the directory itself", async () => {
+    const server = startFakeServer({
+      sessions: [
+        { id: "ses_ok", directory: DIR, title: "Good run" },
+        { id: "ses_wt", directory: `${DIR}/.worktrees/x`, title: "WT run" },
+      ],
+      states: { ses_ok: { type: "busy" }, ses_wt: { type: "busy" } },
+      brokenDirectories: [`${DIR}/.worktrees/x`],
+    });
+    try {
+      const { code, lines, errors } = await runStatus({
+        server,
+        dir: DIR,
+        deps: { worktreesOf: () => [DIR, `${DIR}/.worktrees/x`] },
+      });
+      expect(code).toBe(0);
+      expect(lines).toEqual(["ses_ok busy Good run"]);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatch(/^warning: \/repo\/\.worktrees\/x: list sessions: bad file reference/);
+    } finally {
+      server.stop();
     }
   });
 });

@@ -47,6 +47,36 @@ export function summarizeMessages(messages: readonly MessageEntry[]): UsageSumma
   return summary;
 }
 
+/** Sum of two summaries, as a new summary. */
+export function addSummaries(a: UsageSummary, b: UsageSummary): UsageSummary {
+  return {
+    cost: a.cost + b.cost,
+    steps: a.steps + b.steps,
+    tokens: {
+      input: a.tokens.input + b.tokens.input,
+      output: a.tokens.output + b.tokens.output,
+      reasoning: a.tokens.reasoning + b.tokens.reasoning,
+      cache: { read: a.tokens.cache.read + b.tokens.cache.read, write: a.tokens.cache.write + b.tokens.cache.write },
+    },
+  };
+}
+
+/** Cost and token totals over one session tree. */
+export type UsageTotals = {
+  /** The main session and all descendant sessions together. */
+  total: UsageSummary;
+  /** The part of the descendant sessions (the subagents). */
+  subagents: UsageSummary;
+  /** Number of descendant sessions. */
+  subagentSessions: number;
+};
+
+/** Totals over a main session and its descendant sessions. */
+export function summarizeTree(main: UsageSummary, descendants: readonly UsageSummary[]): UsageTotals {
+  const subagents = descendants.reduce((acc, next) => addSummaries(acc, next), emptySummary());
+  return { total: addSummaries(main, subagents), subagents, subagentSessions: descendants.length };
+}
+
 /** Number of distinct tool calls in a session. */
 export function countToolCalls(messages: readonly MessageEntry[]): number {
   const ids = new Set<string>();
@@ -82,12 +112,27 @@ export function formatCost(cost: number): string {
   return `$${cost.toFixed(4)}`;
 }
 
+/** The token part of a summary line. */
+function tokensLine(t: TokenUsage): string {
+  return `tokens in ${t.input}, out ${t.output}, reasoning ${t.reasoning}, cache read ${t.cache.read}, cache write ${t.cache.write}`;
+}
+
 /** One-line summary: "cost $0.0123, tokens in 1234, out 567, ...". */
 export function formatSummary(summary: UsageSummary): string {
-  const t = summary.tokens;
+  return `cost ${formatCost(summary.cost)}, ${tokensLine(summary.tokens)}`;
+}
+
+/**
+ * One-line summary of a session tree. With at least one descendant session,
+ * the cost part also names the subagent share, for example:
+ * "cost $0.0816 (subagents $0.0665 in 4 sessions), tokens in ...".
+ */
+export function formatTotals(totals: UsageTotals): string {
+  if (totals.subagentSessions === 0) return formatSummary(totals.total);
+  const count = totals.subagentSessions === 1 ? "1 session" : `${totals.subagentSessions} sessions`;
   return (
-    `cost ${formatCost(summary.cost)}, tokens in ${t.input}, out ${t.output}, reasoning ${t.reasoning}, ` +
-    `cache read ${t.cache.read}, cache write ${t.cache.write}`
+    `cost ${formatCost(totals.total.cost)} (subagents ${formatCost(totals.subagents.cost)} in ${count}), ` +
+    tokensLine(totals.total.tokens)
   );
 }
 

@@ -143,9 +143,9 @@ The server caches the configuration. After a change of a configuration file, `pi
 bun run src/cli.ts watch SESSION [--dir DIR] [--json]
 ```
 
-Follows the server's event stream and prints one short line per event of that session: tool calls with their main argument (`tool bash: git status`), failed tool calls (`tool bash failed: ...`), finished assistant texts (`assistant: ...`), and session errors. When the session becomes idle, it prints a summary line — elapsed time, number of tool calls, cost in USD, tokens — and exits with code 0.
+Follows the server's event stream and prints one short line per event of that session: tool calls with their main argument (`tool bash: git status`), failed tool calls (`tool bash failed: ...`), finished assistant texts (`assistant: ...`), and session errors. When the session and its subagent sessions become idle, it prints a summary line with the elapsed time, the number of tool calls, the cost in USD, and the tokens, and exits with code 0. The cost and the tokens cover the session and all of its subagent sessions (child sessions, recursively). With subagent sessions, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. Without subagent sessions, the line shows only the total.
 
-It never misses the end of a session: it checks the session status when it starts, after every reconnect of the event stream, and every two seconds as a safety net; the final summary is computed from the session's messages, not from the watched events. The server lists only sessions that are not idle in `GET /session/status`. A session that is missing from that map has either ended, or it was started a moment ago and the server has not marked it busy yet. So `watch` reads the messages of a missing session. If the last message is a finished assistant message, the session has ended, and the watch ends at once. Otherwise the watch ends only when the session was quiet for 10 seconds (no update and no new message). This closes the race when `watch` starts right after `run`. With `--json`, it prints the filtered events as JSON lines instead, and the summary goes to stderr.
+It never misses the end of a run: it checks the status of the session and of all its subagent sessions when it starts, after every reconnect of the event stream, and every two seconds as a safety net. The final summary is computed from the messages of the session tree, not from the watched events. The server lists only sessions that are not idle in `GET /session/status`. A session that is missing from that map has either ended, or it was started a moment ago and the server has not marked it busy yet. So `watch` reads the messages of a missing main session. If the last message is a finished assistant message, the session has ended, and the watch ends at once. Otherwise the watch ends only when the session was quiet for 10 seconds (no update and no new message). This closes the race when `watch` starts right after `run`. A missing subagent session counts as ended. With `--json`, it prints the filtered events as JSON lines instead, and the summary goes to stderr.
 
 ### oc-sub log
 
@@ -153,7 +153,7 @@ It never misses the end of a session: it checks the session status when it start
 bun run src/cli.ts log SESSION [--dir DIR]
 ```
 
-Prints the final assistant text of the session and one summary line with the cost and the token totals (input, output, reasoning, cache read, cache write) over all assistant messages.
+Prints the final assistant text of the session and one summary line with the cost and the token totals (input, output, reasoning, cache read, cache write). The totals cover the session and all of its subagent sessions (child sessions, recursively). With subagent sessions, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`.
 
 ### oc-sub abort
 
@@ -174,7 +174,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 
 ## Tests
 
-`bun test` runs the unit tests in `test/` (argument parsing, event filtering and line formatting, cost and token summary, the end check of a session missing from the status map, run records, state files, the process check of `down`, client helpers) and one integration test. The integration test starts a real `opencode serve` on a free port from 8790 upward, runs `up`, creates a session over the SDK without sending any prompt, checks `status`, runs `abort`, and stops the server with `restart` and `down`. It never calls a model and costs nothing. It skips itself with a clear message when the command `opencode` is not on the PATH.
+`bun test` runs the unit tests in `test/` (argument parsing, event filtering and line formatting, cost and token summary, the end check of a session missing from the status map, the child sessions of a session and their usage, run records, state files, the process check of `down`, client helpers) and one integration test. The integration test starts a real `opencode serve` on a free port from 8790 upward, runs `up`, creates a session over the SDK without sending any prompt, checks `status`, runs `abort`, and stops the server with `restart` and `down`. It never calls a model and costs nothing. It skips itself with a clear message when the command `opencode` is not on the PATH.
 
 ## Layout
 
@@ -184,6 +184,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 - `src/client.ts` — SDK client, health check, result handling
 - `src/summary.ts` — cost/token accounting and formatting (pure)
 - `src/events.ts` — event filtering and watch lines (pure)
+- `src/tree.ts` — the descendant sessions of a session, their messages, and their cost
 - `src/runs.ts` — run records under `.opencode/runs/`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
 - `src/state.ts` — per-user state files of the server (PID, log, folders with runs)

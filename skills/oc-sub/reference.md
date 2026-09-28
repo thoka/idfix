@@ -33,8 +33,8 @@ Every command accepts `--url URL`. The default URL comes from the environment va
 | `oc-sub run --agent NAME --dir DIR (--brief FILE \| TEXT) [--title T]` | Creates a session in DIR and sends the brief to the agent without waiting. It prints three lines: the session ID, the `opencode attach ...` command, and the path of the run record `.opencode/runs/<session-id>.json`. |
 | `oc-sub status [--dir DIR \| --all]` | One line per session: ID, state (`busy`, `idle`, `retry`), title. Without `--all`, it lists the folder and each of its git worktrees. A session of another worktree shows its folder at the end (`.worktrees/x` when it is inside the folder, else absolute). With `--all`, it lists the running sessions of all projects and their worktrees, each with the absolute folder, or `no running sessions`. |
 | `oc-sub ping [--dir DIR]` | Shows which OpenRouter key the server uses for DIR, where it comes from (project key file, environment, or global auth.json), and whether OpenRouter accepts it. Prints a SHA-256 fingerprint of the key, never the key itself. Warns when the server does not use the project key file, because the cost then goes to another key. |
-| `oc-sub watch SESSION [--dir DIR] [--json]` | Prints one short line per tool call, failed tool call, assistant text, and session error. When the session is idle, it prints a summary line and exits with code 0. With `--json`, it prints the events as JSON lines, and the summary goes to stderr. |
-| `oc-sub log SESSION [--dir DIR]` | Prints the last assistant text (the report of the agent) and a line with the cost and the tokens. |
+| `oc-sub watch SESSION [--dir DIR] [--json]` | Prints one short line per tool call, failed tool call, assistant text, and session error. When the session and its subagent sessions are idle, it prints a summary line and exits with code 0. The summary covers the session and all of its subagent sessions (see [Cost and tokens](#cost-and-tokens)). With `--json`, it prints the events as JSON lines, and the summary goes to stderr. |
+| `oc-sub log SESSION [--dir DIR]` | Prints the last assistant text (the report of the agent) and a line with the cost and the tokens. The totals cover the session and all of its subagent sessions. |
 | `oc-sub abort SESSION [--dir DIR]` | Stops the session. |
 
 Exit codes: 0 for success, 1 for an error, 2 for wrong arguments. If no server runs, `status` prints `no server on <url>` and exits with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
@@ -50,10 +50,10 @@ oc-sub watch <session-id> --dir <worktree>
 The last line looks like this:
 
 ```
-idle after 6m12s, 41 tool calls, cost $0.0712, tokens in 812345, out 15234, reasoning 4012, cache read 700123, cache write 0
+idle after 6m12s, 41 tool calls, cost $0.0816 (subagents $0.0665 in 4 sessions), tokens in 812345, out 15234, reasoning 4012, cache read 700123, cache write 0
 ```
 
-You can start `watch` right after `run`. A session that the server has not yet marked busy does not end the watch.
+The cost and the tokens cover the session and all of its subagent sessions. Without subagent sessions, the line omits the part in parentheses. The watch ends only when the session and its subagent sessions are all done. You can start `watch` right after `run`. A session that the server has not yet marked busy does not end the watch.
 
 ### Commands for the user
 
@@ -79,7 +79,7 @@ opencode run --attach http://127.0.0.1:8767 --dir <worktree> --session <session-
 
 ## Cost and tokens
 
-- `oc-sub watch` and `oc-sub log` sum `cost` and `tokens` over all assistant messages of the session. The cost is in USD, as the provider reports it.
+- `oc-sub watch` and `oc-sub log` sum `cost` and `tokens` over all assistant messages of the session and of all its subagent sessions (child sessions, recursively). The cost is in USD, as the provider reports it. With subagent sessions, the line names their share, for example `cost $0.0816 (subagents $0.0665 in 4 sessions)`. Without subagent sessions, the line shows only the total.
 - Tell the user the cost of each run, for example "Run 2: 6 minutes, 0.07 USD".
 - `opencode stats` shows the totals over all sessions.
 - Benchmark with GLM 5.3 Flash through OpenRouter: 0.07 to 0.33 USD for one coding step of 5 to 11 files.
@@ -147,7 +147,7 @@ For research, name the output file, for example `docs/research/<topic>.md`, and 
 
 ## Known behavior of the server
 
-- `GET /session/status?directory=<dir>` lists only sessions that are not idle. An empty object means that no session is busy. `oc-sub watch` handles this.
+- `GET /session/status?directory=<dir>` lists only sessions that are not idle. An empty object means that no session is busy. `oc-sub watch` handles this, also for the subagent sessions of the watched session.
 - The end of an `opencode run --attach` process does not mean the end of the session. Ask the server, for example with `oc-sub status --dir <dir>`.
 - A research agent cannot read files outside its project folder (`external_directory: deny`). Copy the needed context into the worktree or into the brief.
 - `opencode session list` shows all sessions. `opencode -s <id>` opens a finished session.

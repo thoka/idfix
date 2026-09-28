@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@opencode-ai/sdk";
-import { missingSessionIsSettled, QUIET_GRACE_MS } from "../src/settled";
+import type { Message, SessionStatus } from "@opencode-ai/sdk";
+import { missingSessionIsSettled, treeIsSettled, QUIET_GRACE_MS } from "../src/settled";
 import type { MessageEntry } from "../src/summary";
 
 type Assistant = Extract<Message, { role: "assistant" }>;
@@ -74,5 +74,35 @@ describe("missingSessionIsSettled", () => {
   test("the grace time can be set", () => {
     expect(missingSessionIsSettled([], NOW - 50, NOW, 50)).toBe(true);
     expect(missingSessionIsSettled([], NOW - 49, NOW, 50)).toBe(false);
+  });
+});
+
+describe("treeIsSettled", () => {
+  const idle: SessionStatus = { type: "idle" };
+  const busy: SessionStatus = { type: "busy" };
+  const retry: SessionStatus = { type: "retry", attempt: 1, message: "rate limited", next: 0 };
+
+  test("a busy main session keeps the watch open", () => {
+    expect(treeIsSettled(["main", "child"], { main: busy })).toBe(false);
+  });
+
+  test("a busy child keeps the watch open", () => {
+    expect(treeIsSettled(["main", "child"], { main: idle, child: busy })).toBe(false);
+  });
+
+  test("a retrying child keeps the watch open", () => {
+    expect(treeIsSettled(["main", "child"], { child: retry })).toBe(false);
+  });
+
+  test("an idle main session and a missing child end the watch", () => {
+    expect(treeIsSettled(["main", "child"], { main: idle })).toBe(true);
+  });
+
+  test("sessions missing from the status map have ended", () => {
+    expect(treeIsSettled(["main", "child"], {})).toBe(true);
+  });
+
+  test("an idle child beside an idle main session ends the watch", () => {
+    expect(treeIsSettled(["main", "child"], { main: idle, child: idle })).toBe(true);
   });
 });

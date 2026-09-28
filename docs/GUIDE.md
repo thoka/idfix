@@ -125,11 +125,13 @@ A short live view is also available in the shell:
 oc-sub watch ses_abc123 --dir /path/to/worktree
 ```
 
+It prints one short line per tool call. When the run ends, it prints a summary line with the cost. The cost covers the session and all of its subagent sessions.
+
 ## Follow up, abort, and read the cost
 
 - **Follow up**: tell Claude what to change. Claude sends the message into the same session with `opencode run --attach ... --session <id>`. You can also type into the attached opencode interface yourself.
 - **Abort**: tell Claude to stop the run, or run `oc-sub abort <session-id> --dir <worktree>`.
-- **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and a line with the cost in USD and the tokens. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
+- **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and a line with the cost in USD and the tokens. The cost covers the session and all of its subagent sessions. With subagents, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
 
 ## Security
 

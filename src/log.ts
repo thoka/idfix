@@ -1,8 +1,9 @@
 /** `oc-sub log`: final assistant text plus the cost and token summary. */
 import path from "node:path";
 import { resolveServerUrl, type Env } from "./config";
-import { makeClient, requireServer, unwrap } from "./client";
-import { finalAssistantText, formatSummary, summarizeMessages } from "./summary";
+import { makeClient, requireServer } from "./client";
+import { finalAssistantText, formatTotals } from "./summary";
+import { loadSessionTree, treeUsage } from "./tree";
 
 export async function log(args: { url?: string; session: string; dir?: string }, env: Env = process.env): Promise<number> {
   const baseUrl = resolveServerUrl(args.url, env);
@@ -10,18 +11,16 @@ export async function log(args: { url?: string; session: string; dir?: string },
   const directory = path.resolve(args.dir ?? process.cwd());
   const client = makeClient(baseUrl, env);
 
-  const messages = unwrap(
-    await client.session.messages({ path: { id: args.session }, query: { directory } }),
-    "load messages",
-  );
+  // The messages of the session and of all of its subagent sessions.
+  const tree = await loadSessionTree(client, args.session, directory);
 
-  const text = finalAssistantText(messages);
+  const text = finalAssistantText(tree.main);
   if (text !== null) {
     console.log(text);
     console.log("");
   } else {
     console.error("no assistant text in this session");
   }
-  console.log(formatSummary(summarizeMessages(messages)));
+  console.log(formatTotals(treeUsage(tree)));
   return 0;
 }

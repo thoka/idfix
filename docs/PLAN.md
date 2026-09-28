@@ -31,7 +31,7 @@ Status: done.
 
 ## Step 2: Cost of child sessions
 
-Status: open.
+Status: done.
 
 1. `oc-sub watch` and `oc-sub log` add the cost and the tokens of all child sessions of the session, recursively. The output shows the total and the share of the subagents, for example `cost $0.0816 (subagents $0.0665 in 4 sessions)`.
 2. `oc-sub watch` waits until the child sessions are idle too.

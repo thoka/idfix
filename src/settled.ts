@@ -1,4 +1,5 @@
 /** Decide whether a session that is missing from the status map has ended. */
+import type { SessionStatus } from "@opencode-ai/sdk";
 import type { MessageEntry } from "./summary";
 
 /**
@@ -32,4 +33,20 @@ export function missingSessionIsSettled(
   let lastActivity = sessionUpdatedMs;
   if (last !== undefined) lastActivity = Math.max(lastActivity, last.info.time.created);
   return nowMs - lastActivity >= graceMs;
+}
+
+/**
+ * Whether every session of a watch tree has ended. The status map lists only
+ * sessions that are not idle, so an entry with a type other than "idle"
+ * means unfinished, and a missing entry means ended. A child session runs
+ * only while its parent waits for it, so a missing child counts as ended.
+ */
+export function treeIsSettled(
+  sessionIds: readonly string[],
+  states: Readonly<Record<string, SessionStatus>>,
+): boolean {
+  return sessionIds.every((id) => {
+    const state = states[id];
+    return state === undefined || state.type === "idle";
+  });
 }

@@ -133,7 +133,11 @@ test.skipIf(!hasOpencode)(
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-"));
     const dataDir = path.join(workDir, "data"); // isolate opencode storage
     const stateHome = path.join(workDir, "state"); // isolate the oc-sub state
-    const env: Record<string, string> = { ...process.env, XDG_DATA_HOME: dataDir, XDG_STATE_HOME: stateHome } as Record<
+    // The outer shell may set OPENCODE_CONFIG_DIR (for example to another
+    // checkout of this plugin). Drop it, so that `up` serves the agents of
+    // this checkout and prints no warning.
+    const { OPENCODE_CONFIG_DIR: _outer, ...baseEnv } = process.env as Record<string, string | undefined>;
+    const env: Record<string, string> = { ...baseEnv, XDG_DATA_HOME: dataDir, XDG_STATE_HOME: stateHome } as Record<
       string,
       string
     >;

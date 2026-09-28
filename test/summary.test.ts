@@ -2,13 +2,17 @@ import { describe, expect, test } from "bun:test";
 import type { Message, Part } from "@opencode-ai/sdk";
 import {
   addStep,
+  addSummaries,
   countToolCalls,
   emptySummary,
   finalAssistantText,
   formatCost,
   formatDuration,
   formatSummary,
+  formatTotals,
   summarizeMessages,
+  summarizeTree,
+  type UsageSummary,
 } from "../src/summary";
 
 function assistant(overrides: Partial<Extract<Message, { role: "assistant" }>> = {}): Extract<Message, { role: "assistant" }> {
@@ -79,6 +83,60 @@ describe("summarizeMessages", () => {
     expect(summary.cost).toBe(0.5);
     expect(summary.steps).toBe(1);
   });
+
+  test("addSummaries returns the sum of two summaries", () => {
+    const sum = addSummaries(
+      { cost: 0.01, steps: 1, tokens: { input: 1, output: 2, reasoning: 3, cache: { read: 4, write: 5 } } },
+      { cost: 0.02, steps: 2, tokens: { input: 10, output: 20, reasoning: 30, cache: { read: 40, write: 50 } } },
+    );
+    expect(sum.cost).toBeCloseTo(0.03, 10);
+    expect(sum.steps).toBe(3);
+    expect(sum.tokens).toEqual({ input: 11, output: 22, reasoning: 33, cache: { read: 44, write: 55 } });
+  });
+});
+
+describe("summarizeTree", () => {
+  /** A summary with invented numbers, so the sums stay easy to check. */
+  function usage(
+    cost: number,
+    t: { input: number; output: number; reasoning: number; read: number; write: number },
+  ): UsageSummary {
+    return {
+      cost,
+      steps: 1,
+      tokens: { input: t.input, output: t.output, reasoning: t.reasoning, cache: { read: t.read, write: t.write } },
+    };
+  }
+
+  test("with no descendants, the total is the main session and there are no subagents", () => {
+    const totals = summarizeTree(usage(0.01, { input: 1, output: 2, reasoning: 3, read: 4, write: 5 }), []);
+    expect(totals.subagentSessions).toBe(0);
+    expect(totals.total.cost).toBeCloseTo(0.01, 10);
+    expect(totals.subagents.cost).toBe(0);
+    expect(totals.total.tokens.input).toBe(1);
+  });
+
+  test("the total adds the cost and tokens of the children, and counts their sessions", () => {
+    const totals = summarizeTree(
+      usage(0.0151, { input: 1200, output: 300, reasoning: 20, read: 800, write: 40 }),
+      [
+        usage(0.01, { input: 100, output: 50, reasoning: 5, read: 60, write: 7 }),
+        usage(0.02, { input: 200, output: 60, reasoning: 6, read: 70, write: 8 }),
+        usage(0.03, { input: 300, output: 70, reasoning: 7, read: 80, write: 9 }),
+        usage(0.0065, { input: 400, output: 80, reasoning: 8, read: 90, write: 10 }),
+      ],
+    );
+    expect(totals.subagentSessions).toBe(4);
+    expect(totals.subagents.cost).toBeCloseTo(0.0665, 10);
+    expect(totals.subagents.tokens.input).toBe(1000);
+    expect(totals.subagents.tokens.output).toBe(260);
+    expect(totals.total.cost).toBeCloseTo(0.0816, 10);
+    expect(totals.total.tokens.input).toBe(2200);
+    expect(totals.total.tokens.output).toBe(560);
+    expect(totals.total.tokens.reasoning).toBe(46);
+    expect(totals.total.tokens.cache.read).toBe(1100);
+    expect(totals.total.tokens.cache.write).toBe(74);
+  });
 });
 
 describe("finalAssistantText", () => {
@@ -133,6 +191,40 @@ describe("formatting", () => {
     ]);
     expect(formatSummary(summary)).toBe(
       "cost $0.0700, tokens in 1234, out 567, reasoning 8, cache read 90, cache write 1",
+    );
+  });
+
+  test("formatTotals without subagent sessions is the plain summary line", () => {
+    const main = summarizeMessages([
+      { info: assistant({ cost: 0.07, tokens: { input: 1234, output: 567, reasoning: 8, cache: { read: 90, write: 1 } } }), parts: [] },
+    ]);
+    expect(formatTotals(summarizeTree(main, []))).toBe(
+      "cost $0.0700, tokens in 1234, out 567, reasoning 8, cache read 90, cache write 1",
+    );
+  });
+
+  test("formatTotals with subagent sessions names their share and count", () => {
+    const totals = summarizeTree(
+      { cost: 0.0151, steps: 2, tokens: { input: 1200, output: 300, reasoning: 20, cache: { read: 800, write: 40 } } },
+      [
+        { cost: 0.01, steps: 1, tokens: { input: 100, output: 50, reasoning: 5, cache: { read: 60, write: 7 } } },
+        { cost: 0.02, steps: 1, tokens: { input: 200, output: 60, reasoning: 6, cache: { read: 70, write: 8 } } },
+        { cost: 0.03, steps: 1, tokens: { input: 300, output: 70, reasoning: 7, cache: { read: 80, write: 9 } } },
+        { cost: 0.0065, steps: 1, tokens: { input: 400, output: 80, reasoning: 8, cache: { read: 90, write: 10 } } },
+      ],
+    );
+    expect(formatTotals(totals)).toBe(
+      "cost $0.0816 (subagents $0.0665 in 4 sessions), tokens in 2200, out 560, reasoning 46, cache read 1100, cache write 74",
+    );
+  });
+
+  test("formatTotals with exactly one subagent session reads '1 session'", () => {
+    const totals = summarizeTree(
+      { cost: 0.01, steps: 1, tokens: { input: 10, output: 2, reasoning: 0, cache: { read: 0, write: 0 } } },
+      [{ cost: 0.05, steps: 1, tokens: { input: 5, output: 1, reasoning: 0, cache: { read: 0, write: 0 } } }],
+    );
+    expect(formatTotals(totals)).toBe(
+      "cost $0.0600 (subagents $0.0500 in 1 session), tokens in 15, out 3, reasoning 0, cache read 0, cache write 0",
     );
   });
 

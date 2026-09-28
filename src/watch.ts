@@ -1,10 +1,11 @@
-/** `oc-sub watch`: follow one session's events live, end with a summary. */
+/** `oc-sub watch`: follow a session and its subagent sessions, end with a summary. */
 import path from "node:path";
 import { resolveServerUrl, type Env } from "./config";
 import { makeClient, requireServer, unwrap } from "./client";
 import { belongsToSession, watchEventLine } from "./events";
-import { missingSessionIsSettled } from "./settled";
-import { countToolCalls, formatDuration, formatSummary, summarizeMessages } from "./summary";
+import { missingSessionIsSettled, treeIsSettled } from "./settled";
+import { countToolCalls, formatDuration, formatTotals } from "./summary";
+import { childIdsOf, collectDescendants, loadSessionTree, treeUsage } from "./tree";
 
 const STATUS_POLL_MS = 2000;
 
@@ -48,17 +49,22 @@ export async function watch(
     }
   };
 
+  const childrenOf = childIdsOf(client, directory);
+
   const checkStatus = async (): Promise<void> => {
     try {
       const states = unwrap(await client.session.status({ query: { directory } }), "session status");
-      const state = states[sessionId];
-      if (state !== undefined) {
-        if (state.type === "idle") finish();
+      // The watch tree is the session and all of its descendant sessions.
+      const descendants = await collectDescendants(sessionId, childrenOf);
+      if (!treeIsSettled([sessionId, ...descendants], states)) return; // someone is still busy
+      if (states[sessionId] !== undefined) {
+        finish();
         return;
       }
-      // The server lists only sessions that are not idle in this map. A
-      // missing session has either ended, or it was started a moment ago and
-      // the server has not marked it busy yet. Its messages tell them apart.
+      // The server lists only sessions that are not idle in this map. The
+      // main session is missing, so it has either ended, or it was started a
+      // moment ago and the server has not marked it busy yet. Its messages
+      // tell them apart.
       const session = unwrap(
         await client.session.get({ path: { id: sessionId }, query: { directory } }),
         "load session",
@@ -99,8 +105,11 @@ export async function watch(
       if (!belongsToSession(event, sessionId)) continue;
       if (event.type === "session.idle" && event.properties.sessionID === sessionId) {
         if (args.json) console.log(JSON.stringify(event));
-        finish();
-        break;
+        // The main session is idle, but its subagent sessions may still run.
+        // The same check decides when the watch ends.
+        await checkStatus();
+        if (finished) break;
+        continue;
       }
       if (args.json) {
         console.log(JSON.stringify(event));
@@ -129,12 +138,9 @@ export async function watch(
   let toolCalls = watchedToolCalls;
   let summary = "summary unavailable";
   try {
-    const messages = unwrap(
-      await client.session.messages({ path: { id: sessionId }, query: { directory } }),
-      "load messages",
-    );
-    toolCalls = countToolCalls(messages);
-    summary = formatSummary(summarizeMessages(messages));
+    const tree = await loadSessionTree(client, sessionId, directory);
+    toolCalls = countToolCalls(tree.main);
+    summary = formatTotals(treeUsage(tree));
   } catch {
     // Keep the watch-side numbers instead.
   }

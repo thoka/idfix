@@ -29,12 +29,12 @@ Do not delegate:
 4. Start the server once: `oc-sub up`. It sets `OPENCODE_CONFIG_DIR` to the plugin folder, so the server also loads the research agents of the plugin. To stop it, use `oc-sub down`. After a change to the agent files or the opencode configuration, use `oc-sub restart`. After an update of the plugin, use `oc-sub restart` too, because the running server keeps the plugin folder that it got at start in `OPENCODE_CONFIG_DIR`.
 5. Start the run: `oc-sub run --agent coder --dir <worktree> --brief <scratch>/brief.md --title "<short title>"`. For a research step, use `--agent researcher`. It prints the session ID, an `opencode attach ...` command, and the path of the run record.
 6. Give the user the `opencode attach ...` command, so that they can watch the run live.
-7. Wait with `oc-sub watch <session-id> --dir <worktree>` as a background command. When the session is idle, it prints the elapsed time, the tool calls, and the cost, and it ends.
+7. Wait with `oc-sub watch <session-id> --dir <worktree>` as a background command. When the session and its subagent sessions are idle, it prints the elapsed time, the tool calls, and the cost, and it ends.
 8. Read the result with `oc-sub log <session-id> --dir <worktree>`.
 9. Review the work yourself: read `git -C <worktree> diff main...HEAD`, and run the tests yourself. Do not trust the report of the agent alone.
 10. If the diff is correct and the tests pass, merge. Then remove the worktree.
 
-Tell the user the cost of each run. `watch` and `log` print it in USD, with the tokens.
+Tell the user the cost of each run. `watch` and `log` print it in USD, with the tokens. The cost covers the session and all of its subagent sessions. With subagents, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`.
 
 ## Follow up and abort
 

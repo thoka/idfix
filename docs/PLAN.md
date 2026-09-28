@@ -40,3 +40,13 @@ Status: open.
 2. Run `oc-sub restart`, then a small research run in a worktree of terminator.
 3. Make sure that the run uses the plugin agents, calls `reader`, and reports the cost of the child sessions.
 4. Add the result to [EXPERIENCE.md](EXPERIENCE.md).
+
+## Step 4: Questions and permission requests go to the orchestrator
+
+Status: open.
+
+Root cause: the agent files deny the `question` tool and use `deny` for risky commands, because "nobody answers questions in a run" (`skills/oc-sub/reference.md`). A denied agent gets an error and looks for a detour. In the step 1 run, GLM tried `rm` after the allowlist blocked the deletion of a file. opencode has the missing channel already. The `question` tool and the `ask` permission pause the session, and the server lists and answers the pending requests.
+
+1. Research first, with a report in `docs/research/`. How do established tools let an orchestrator answer the question or the permission request of a subagent? Cover at least opencode itself (the `question` tool, `ask` permissions, the server endpoints and events in 1.18.32), `opencode-mcp`, the Claude Agent SDK (`canUseTool`), the Agent Client Protocol (`session/request_permission`), the A2A protocol (`input-required`), MCP elicitation, the OpenAI Agents SDK, and LangGraph (`interrupt`). Name the pattern that most of them share, and what `oc-sub` can reuse.
+2. Decide the design with the user, based on the report.
+3. Implement it in small steps with tests. The likely parts: the agent files allow `question` and use `ask` for risky commands. `oc-sub watch` shows a pending request and ends. A new command answers or rejects it in the same session.

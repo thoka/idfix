@@ -66,3 +66,12 @@ Lessons:
 
 1. A subagent that fetches pages needs a hard step limit. A prompt rule alone does not stop GLM from following links.
 2. The researcher must give the reader concrete URLs and one question, not an open task.
+
+## A coder in a loop
+
+On 2026-09-28, the first run of step 4 read `node_modules/@opencode-ai/sdk/dist/v2/gen/sdk.gen.d.ts` with `{"limit": 75}` and no offset, 40 times in a row. It made 142 tool calls in 135 steps, wrote no file, and cost an estimated 0.49 USD before the orchestrator aborted it. The `doom_loop` permission defaults to `ask` and triggers after three identical calls, according to https://opencode.ai/docs/permissions/. No request appeared in `GET /permission`.
+
+Lessons:
+
+1. Watch the tool calls of a run, not only its end. A run with many calls and no changed file is a warning sign.
+2. Give a coder a short excerpt of large generated files, for example the relevant SDK types, in `.opencode/context/`.

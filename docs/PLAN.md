@@ -65,3 +65,12 @@ Root cause: `oc-sub watch` and `oc-sub log` show the cost that opencode computes
 1. Research: how does OpenRouter report the real cost of a request (the `usage` object with `cost`, and `GET /api/v1/generation?id=...`)? Does opencode store the generation ID or the real cost of a step? The first research report is `docs/research/OPENROUTER_ROUTING.md`.
 2. Decide with the user where the real cost comes from, and whether `oc-sub` reads the OpenRouter key for it.
 3. Check the real routing at OpenRouter. If requests go to an expensive provider, set a routing rule. The research report names `provider.openrouter.options.extraBody.provider` as the likely path.
+
+## Step 6: A loop guard in `oc-sub watch`
+
+Status: open.
+
+Root cause: the first step 4 run read the same 75 lines of one file 40 times in a row, with the same input each time, and cost an estimated 0.49 USD without a result. The `doom_loop` permission of opencode defaults to `ask`, but it did not stop the run (see [EXPERIENCE.md](EXPERIENCE.md#a-coder-in-a-loop)).
+
+1. `oc-sub watch` counts tool calls with the same tool and the same input in a row. At five, it prints a warning with the call, and it ends with its own exit code. The orchestrator then aborts the run or sends a correction.
+2. Tests with invented events.

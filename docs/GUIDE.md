@@ -137,7 +137,7 @@ oc-sub watch ses_abc123 --dir /path/to/worktree
 | --- | --- |
 | `oc-sub: command not found` | The plugin is not enabled in this session. Run `claude plugin list`, then `/reload-plugins`. |
 | `opencode run` hangs | The command waits for input. Add `< /dev/null`. |
-| `oc-sub status` shows nothing | The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. |
+| `oc-sub status` shows nothing | The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. `oc-sub status --all` shows the running sessions of all projects and their worktrees, each with its folder. |
 | The agent cannot read a file | The agent cannot leave its project folder. Copy the file into the worktree, or put its content into the brief. |
 | A run takes very long | The step is too big. Abort it and split the brief into smaller steps. |
 | `oc-sub ping` shows an old key after a configuration change | The server caches the configuration. Run `oc-sub restart`. |

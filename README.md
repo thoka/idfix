@@ -105,10 +105,12 @@ The run record is a JSON file `.opencode/runs/<session-id>.json` in the current 
 ### oc-sub status
 
 ```
-bun run src/cli.ts status [--dir DIR]
+bun run src/cli.ts status [--dir DIR | --all]
 ```
 
-One line per session of the directory: ID, state (`busy`, `idle`, or `retry`), title. Child sessions (internal subagent runs) are not listed. If no server runs, it prints `no server on <url>` and exits with code 0.
+One line per session: ID, state (`busy`, `idle`, or `retry`), title. Without `--all`, it lists the sessions of the directory and of each of its git worktrees. A session of the directory itself has no suffix. A session of another worktree gets its folder at the end: relative to the directory when the worktree is inside it (for example `.worktrees/x`), else absolute. Child sessions (internal subagent runs) are not listed. If no server runs, it prints `no server on <url>` and exits with code 0.
+
+With `--all`, it lists the running sessions of all projects, each as `<id> <state> <title> (<absolute folder>)`. Idle sessions and child sessions are not listed. The folders come from the folders of past `oc-sub run` calls, from the projects that the server knows, and from their git worktrees. Folders that no longer exist are skipped. When no session runs, it prints `no running sessions`. `--all` and `--dir` together are a usage error.
 
 ### oc-sub ping
 

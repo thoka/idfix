@@ -17,7 +17,7 @@ Usage:
   oc-sub down [--port N] [--force]
   oc-sub restart [--port N] [--force]
   oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T]
-  oc-sub status [--dir DIR]
+  oc-sub status [--dir DIR | --all]
   oc-sub ping [--dir DIR]
   oc-sub watch SESSION [--dir DIR] [--json]
   oc-sub log SESSION [--dir DIR]

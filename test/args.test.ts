@@ -66,12 +66,19 @@ describe("parseArgs", () => {
   });
 
   test("status, watch, log, abort", () => {
-    expect(parseArgs(["status"])).toEqual({ command: "status" });
-    expect(parseArgs(["status", "--dir", "/w"])).toEqual({ command: "status", dir: "/w" });
+    expect(parseArgs(["status"])).toEqual({ command: "status", all: false });
+    expect(parseArgs(["status", "--dir", "/w"])).toEqual({ command: "status", dir: "/w", all: false });
     expect(parseArgs(["watch", "ses_1", "--json"])).toEqual({ command: "watch", session: "ses_1", json: true });
     expect(parseArgs(["watch", "ses_1", "--dir", "/w"])).toEqual({ command: "watch", session: "ses_1", json: false, dir: "/w" });
     expect(parseArgs(["log", "ses_1"])).toEqual({ command: "log", session: "ses_1" });
     expect(parseArgs(["abort", "ses_1", "--dir", "/w"])).toEqual({ command: "abort", session: "ses_1", dir: "/w" });
+  });
+
+  test("status --all, and --all with --dir is an error", () => {
+    expect(parseArgs(["status", "--all"])).toEqual({ command: "status", all: true });
+    expect(parseArgs(["status", "--all", "--url=http://h:1"])).toEqual({ command: "status", all: true, url: "http://h:1" });
+    expect(() => parseArgs(["status", "--all", "--dir", "/w"])).toThrow(/--all and --dir/);
+    expect(() => parseArgs(["status", "--dir=/w", "--all"])).toThrow(/--all and --dir/);
   });
 
   test("ping parses like status", () => {
@@ -84,7 +91,7 @@ describe("parseArgs", () => {
 
   test("--url is accepted by every command", () => {
     expect(parseArgs(["up", "--url", "http://h:1"])).toEqual({ command: "up", url: "http://h:1" });
-    expect(parseArgs(["status", "--url=http://h:1"])).toEqual({ command: "status", url: "http://h:1" });
+    expect(parseArgs(["status", "--url=http://h:1"])).toEqual({ command: "status", url: "http://h:1", all: false });
     expect(parseArgs(["watch", "s", "--url", "http://h:1"])).toEqual({ command: "watch", session: "s", json: false, url: "http://h:1" });
   });
 

@@ -24,24 +24,28 @@ Research runs took 9 to 13 minutes and cost 0.08 to 0.09 USD for a report of 2,0
 3. For a pure JSON answer without tools, GLM needs low reasoning effort. With the default thinking, it used all output tokens and gave no answer.
 4. Without a routing rule, OpenRouter mixes cheap providers. A run then costs about half of the price of the main provider. The speed was 30 to 140 tokens per second.
 
-## Price per token after the key rotation
+## The reported cost is an estimate from the model catalog
 
-On 2026-09-28, research runs in terminator suddenly cost three to nine times more. A fit of cost against tokens over each stored session (`~/.local/share/opencode/opencode.db`) shows two price levels for the same model `z-ai/glm-5.3-flash`:
+On 2026-09-28, research runs in terminator suddenly showed three to nine times the cost of earlier runs. A fit of cost against tokens over each stored session (`~/.local/share/opencode/opencode.db`) shows two price levels for the same model `z-ai/glm-5.3-flash`:
 
 | Runs | Input | Cached input | Output |
 | --- | --- | --- | --- |
 | Up to 14:03 on 2026-09-28 | 0.040 USD | 0.015 USD | 0.50 USD |
 | From 18:27 on 2026-09-28 | 0.150 USD | 0.030 USD | 0.50 USD |
 
-The prices are in USD per million tokens. Between the two times, the user rotated the OpenRouter key and gave each project its own key. After that, the global key and the project keys pay the higher price. The OpenRouter list of providers (`https://openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints`) shows providers from 0.045 USD per million input tokens, and 0.15 USD is the most common price.
+The prices are in USD per million tokens. The cause is not OpenRouter. opencode computes the `cost` of each step from the token counts and the price in its model catalog, which it loads from models.dev and caches in `~/.cache/opencode/models.json`. On the evening of 2026-09-28, that catalog listed `openrouter/z-ai/glm-5.3-flash` with `{"input": 0.15, "output": 0.5, "cache_read": 0.03}`. So the cost in opencode, and in `oc-sub watch` and `oc-sub log`, is an estimate. The real charge is only visible at OpenRouter: on the activity page, or through `GET /api/v1/generation?id=...`.
 
-Tests with a prompt of about 8,000 tokens, each at about 0.0015 USD:
+Tests that led to this result, with a prompt of about 8,000 tokens each:
 
-1. `"sort": "price"` in `provider.openrouter.models["z-ai/glm-5.3-flash"].options.provider` had no effect. The server showed the merged option in `GET /config`.
-2. `"order": ["inference-net"]` with `"allow_fallbacks": false` in the same place had no effect either. So opencode 1.18.32 did not pass the option to OpenRouter in this setup.
-3. The model name `openrouter/z-ai/glm-5.3-flash@preset/cheapest` fails with `ProviderModelNotFoundError`. The global opencode configuration used it as the default model, so that default never worked.
+1. `"sort": "price"` in `provider.openrouter.models["z-ai/glm-5.3-flash"].options.provider` did not change the reported cost.
+2. `"order": ["inference-net"]` with `"allow_fallbacks": false`, in the same place and in `provider.openrouter.options.extraBody`, did not change it either, and gave no error.
+3. A run with the global key and a run with a project key showed the same price.
+4. The model name `openrouter/z-ai/glm-5.3-flash@preset/cheapest` fails with `ProviderModelNotFoundError` (opencode issue 48016). The global opencode configuration used it as the default model, so that default never worked.
+
+The OpenRouter list of providers (`https://openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints`) shows prices from 0.045 to 0.75 USD per million input tokens.
 
 Lessons:
 
-1. Make sure that the price per token stays the same after a change of key or configuration. One tiny run and a look at the cost per input token are enough.
-2. The cost of a run depends on the price per token and on the context growth. Check the price first, because it is the cheaper check.
+1. Compare runs by their tokens, not by the reported cost. The tokens come from the provider, and the cost comes from a catalog that can change.
+2. For the real cost, ask OpenRouter.
+3. The token counts confirm the context growth. The most expensive terminator run read 17.3 million cached tokens, and the earlier runs read 1.0 to 4.1 million.

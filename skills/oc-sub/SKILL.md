@@ -34,7 +34,7 @@ Do not delegate:
 9. Review the work yourself: read `git -C <worktree> diff main...HEAD`, and run the tests yourself. Do not trust the report of the agent alone.
 10. If the diff is correct and the tests pass, merge. Then remove the worktree.
 
-Tell the user the cost of each run. `watch` and `log` print it in USD, with the tokens. The cost covers the session and all of its subagent sessions. With subagents, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`.
+Tell the user the cost of each run. `watch` and `log` print it in USD, with the tokens. The cost covers the session and all of its subagent sessions. With subagents, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. This cost is an estimate: opencode multiplies the tokens by the prices in its model catalog from models.dev. The real charge is on the activity page of OpenRouter. To compare runs, compare their tokens.
 
 ## Follow up and abort
 

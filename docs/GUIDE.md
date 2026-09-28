@@ -131,7 +131,7 @@ It prints one short line per tool call. When the run ends, it prints a summary l
 
 - **Follow up**: tell Claude what to change. Claude sends the message into the same session with `opencode run --attach ... --session <id>`. You can also type into the attached opencode interface yourself.
 - **Abort**: tell Claude to stop the run, or run `oc-sub abort <session-id> --dir <worktree>`.
-- **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and a line with the cost in USD and the tokens. The cost covers the session and all of its subagent sessions. With subagents, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
+- **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and a line with the cost in USD and the tokens. The cost covers the session and all of its subagent sessions. With subagents, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. This cost is an estimate: opencode multiplies the tokens by the prices in its model catalog from models.dev. The real charge is on the activity page of OpenRouter. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
 
 ## Security
 

@@ -79,7 +79,7 @@ opencode run --attach http://127.0.0.1:8767 --dir <worktree> --session <session-
 
 ## Cost and tokens
 
-- `oc-sub watch` and `oc-sub log` sum `cost` and `tokens` over all assistant messages of the session and of all its subagent sessions (child sessions, recursively). The cost is in USD, as the provider reports it. With subagent sessions, the line names their share, for example `cost $0.0816 (subagents $0.0665 in 4 sessions)`. Without subagent sessions, the line shows only the total.
+- `oc-sub watch` and `oc-sub log` sum `cost` and `tokens` over all assistant messages of the session and of all its subagent sessions (child sessions, recursively). The cost is in USD. This cost is an estimate: opencode multiplies the tokens by the prices in its model catalog from models.dev. The real charge is on the activity page of OpenRouter. With subagent sessions, the line names their share, for example `cost $0.0816 (subagents $0.0665 in 4 sessions)`. Without subagent sessions, the line shows only the total.
 - Tell the user the cost of each run, for example "Run 2: 6 minutes, 0.07 USD".
 - `opencode stats` shows the totals over all sessions.
 - Benchmark with GLM 5.3 Flash through OpenRouter: 0.07 to 0.33 USD for one coding step of 5 to 11 files.

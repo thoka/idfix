@@ -66,6 +66,34 @@ claude plugin marketplace remove opencode-subagents
 3. Set the model in both files. The templates use `openrouter/z-ai/glm-5.3-flash`.
 4. Add `.opencode/runs/` and `.opencode/context/` to `.gitignore`.
 5. Commit the agent files.
+6. Give the project its own OpenRouter key, so that OpenRouter shows the cost of this project. Create a key with a monthly limit in the OpenRouter dashboard and put it into the project key file. The file holds only the key. Never commit it.
+
+   ```
+   ~/.config/<project>/openrouter.key
+   ```
+
+   Create `opencode.json` in the project root:
+
+   ```json
+   {
+     "provider": {
+       "openrouter": {
+         "options": {
+           "apiKey": "{file:~/.config/<project>/openrouter.key}"
+         }
+       }
+     }
+   }
+   ```
+
+   Then start the server and check the key:
+
+   ```
+   oc-sub up
+   oc-sub ping --dir <project>
+   ```
+
+   The command must print `source: project key file ...` and `openrouter: ok`. If it warns that the server uses another key, follow the warning.
 
 Then ask Claude, for example: "Delegate step 4 to the opencode coder." Claude invokes the skill by itself. You can also type `/opencode-subagents:oc-sub`.
 
@@ -112,3 +140,4 @@ oc-sub watch ses_abc123 --dir /path/to/worktree
 | `oc-sub status` shows nothing | The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. |
 | The agent cannot read a file | The agent cannot leave its project folder. Copy the file into the worktree, or put its content into the brief. |
 | A run takes very long | The step is too big. Abort it and split the brief into smaller steps. |
+| `oc-sub ping` shows an old key after a configuration change | The server caches the configuration. Run `oc-sub restart`. |

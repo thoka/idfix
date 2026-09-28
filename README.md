@@ -54,7 +54,7 @@ bun run typecheck   # tsc --noEmit
 
 `oc-sub` drives an opencode server: start it, launch subagent runs, watch them live, and read the results. Entry point: `src/cli.ts`. Run it with `bin/oc-sub`, `bun run src/cli.ts`, or `bun src/cli.ts`. With the plugin enabled, Claude runs it as `oc-sub`.
 
-The server URL comes from `--url` or the environment variable `OC_SUB_URL`, default `http://127.0.0.1:8767`. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: oc-sub up` and exit with code 1. If a server answers with HTTP 401 or 403, every command exits with code 1 and says that the server rejected the password in `OPENCODE_SERVER_PASSWORD`, or that it needs one. `up` then does not start a second server. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `watch`, `log`, and `abort` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
+The server URL comes from `--url` or the environment variable `OC_SUB_URL`, default `http://127.0.0.1:8767`. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: oc-sub up` and exit with code 1. If a server answers with HTTP 401 or 403, every command exits with code 1 and says that the server rejected the password in `OPENCODE_SERVER_PASSWORD`, or that it needs one. `up` then does not start a second server. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `ping`, `watch`, `log`, and `abort` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
 
 ### oc-sub up
 
@@ -110,6 +110,28 @@ bun run src/cli.ts status [--dir DIR]
 
 One line per session of the directory: ID, state (`busy`, `idle`, or `retry`), title. Child sessions (internal subagent runs) are not listed. If no server runs, it prints `no server on <url>` and exits with code 0.
 
+### oc-sub ping
+
+```
+bun run src/cli.ts ping [--dir DIR]
+```
+
+Shows which OpenRouter key the opencode server uses for DIR, where the key comes from, and whether OpenRouter accepts it:
+
+```
+directory: /home/u/dv/proj
+project: proj
+key: sha256 87ea509a
+source: global auth.json /home/u/.local/share/opencode/auth.json
+openrouter: ok, limit $1.00, used $0.00, remaining $1.00
+```
+
+The `key:` line shows the first 8 hex digits of the SHA-256 of the key. It never prints the key itself. `source` names the origin: the project key file `~/.config/<project>/openrouter.key`, the environment variable `OPENROUTER_API_KEY`, or the global `~/.local/share/opencode/auth.json`. The project name is the folder that holds the main repository, so a worktree counts as its repository.
+
+The last line asks `GET https://openrouter.ai/api/v1/key`, which costs nothing. It shows the limit, the usage, and the remaining amount in USD. With no limit, it prints `limit none` and the usage. When the server uses another key than the project key file, `ping` prints a warning, because the cost then goes to another key. Exit code 0 when OpenRouter accepts the key, even with the warning. Exit code 1 when the provider is not configured for the directory, when no key is set, when OpenRouter rejects the key (`openrouter: rejected (HTTP 401: ...)`), or when the key endpoint is unreachable (`openrouter: unreachable (...)`).
+
+The server caches the configuration. After a change of a configuration file, `ping` reports the old key until `oc-sub restart`.
+
 ### oc-sub watch
 
 ```
@@ -160,7 +182,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 - `src/runs.ts` — run records under `.opencode/runs/`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
 - `src/state.ts` — per-user state files of the server (PID, log, folders with runs)
-- `src/up.ts`, `src/down.ts`, `src/run.ts`, `src/status.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts` — the commands
+- `src/up.ts`, `src/down.ts`, `src/run.ts`, `src/status.ts`, `src/ping.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts` — the commands
 
 ## License
 

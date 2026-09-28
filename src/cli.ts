@@ -5,6 +5,7 @@ import { up } from "./up";
 import { down } from "./down";
 import { run } from "./run";
 import { status } from "./status";
+import { ping } from "./ping";
 import { watch } from "./watch";
 import { log } from "./log";
 import { abort } from "./abort";
@@ -17,6 +18,7 @@ Usage:
   oc-sub restart [--port N] [--force]
   oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T]
   oc-sub status [--dir DIR]
+  oc-sub ping [--dir DIR]
   oc-sub watch SESSION [--dir DIR] [--json]
   oc-sub log SESSION [--dir DIR]
   oc-sub abort SESSION [--dir DIR]
@@ -51,6 +53,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return run(args);
     case "status":
       return status(args);
+    case "ping":
+      return ping(args);
     case "watch":
       return watch(args);
     case "log":

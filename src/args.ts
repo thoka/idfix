@@ -12,6 +12,7 @@ export type ParsedArgs =
   | { command: "down" | "restart"; url?: string; port?: number; force: boolean }
   | { command: "run"; url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string }
   | { command: "status"; url?: string; dir?: string }
+  | { command: "ping"; url?: string; dir?: string }
   | { command: "watch"; url?: string; session: string; dir?: string; json: boolean }
   | { command: "log"; url?: string; session: string; dir?: string }
   | { command: "abort"; url?: string; session: string; dir?: string };
@@ -165,6 +166,13 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         throw new UsageError(`status takes no positional arguments, got "${positionals.join(" ")}"`);
       }
       return { command: "status", url: globals.url, dir: optionalString(flags, "dir") };
+    }
+    case "ping": {
+      const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "url"]), new Set<string>());
+      if (positionals.length > 0) {
+        throw new UsageError(`ping takes no positional arguments, got "${positionals.join(" ")}"`);
+      }
+      return { command: "ping", url: globals.url, dir: optionalString(flags, "dir") };
     }
     case "watch": {
       const { flags, positionals, globals } = collectFlags(

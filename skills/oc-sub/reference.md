@@ -32,6 +32,7 @@ Every command accepts `--url URL`. The default URL comes from the environment va
 | `oc-sub restart [--port N] [--force]` | Runs `down`, then `up` on the same port. |
 | `oc-sub run --agent NAME --dir DIR (--brief FILE \| TEXT) [--title T]` | Creates a session in DIR and sends the brief to the agent without waiting. It prints three lines: the session ID, the `opencode attach ...` command, and the path of the run record `.opencode/runs/<session-id>.json`. |
 | `oc-sub status [--dir DIR]` | One line per session: ID, state (`busy`, `idle`, `retry`), title. |
+| `oc-sub ping [--dir DIR]` | Shows which OpenRouter key the server uses for DIR, where it comes from (project key file, environment, or global auth.json), and whether OpenRouter accepts it. Prints a SHA-256 fingerprint of the key, never the key itself. Warns when the server does not use the project key file, because the cost then goes to another key. |
 | `oc-sub watch SESSION [--dir DIR] [--json]` | Prints one short line per tool call, failed tool call, assistant text, and session error. When the session is idle, it prints a summary line and exits with code 0. With `--json`, it prints the events as JSON lines, and the summary goes to stderr. |
 | `oc-sub log SESSION [--dir DIR]` | Prints the last assistant text (the report of the agent) and a line with the cost and the tokens. |
 | `oc-sub abort SESSION [--dir DIR]` | Stops the session. |

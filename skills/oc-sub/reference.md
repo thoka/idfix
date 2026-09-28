@@ -36,7 +36,7 @@ Every command accepts `--url URL`. The default URL comes from the environment va
 | `oc-sub log SESSION [--dir DIR]` | Prints the last assistant text (the report of the agent) and a line with the cost and the tokens. |
 | `oc-sub abort SESSION [--dir DIR]` | Stops the session. |
 
-Exit codes: 0 for success, 1 for an error, 2 for wrong arguments. If no server runs, `status` prints `no server on <url>` and exits with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`.
+Exit codes: 0 for success, 1 for an error, 2 for wrong arguments. If no server runs, `status` prints `no server on <url>` and exits with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
 
 ### Watch in the background
 

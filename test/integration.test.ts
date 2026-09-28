@@ -249,3 +249,56 @@ test.skipIf(!hasOpencode)(
   },
   { timeout: 180_000 },
 );
+
+test.skipIf(!hasOpencode)(
+  "a server with a password: a wrong password gives a clear error",
+  async () => {
+    const port = await findFreePort();
+    const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-auth-"));
+    const stateHome = path.join(workDir, "state");
+    const base = { ...process.env, XDG_DATA_HOME: path.join(workDir, "data"), XDG_STATE_HOME: stateHome } as Record<
+      string,
+      string
+    >;
+    delete base.OPENCODE_SERVER_USERNAME;
+    const right = { ...base, OPENCODE_SERVER_PASSWORD: "right-test-password" };
+    const wrong = { ...base, OPENCODE_SERVER_PASSWORD: "wrong-test-password" };
+    const none = { ...base };
+    delete none.OPENCODE_SERVER_PASSWORD;
+    const url = `http://127.0.0.1:${port}`;
+    const pidFile = path.join(stateHome, "oc-sub", `serve-${port}.pid`);
+
+    try {
+      const started = runCli(workDir, ["up", "--url", url], right);
+      expect(started.code).toBe(0);
+
+      const wrongStatus = runCli(workDir, ["status", "--url", url], wrong);
+      expect(wrongStatus.code).toBe(1);
+      expect(wrongStatus.stderr).toContain(`the server on ${url} rejected the password in OPENCODE_SERVER_PASSWORD`);
+      expect(wrongStatus.stderr).not.toContain("wrong-test-password");
+
+      const noPassword = runCli(workDir, ["status", "--url", url], none);
+      expect(noPassword.code).toBe(1);
+      expect(noPassword.stderr).toContain(`the server on ${url} needs a password`);
+
+      // up with a wrong password must not start a second server.
+      const wrongUp = runCli(workDir, ["up", "--url", url], wrong);
+      expect(wrongUp.code).toBe(1);
+      expect(wrongUp.stderr).toContain("rejected the password");
+
+      const stopped = runCli(workDir, ["down", "--url", url], right);
+      expect(stopped.code).toBe(0);
+      expect(existsSync(pidFile)).toBe(false);
+    } finally {
+      if (existsSync(pidFile)) {
+        try {
+          process.kill(Number(readFileSync(pidFile, "utf8").trim()), "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  },
+  { timeout: 120_000 },
+);

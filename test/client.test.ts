@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assertOk, errorMessage, fetchHealth, requireServer, ServerDownError, unwrap } from "../src/client";
+import { assertOk, errorMessage, probeServer, requireServer, ServerAuthError, ServerDownError, unwrap } from "../src/client";
 
 describe("unwrap and assertOk", () => {
   test("returns the data when present", () => {
@@ -30,19 +30,19 @@ describe("errorMessage", () => {
   });
 });
 
-describe("fetchHealth", () => {
-  test("returns null when nothing listens", async () => {
-    expect(await fetchHealth("http://127.0.0.1:9", {}, 1000)).toBeNull();
+describe("probeServer", () => {
+  test("is down when nothing listens", async () => {
+    expect(await probeServer("http://127.0.0.1:9", {}, 1000)).toEqual({ state: "down" });
   });
 
-  test("returns null when the server never answers", async () => {
+  test("is down when the server never answers", async () => {
     let port = 8850;
     for (;;) {
       try {
         const server = Bun.serve({ port, fetch: () => new Promise(() => {}) }); // hangs forever
         try {
-          const result = await fetchHealth(`http://127.0.0.1:${port}`, {}, 300);
-          expect(result).toBeNull();
+          const result = await probeServer(`http://127.0.0.1:${port}`, {}, 300);
+          expect(result).toEqual({ state: "down" });
         } finally {
           server.stop(true);
         }
@@ -74,6 +74,33 @@ describe("requireServer", () => {
     });
     try {
       await requireServer(`http://127.0.0.1:${server.port}`, {});
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+describe("refused credentials", () => {
+  test("probeServer reports 401 and 403 as unauthorized", async () => {
+    for (const status of [401, 403]) {
+      const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("", { status }) });
+      try {
+        expect(await probeServer(`http://127.0.0.1:${server.port}`, {}, 1000)).toEqual({ state: "unauthorized" });
+      } finally {
+        server.stop(true);
+      }
+    }
+  });
+
+  test("requireServer names the password problem", async () => {
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("", { status: 401 }) });
+    const url = `http://127.0.0.1:${server.port}`;
+    try {
+      const withPassword = await requireServer(url, { OPENCODE_SERVER_PASSWORD: "wrong" }).catch((caught: unknown) => caught);
+      expect(withPassword).toBeInstanceOf(ServerAuthError);
+      expect((withPassword as Error).message).toBe(`the server on ${url} rejected the password in OPENCODE_SERVER_PASSWORD`);
+      const withoutPassword = await requireServer(url, {}).catch((caught: unknown) => caught);
+      expect((withoutPassword as Error).message).toBe(`the server on ${url} needs a password. Set OPENCODE_SERVER_PASSWORD`);
     } finally {
       server.stop(true);
     }

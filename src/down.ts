@@ -1,6 +1,6 @@
 /** `oc-sub down`: stop the opencode server that `oc-sub up` started. */
 import { resolvePort, resolveServerUrl, type Env } from "./config";
-import { fetchHealth, makeClient, unwrap } from "./client";
+import { assertUsable, makeClient, probeServer, unwrap } from "./client";
 import { readDirs, readPid, removeFiles, serveDirsPath, servePidPath } from "./state";
 
 const STOP_TIMEOUT_MS = 15_000;
@@ -77,7 +77,7 @@ export async function down(args: { url?: string; port?: number; force: boolean }
   if (pid === null || commandLine === null || !isOpencodeServe(commandLine, port)) {
     // No server of ours: the PID file is missing or stale.
     await removeFiles(pidPath, dirsPath);
-    if ((await fetchHealth(serveUrl, env, 2000)) !== null) {
+    if ((await probeServer(serveUrl, env, 2000)).state !== "down") {
       console.error(`error: a server answers on ${serveUrl}, but oc-sub up did not start it. Stop it yourself.`);
       return 1;
     }
@@ -85,7 +85,10 @@ export async function down(args: { url?: string; port?: number; force: boolean }
     return 0;
   }
 
-  if (!args.force && (await fetchHealth(serveUrl, env, 2000)) !== null) {
+  const server = args.force ? null : await probeServer(serveUrl, env, 2000);
+  // Without the credentials, the busy check cannot run. Only --force skips it.
+  if (server?.state === "unauthorized") assertUsable(server, serveUrl, env);
+  if (server?.state === "up") {
     const busy = await busySessions(serveUrl, await readDirs(dirsPath), env);
     if (busy.length > 0) {
       console.error(`error: ${busy.length} session(s) still run on ${serveUrl}:`);

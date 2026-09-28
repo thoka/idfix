@@ -3,7 +3,7 @@ import { openSync, closeSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { resolvePort, resolveServerUrl, type Env } from "./config";
-import { fetchHealth } from "./client";
+import { assertUsable, probeServer } from "./client";
 import { removeFiles, serveDirsPath, serveLogPath, servePidPath } from "./state";
 
 const HEALTH_TIMEOUT_MS = 60_000;
@@ -13,11 +13,13 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 export async function up(args: { url?: string; port?: number }, env: Env = process.env): Promise<number> {
   const targetUrl = resolveServerUrl(args.url, env);
-  const alreadyUp = await fetchHealth(targetUrl, env);
-  if (alreadyUp !== null) {
-    console.log(`${targetUrl} version ${alreadyUp.version}`);
+  const existing = await probeServer(targetUrl, env);
+  if (existing.state === "up") {
+    console.log(`${targetUrl} version ${existing.version}`);
     return 0;
   }
+  // A server that refused the credentials still runs: do not start another.
+  if (existing.state === "unauthorized") assertUsable(existing, targetUrl, env);
 
   const port = resolvePort(args.port, targetUrl);
   const serveUrl = `http://127.0.0.1:${port}`;
@@ -54,8 +56,8 @@ export async function up(args: { url?: string; port?: number }, env: Env = proce
   while (Date.now() < deadline) {
     await sleep(HEALTH_INTERVAL_MS);
     // Short per-attempt timeout: one hung fetch must not eat the deadline.
-    const health = await fetchHealth(serveUrl, env, 2000);
-    if (health !== null) {
+    const health = await probeServer(serveUrl, env, 2000);
+    if (health.state === "up") {
       console.log(`${serveUrl} version ${health.version}`);
       console.log(`log: ${logPath}`);
       return 0;

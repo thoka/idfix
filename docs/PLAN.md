@@ -39,7 +39,7 @@ Status: done.
 
 ## Step 3: Check in terminator
 
-Status: open.
+Status: done. See [EXPERIENCE.md](EXPERIENCE.md#research-agents-of-the-plugin-in-terminator).
 
 1. Remove `researcher.md` and `reader.md` from `~/dv/terminator/.opencode/agents/`.
 2. Run `oc-sub restart`, then a small research run in a worktree of terminator.

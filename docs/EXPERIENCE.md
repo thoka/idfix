@@ -49,3 +49,20 @@ Lessons:
 1. Compare runs by their tokens, not by the reported cost. The tokens come from the provider, and the cost comes from a catalog that can change.
 2. For the real cost, ask OpenRouter.
 3. The token counts confirm the context growth. The most expensive terminator run read 17.3 million cached tokens, and the earlier runs read 1.0 to 4.1 million.
+
+## Research agents of the plugin in terminator
+
+On 2026-09-28, terminator had no research agents of its own anymore. A research run there used the `researcher` and `reader` agents that `oc-sub up` serves from the plugin. The question was how the library `recurring-ical-events` expands recurring events. The run took 11 minutes and wrote a report of 860 words with sources.
+
+| Run | Main steps | Largest context | Cached tokens read | Reader calls | Estimated cost |
+| --- | --- | --- | --- | --- | --- |
+| Local LLM, the researcher fetched the pages itself | 80 | 395,806 | 17,343,104 | none | 0.697 USD |
+| OpenRouter routing, reader without a step limit | 13 | not measured | 83,200 in the main session | 2 | 0.222 USD |
+| Recurring events, reader with `steps: 6` | 13 | 41,040 | 423,488 in total | 5 | 0.058 USD |
+
+The estimated cost uses the catalog price of opencode (see above). The last two runs used the same catalog price. In the routing run, one reader call without a step limit made 42 fetches in 27 steps and cost 0.21 USD. With `steps: 6`, the five reader calls took 2 to 6 steps and 3 to 8 fetches each. `oc-sub watch` reported `cost $0.0581 (subagents $0.0269 in 5 sessions)`.
+
+Lessons:
+
+1. A subagent that fetches pages needs a hard step limit. A prompt rule alone does not stop GLM from following links.
+2. The researcher must give the reader concrete URLs and one question, not an open task.

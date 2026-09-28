@@ -2,21 +2,14 @@
 import { openSync, closeSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { authHeaderFromEnv, portFromUrl, resolveServerUrl, type Env } from "./config";
+import { resolvePort, resolveServerUrl, type Env } from "./config";
 import { fetchHealth } from "./client";
+import { removeFiles, serveDirsPath, serveLogPath, servePidPath } from "./state";
 
 const HEALTH_TIMEOUT_MS = 60_000;
 const HEALTH_INTERVAL_MS = 300;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-export function serveLogPath(cwd: string, port: number): string {
-  return path.join(cwd, ".opencode", `serve-${port}.log`);
-}
-
-export function servePidPath(cwd: string, port: number): string {
-  return path.join(cwd, ".opencode", `serve-${port}.pid`);
-}
 
 export async function up(args: { url?: string; port?: number }, env: Env = process.env): Promise<number> {
   const targetUrl = resolveServerUrl(args.url, env);
@@ -26,12 +19,14 @@ export async function up(args: { url?: string; port?: number }, env: Env = proce
     return 0;
   }
 
-  const port = args.port ?? portFromUrl(targetUrl) ?? 8767;
+  const port = resolvePort(args.port, targetUrl);
   const serveUrl = `http://127.0.0.1:${port}`;
-  const logPath = serveLogPath(process.cwd(), port);
-  const pidPath = servePidPath(process.cwd(), port);
+  const logPath = serveLogPath(env, port);
+  const pidPath = servePidPath(env, port);
 
   await mkdir(path.dirname(logPath), { recursive: true });
+  // A new server has no runs yet. A list left by a crashed server is stale.
+  await removeFiles(serveDirsPath(env, port));
   // The server keeps running after this process exits, so its output goes to
   // a file: fd numbers are inherited by the child and closed here again.
   const logFd = openSync(logPath, "w");

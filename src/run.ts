@@ -1,8 +1,9 @@
 /** `oc-sub run`: create a session, send the brief asynchronously, record it. */
 import path from "node:path";
-import { resolveServerUrl, type Env } from "./config";
+import { resolvePort, resolveServerUrl, type Env } from "./config";
 import { assertOk, makeClient, unwrap } from "./client";
 import { makeRunRecord, writeRunRecord } from "./runs";
+import { addDir, serveDirsPath } from "./state";
 
 export function attachCommand(url: string, directory: string, sessionId: string): string {
   return `opencode attach ${url} --dir ${directory} --session ${sessionId}`;
@@ -45,6 +46,8 @@ export async function run(
     title: args.title,
   });
   const recordPath = await writeRunRecord(process.cwd(), record);
+  // `oc-sub down` checks these directories for busy sessions.
+  await addDir(serveDirsPath(env, resolvePort(undefined, baseUrl)), directory);
 
   console.log(created.id);
   console.log(attachCommand(baseUrl, directory, created.id));

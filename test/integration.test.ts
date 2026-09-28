@@ -3,7 +3,7 @@
  * 8790 upward. It exercises `up`, creates sessions over the SDK (without
  * sending any prompt, so no model is called and nothing costs money), checks
  * `status`, runs `watch` on an already finished session, runs `abort`, and
- * stops the server again. Skipped when the `opencode` command is not on the
+ * stops the server with `restart` and `down`. Skipped when the `opencode` command is not on the
  * PATH.
  */
 import { expect, test } from "bun:test";
@@ -132,7 +132,12 @@ test.skipIf(!hasOpencode)(
     const port = await findFreePort();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-"));
     const dataDir = path.join(workDir, "data"); // isolate opencode storage
-    const env: Record<string, string> = { ...process.env, XDG_DATA_HOME: dataDir } as Record<string, string>;
+    const stateHome = path.join(workDir, "state"); // isolate the oc-sub state
+    const env: Record<string, string> = { ...process.env, XDG_DATA_HOME: dataDir, XDG_STATE_HOME: stateHome } as Record<
+      string,
+      string
+    >;
+    const pidFile = path.join(stateHome, "oc-sub", `serve-${port}.pid`);
 
     try {
       const url = `http://127.0.0.1:${port}`;
@@ -142,7 +147,6 @@ test.skipIf(!hasOpencode)(
       expect(started.code).toBe(0);
       expect(started.stdout).toContain(url);
       expect(started.stdout).toMatch(/version \S+/);
-      const pidFile = path.join(workDir, ".opencode", `serve-${port}.pid`);
       expect(existsSync(pidFile)).toBe(true);
       const pid = Number(readFileSync(pidFile, "utf8").trim());
 
@@ -198,12 +202,29 @@ test.skipIf(!hasOpencode)(
         rmSync(otherDir, { recursive: true, force: true });
       }
 
-      // Stop the server again.
-      process.kill(pid, "SIGTERM");
+      // restart: stops the server and starts a new one on the same port.
+      const restarted = runCli(workDir, ["restart", "--url", url], env);
+      expect(restarted.stderr).toBe("");
+      expect(restarted.code).toBe(0);
+      expect(restarted.stdout).toContain(`stopped ${url} (PID ${pid})`);
       expect(await waitUntilGone(pid)).toBe(true);
+      const newPid = Number(readFileSync(pidFile, "utf8").trim());
+      expect(newPid).not.toBe(pid);
+
+      // down: stops the server and removes the PID file.
+      const stopped = runCli(workDir, ["down", "--url", url], env);
+      expect(stopped.stderr).toBe("");
+      expect(stopped.code).toBe(0);
+      expect(stopped.stdout).toContain(`stopped ${url} (PID ${newPid})`);
+      expect(await waitUntilGone(newPid)).toBe(true);
+      expect(existsSync(pidFile)).toBe(false);
+
+      // down again: nothing runs, so it only says so.
+      const noServer = runCli(workDir, ["down", "--url", url], env);
+      expect(noServer.code).toBe(0);
+      expect(noServer.stdout).toContain(`no server on ${url}`);
     } finally {
       // Make sure no server survives the test.
-      const pidFile = path.join(workDir, ".opencode", `serve-${port}.pid`);
       if (existsSync(pidFile)) {
         const pid = Number(readFileSync(pidFile, "utf8").trim());
         try {

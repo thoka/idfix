@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { authHeaderFromEnv, DEFAULT_SERVER_URL, portFromUrl, resolveServerUrl } from "../src/config";
+import { authHeaderFromEnv, DEFAULT_PORT, DEFAULT_SERVER_URL, portFromUrl, resolvePort, resolveServerUrl } from "../src/config";
 
 describe("resolveServerUrl", () => {
   test("prefers the flag over the environment and the default", () => {
@@ -55,5 +55,13 @@ describe("portFromUrl", () => {
   test("is undefined without a port or on a bad URL", () => {
     expect(portFromUrl("http://127.0.0.1")).toBeUndefined();
     expect(portFromUrl("not a url")).toBeUndefined();
+  });
+});
+
+describe("resolvePort", () => {
+  test("prefers the flag, then the port of the URL, then the default", () => {
+    expect(resolvePort(9000, "http://127.0.0.1:8767")).toBe(9000);
+    expect(resolvePort(undefined, "http://127.0.0.1:8790")).toBe(8790);
+    expect(resolvePort(undefined, "http://127.0.0.1")).toBe(DEFAULT_PORT);
   });
 });

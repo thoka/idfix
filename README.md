@@ -35,6 +35,14 @@ mise install
 bun install
 ```
 
+To run `oc-sub` from any shell on this machine, link the launcher into a folder on your PATH:
+
+```
+ln -sfn "$PWD/bin/oc-sub" ~/.local/bin/oc-sub
+```
+
+The launcher follows the symlink back to this repository. Updates to the repository take effect at once.
+
 `mise.toml` pins `bun` and `opencode`. Check the setup with:
 
 ```
@@ -54,7 +62,31 @@ The server URL comes from `--url` or the environment variable `OC_SUB_URL`, defa
 bun run src/cli.ts up [--port N]
 ```
 
-Checks the health of the server (`GET /global/health`). When nothing answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background (detached, so it outlives the command), waits until it is healthy, and prints the URL and the version. The server's output goes to `.opencode/serve-<port>.log`, its PID to `.opencode/serve-<port>.pid` (both in the current directory). `--port` defaults to the port of the URL, then to 8767.
+Checks the health of the server (`GET /global/health`). When nothing answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background (detached, so it outlives the command), waits until it is healthy, and prints the URL and the version. `--port` defaults to the port of the URL, then to 8767.
+
+One server serves many project folders, so its state lives in one folder per user, `$XDG_STATE_HOME/oc-sub/` (default `~/.local/state/oc-sub/`):
+
+- `serve-<port>.log` holds the output of the server.
+- `serve-<port>.pid` holds its PID.
+- `serve-<port>.dirs` lists the folders that `oc-sub run` sent sessions to. `oc-sub down` checks these folders for busy sessions.
+
+### oc-sub down
+
+```
+oc-sub down [--port N] [--force]
+```
+
+Stops the server that `oc-sub up` started on the port. It reads the PID file and makes sure that the process is still `opencode serve` on that port. If a session in one of the listed folders is still busy, `down` lists it and stops with code 1. With `--force`, it stops the server anyway. Then it sends SIGTERM to the process group of the server, waits up to 15 seconds, and removes the state files. If no server runs, it says so and exits with code 0. If a server answers but `oc-sub up` did not start it, `down` does not touch it and exits with code 1.
+
+`down` knows only the sessions that `oc-sub run` started. It does not see a session that you started in the opencode interface.
+
+### oc-sub restart
+
+```
+oc-sub restart [--port N] [--force]
+```
+
+Runs `down` and then `up` on the same port. If `down` fails, `restart` stops there.
 
 ### oc-sub run
 
@@ -115,7 +147,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 
 ## Tests
 
-`bun test` runs the unit tests in `test/` (argument parsing, event filtering and line formatting, cost and token summary, the end check of a session missing from the status map, run records, client helpers) and one integration test. The integration test starts a real `opencode serve` on a free port from 8790 upward, runs `up`, creates a session over the SDK without sending any prompt, checks `status`, runs `abort`, and stops the server. It never calls a model and costs nothing. It skips itself with a clear message when the command `opencode` is not on the PATH.
+`bun test` runs the unit tests in `test/` (argument parsing, event filtering and line formatting, cost and token summary, the end check of a session missing from the status map, run records, state files, the process check of `down`, client helpers) and one integration test. The integration test starts a real `opencode serve` on a free port from 8790 upward, runs `up`, creates a session over the SDK without sending any prompt, checks `status`, runs `abort`, and stops the server with `restart` and `down`. It never calls a model and costs nothing. It skips itself with a clear message when the command `opencode` is not on the PATH.
 
 ## Layout
 
@@ -127,7 +159,8 @@ bun run src/cli.ts log <session-id> --dir <repo>
 - `src/events.ts` — event filtering and watch lines (pure)
 - `src/runs.ts` — run records under `.opencode/runs/`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
-- `src/up.ts`, `src/run.ts`, `src/status.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts` — the commands
+- `src/state.ts` — per-user state files of the server (PID, log, folders with runs)
+- `src/up.ts`, `src/down.ts`, `src/run.ts`, `src/status.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts` — the commands
 
 ## License
 

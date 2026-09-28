@@ -64,7 +64,7 @@ claude plugin marketplace remove opencode-subagents
    ```
 
 3. Set the model in both files. The templates use `openrouter/z-ai/glm-5.3-flash`.
-4. Add `.opencode/runs/`, `.opencode/serve-*`, and `.opencode/context/` to `.gitignore`.
+4. Add `.opencode/runs/` and `.opencode/context/` to `.gitignore`.
 5. Commit the agent files.
 
 Then ask Claude, for example: "Delegate step 4 to the opencode coder." Claude invokes the skill by itself. You can also type `/opencode-subagents:oc-sub`.

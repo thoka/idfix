@@ -27,7 +27,9 @@ Every command accepts `--url URL`. The default URL comes from the environment va
 
 | Command | What it does |
 | --- | --- |
-| `oc-sub up [--port N]` | Checks `GET /global/health`. If no server answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background. The log goes to `.opencode/serve-<port>.log` and the PID to `.opencode/serve-<port>.pid`, in the current folder. |
+| `oc-sub up [--port N]` | Checks `GET /global/health`. If no server answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background. The log goes to `serve-<port>.log` and the PID to `serve-<port>.pid`, in `~/.local/state/oc-sub/` (or `$XDG_STATE_HOME/oc-sub/`). |
+| `oc-sub down [--port N] [--force]` | Stops the server that `oc-sub up` started. If a session that `oc-sub run` started is still busy, it lists the session and exits with code 1. `--force` stops the server anyway and kills the running sessions. |
+| `oc-sub restart [--port N] [--force]` | Runs `down`, then `up` on the same port. |
 | `oc-sub run --agent NAME --dir DIR (--brief FILE \| TEXT) [--title T]` | Creates a session in DIR and sends the brief to the agent without waiting. It prints three lines: the session ID, the `opencode attach ...` command, and the path of the run record `.opencode/runs/<session-id>.json`. |
 | `oc-sub status [--dir DIR]` | One line per session: ID, state (`busy`, `idle`, `retry`), title. |
 | `oc-sub watch SESSION [--dir DIR] [--json]` | Prints one short line per tool call, failed tool call, assistant text, and session error. When the session is idle, it prints a summary line and exits with code 0. With `--json`, it prints the events as JSON lines, and the summary goes to stderr. |

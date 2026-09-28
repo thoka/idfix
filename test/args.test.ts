@@ -25,6 +25,17 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["up", "extra"])).toThrow(UsageError);
   });
 
+  test("down and restart with port and force", () => {
+    expect(parseArgs(["down"])).toEqual({ command: "down", force: false });
+    expect(parseArgs(["down", "--port", "8790", "--force"])).toEqual({ command: "down", port: 8790, force: true });
+    expect(parseArgs(["restart", "--port=8790"])).toEqual({ command: "restart", port: 8790, force: false });
+  });
+
+  test("down and restart reject positionals and a value for --force", () => {
+    expect(() => parseArgs(["down", "extra"])).toThrow(UsageError);
+    expect(() => parseArgs(["restart", "--force=yes"])).toThrow(UsageError);
+  });
+
   test("run with a brief file", () => {
     expect(parseArgs(["run", "--agent", "researcher", "--dir", "/w", "--brief", "brief.md", "--title", "T"])).toEqual({
       command: "run",

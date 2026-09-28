@@ -2,6 +2,7 @@
 /** oc-sub: drive an opencode server for cheap subagent runs. */
 import { UsageError, parseArgs } from "./args";
 import { up } from "./up";
+import { down } from "./down";
 import { run } from "./run";
 import { status } from "./status";
 import { watch } from "./watch";
@@ -12,6 +13,8 @@ const HELP = `oc-sub - drive an opencode server for subagent runs
 
 Usage:
   oc-sub up [--port N]
+  oc-sub down [--port N] [--force]
+  oc-sub restart [--port N] [--force]
   oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T]
   oc-sub status [--dir DIR]
   oc-sub watch SESSION [--dir DIR] [--json]
@@ -38,6 +41,12 @@ export async function main(argv: readonly string[]): Promise<number> {
   switch (args.command) {
     case "up":
       return up(args);
+    case "down":
+      return down(args);
+    case "restart": {
+      const stopped = await down(args);
+      return stopped === 0 ? up(args) : stopped;
+    }
     case "run":
       return run(args);
     case "status":

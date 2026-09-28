@@ -1,6 +1,7 @@
 /** Server URL and basic-auth resolution. Pure functions, no I/O. */
 
-export const DEFAULT_SERVER_URL = "http://127.0.0.1:8767";
+export const DEFAULT_PORT = 8767;
+export const DEFAULT_SERVER_URL = `http://127.0.0.1:${DEFAULT_PORT}`;
 
 export type Env = Record<string, string | undefined>;
 
@@ -40,4 +41,9 @@ export function portFromUrl(url: string): number | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** The server port: the --port flag, else the port of the URL, else the default. */
+export function resolvePort(flag: number | undefined, url: string): number {
+  return flag ?? portFromUrl(url) ?? DEFAULT_PORT;
 }

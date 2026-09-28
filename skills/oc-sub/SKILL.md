@@ -26,7 +26,7 @@ Do not delegate:
 1. Check that the project has agent files in `.opencode/agents/` (for example `researcher.md`, `coder.md`). If not, copy them from [templates/](templates/) and adapt the bash allowlist to the test command of the project.
 2. Create a git worktree with its own branch, for example `git worktree add -b feature/x ../proj-x main`. The agent works only there.
 3. Write the brief into a file outside the worktree, for example in your scratch folder. `oc-sub run` sends its text, so the agent never needs the file, and it cannot commit it by mistake. The agent cannot read files outside its project folder. If it needs other files, copy them into `.opencode/context/` of the worktree, which git ignores, or paste their content into the brief.
-4. Start the server once: `oc-sub up`.
+4. Start the server once: `oc-sub up`. To stop it, use `oc-sub down`. After a change to the agent files or the opencode configuration, use `oc-sub restart`.
 5. Start the run: `oc-sub run --agent coder --dir <worktree> --brief <scratch>/brief.md --title "<short title>"`. It prints the session ID, an `opencode attach ...` command, and the path of the run record.
 6. Give the user the `opencode attach ...` command, so that they can watch the run live.
 7. Wait with `oc-sub watch <session-id> --dir <worktree>` as a background command. When the session is idle, it prints the elapsed time, the tool calls, and the cost, and it ends.

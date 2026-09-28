@@ -7,13 +7,13 @@ allowed-tools: Bash(oc-sub *)
 
 # Delegate work to an opencode subagent
 
-`oc-sub` drives an `opencode serve` server on 127.0.0.1. You write a brief, start a run, give the user a command to watch it live, and review the result yourself. The full command reference and the details are in [reference.md](reference.md). Agent templates are in [templates/](templates/).
+`oc-sub` drives an `opencode serve` server on 127.0.0.1. You write a brief, start a run, give the user a command to watch it live, and review the result yourself. The full command reference and the details are in [reference.md](reference.md). The coder agent template is in [templates/coder.md](templates/coder.md).
 
 ## When to delegate
 
 Delegate:
 
-- A research question. The agent writes a report into the repository, for example `docs/research/<topic>.md`.
+- A research question. The agent writes a report into the repository, for example `docs/research/<topic>.md`. Research needs no agent file in the project: `oc-sub up` serves the `researcher` agent and its hidden `reader` subagent from the plugin. The researcher cannot fetch pages itself. It calls `reader`, which fetches the pages in a fresh context and returns at most 600 words of quotes. This keeps the cost low.
 - A small or medium coding step with a precise brief: the files to read, the scope, what not to touch, the test command, and the content of the final report.
 
 Do not delegate:
@@ -23,11 +23,11 @@ Do not delegate:
 
 ## Workflow
 
-1. Check that the project has agent files in `.opencode/agents/` (for example `researcher.md`, `coder.md`). If not, copy them from [templates/](templates/) and adapt the bash allowlist to the test command of the project.
+1. Check that the project has `.opencode/agents/coder.md`. If not, copy it from [templates/coder.md](templates/coder.md) and adapt the bash allowlist to the test command of the project. Research needs no agent file in the project: the plugin serves the `researcher` agent and its hidden `reader` subagent itself.
 2. Create a git worktree with its own branch, for example `git worktree add -b feature/x ../proj-x main`. The agent works only there.
 3. Write the brief into a file outside the worktree, for example in your scratch folder. `oc-sub run` sends its text, so the agent never needs the file, and it cannot commit it by mistake. The agent cannot read files outside its project folder. If it needs other files, copy them into `.opencode/context/` of the worktree, which git ignores, or paste their content into the brief.
-4. Start the server once: `oc-sub up`. To stop it, use `oc-sub down`. After a change to the agent files or the opencode configuration, use `oc-sub restart`.
-5. Start the run: `oc-sub run --agent coder --dir <worktree> --brief <scratch>/brief.md --title "<short title>"`. It prints the session ID, an `opencode attach ...` command, and the path of the run record.
+4. Start the server once: `oc-sub up`. It sets `OPENCODE_CONFIG_DIR` to the plugin folder, so the server also loads the research agents of the plugin. To stop it, use `oc-sub down`. After a change to the agent files or the opencode configuration, use `oc-sub restart`. After an update of the plugin, use `oc-sub restart` too, because the running server keeps the plugin folder that it got at start in `OPENCODE_CONFIG_DIR`.
+5. Start the run: `oc-sub run --agent coder --dir <worktree> --brief <scratch>/brief.md --title "<short title>"`. For a research step, use `--agent researcher`. It prints the session ID, an `opencode attach ...` command, and the path of the run record.
 6. Give the user the `opencode attach ...` command, so that they can watch the run live.
 7. Wait with `oc-sub watch <session-id> --dir <worktree>` as a background command. When the session is idle, it prints the elapsed time, the tool calls, and the cost, and it ends.
 8. Read the result with `oc-sub log <session-id> --dir <worktree>`.

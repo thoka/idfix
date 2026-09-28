@@ -33,6 +33,7 @@ permission:
     "git diff*": allow
     "git log*": allow
     "git add *": allow
+    "git rm *": allow
     "git commit *": allow
 ---
 You implement one coding step in this repository. Read CLAUDE.md and the files that the brief names first.

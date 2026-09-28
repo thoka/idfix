@@ -13,7 +13,7 @@ claude plugin marketplace add thoka/opencode-subagents
 claude plugin install opencode-subagents@opencode-subagents
 ```
 
-Then copy the agent templates into the project and adapt the test command. [docs/GUIDE.md](docs/GUIDE.md) explains the setup, how to watch a run live, how to follow up and abort, how to read the cost, and the security notes.
+Then copy the coder agent template into the project and adapt the test command. Research needs no agent file in the project: `oc-sub up` serves the `researcher` agent and its hidden `reader` subagent from the plugin, through `OPENCODE_CONFIG_DIR`. [docs/GUIDE.md](docs/GUIDE.md) explains the setup, how to watch a run live, how to follow up and abort, how to read the cost, and the security notes.
 
 ## Plugin layout
 
@@ -21,7 +21,8 @@ Then copy the agent templates into the project and adapt the test command. [docs
 - `.claude-plugin/marketplace.json` — a marketplace `opencode-subagents` that lists this folder as the plugin
 - `skills/oc-sub/SKILL.md` — the skill: when to delegate, the workflow, and the rules
 - `skills/oc-sub/reference.md` — the full command reference and the details
-- `skills/oc-sub/templates/` — generic `researcher` and `coder` agent files for `.opencode/agents/`
+- `skills/oc-sub/templates/` — a generic `coder` agent file for `.opencode/agents/`
+- `opencode/agents/` — the research agents of the plugin: `researcher`, and its hidden subagent `reader`. `oc-sub up` serves them through `OPENCODE_CONFIG_DIR`.
 - `bin/oc-sub` — the launcher. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), installs the locked dependencies on the first call, and runs `src/cli.ts`.
 
 Check the plugin with `claude plugin validate .` and `claude --plugin-dir . plugin details opencode-subagents`.
@@ -63,6 +64,8 @@ bun run src/cli.ts up [--port N]
 ```
 
 Checks the health of the server (`GET /global/health`). When nothing answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background (detached, so it outlives the command), waits until it is healthy, and prints the URL and the version. `--port` defaults to the port of the URL, then to 8767.
+
+`up` sets `OPENCODE_CONFIG_DIR` in the environment of the child process to the `opencode/` folder of this repository (computed from the location of the source file, not from the working directory). opencode then loads the research agents of the plugin for every project, after the project `.opencode` folder, so its agent wins over a project agent with the same name. If the environment already sets `OPENCODE_CONFIG_DIR` to another value, `up` keeps that value and prints a warning to stderr, because the research agents are then not loaded. If `OPENCODE_CONFIG_DIR` already holds the folder of the plugin, `up` prints no warning.
 
 One server serves many project folders, so its state lives in one folder per user, `$XDG_STATE_HOME/oc-sub/` (default `~/.local/state/oc-sub/`):
 

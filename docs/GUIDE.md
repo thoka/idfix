@@ -6,7 +6,7 @@ This guide is for you, the user. It says how to install the plugin in a project,
 
 - The command `oc-sub`. It starts an opencode server, starts runs, watches them, and prints the result and the cost.
 - The skill `oc-sub`. It tells Claude when to delegate work to a cheap opencode agent. It also tells Claude how to review the result.
-- Two agent templates, `researcher` and `coder`, in `skills/oc-sub/templates/`.
+- The agent template `coder` in `skills/oc-sub/templates/`. Research needs no agent file in your project: the plugin serves the `researcher` agent and its hidden `reader` subagent itself, through `OPENCODE_CONFIG_DIR`.
 
 ## Requirements
 
@@ -49,11 +49,11 @@ claude plugin marketplace remove opencode-subagents
 
 ## Set up a project
 
-1. Copy the agent templates into the project:
+1. Copy the coder agent template into the project:
 
    ```
    mkdir -p .opencode/agents
-   cp <path-to-a-clone>/skills/oc-sub/templates/*.md .opencode/agents/
+   cp <path-to-a-clone>/skills/oc-sub/templates/coder.md .opencode/agents/
    ```
 
 2. In `.opencode/agents/coder.md`, replace the lines `"bun test*"` and `"bun run typecheck*"` with the test and lint commands of your project. For a Python project with uv, for example:
@@ -63,7 +63,7 @@ claude plugin marketplace remove opencode-subagents
    "uv run ruff*": allow
    ```
 
-3. Set the model in both files. The templates use `openrouter/z-ai/glm-5.3-flash`.
+3. Set the model in the file. The template uses `openrouter/z-ai/glm-5.3-flash`.
 4. Add `.opencode/runs/` and `.opencode/context/` to `.gitignore`.
 5. Commit the agent files.
 6. Give the project its own OpenRouter key, so that OpenRouter shows the cost of this project. Create a key with a monthly limit in the OpenRouter dashboard and put it into the project key file. The file holds only the key. Never commit it.
@@ -96,6 +96,14 @@ claude plugin marketplace remove opencode-subagents
    The command must print `source: project key file ...` and `openrouter: ok`. If it warns that the server uses another key, follow the warning.
 
 Then ask Claude, for example: "Delegate step 4 to the opencode coder." Claude invokes the skill by itself. You can also type `/opencode-subagents:oc-sub`.
+
+## Research agents
+
+Research needs no agent file in your project. `oc-sub up` starts the server with `OPENCODE_CONFIG_DIR` set to the `opencode/` folder of the plugin. opencode loads the agents of that folder for every project, after the project `.opencode` folder. An agent from `OPENCODE_CONFIG_DIR` overrides a project agent with the same name.
+
+The plugin serves two agents there: the `researcher`, and its hidden `reader` subagent. The researcher cannot fetch pages itself. It calls `reader`, which fetches the pages in a fresh context and returns at most 600 words of quotes with URLs. This keeps the cost low, because each fetched page would otherwise stay in the context of the researcher until the run ends.
+
+After an update of the plugin, run `oc-sub restart`. The running server keeps the plugin folder that it got at start in `OPENCODE_CONFIG_DIR`, and a plugin update can install into a new folder.
 
 ## Watch a run live
 
@@ -141,3 +149,4 @@ oc-sub watch ses_abc123 --dir /path/to/worktree
 | The agent cannot read a file | The agent cannot leave its project folder. Copy the file into the worktree, or put its content into the brief. |
 | A run takes very long | The step is too big. Abort it and split the brief into smaller steps. |
 | `oc-sub ping` shows an old key after a configuration change | The server caches the configuration. Run `oc-sub restart`. |
+| An old research agent runs | The server still uses the plugin folder that it got at start. After an update of the plugin, run `oc-sub restart`. |

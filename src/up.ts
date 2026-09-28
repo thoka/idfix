@@ -11,6 +11,37 @@ const HEALTH_INTERVAL_MS = 300;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/**
+ * The config directory of this plugin: `opencode/` next to `src/`. It holds
+ * the research agents in `agents/`. Computed from this source file, not from
+ * the working directory, so it stays correct when `up` runs in any project.
+ */
+export const PLUGIN_CONFIG_DIR = path.resolve(import.meta.dir, "..", "opencode");
+
+/**
+ * The environment for the `opencode serve` child. Sets `OPENCODE_CONFIG_DIR`
+ * to the plugin config directory, so that the server loads the research
+ * agents of the plugin for every project. opencode loads that directory after
+ * the project `.opencode` directory, so its agents win over project agents
+ * with the same name. An existing `OPENCODE_CONFIG_DIR` stays, because it may
+ * point to other agent files, and gives a warning. Pure: the input env object
+ * is not changed.
+ */
+export function serveEnv(env: Env, pluginConfigDir: string = PLUGIN_CONFIG_DIR): { env: Env; warning?: string } {
+  const current = env.OPENCODE_CONFIG_DIR;
+  if (current !== undefined && current.trim().length > 0) {
+    // A relative path or a trailing slash still names the same folder.
+    const same = path.resolve(current) === path.resolve(pluginConfigDir);
+    return {
+      env: { ...env },
+      warning: same
+        ? undefined
+        : `OPENCODE_CONFIG_DIR is already set to ${current}. The research agents of the plugin are not loaded.`,
+    };
+  }
+  return { env: { ...env, OPENCODE_CONFIG_DIR: pluginConfigDir } };
+}
+
 export async function up(args: { url?: string; port?: number }, env: Env = process.env): Promise<number> {
   const targetUrl = resolveServerUrl(args.url, env);
   const existing = await probeServer(targetUrl, env);
@@ -20,6 +51,9 @@ export async function up(args: { url?: string; port?: number }, env: Env = proce
   }
   // A server that refused the credentials still runs: do not start another.
   if (existing.state === "unauthorized") assertUsable(existing, targetUrl, env);
+
+  const serve = serveEnv(env);
+  if (serve.warning !== undefined) console.error(`warning: ${serve.warning}`);
 
   const port = resolvePort(args.port, targetUrl);
   const serveUrl = `http://127.0.0.1:${port}`;
@@ -37,7 +71,7 @@ export async function up(args: { url?: string; port?: number }, env: Env = proce
     proc = Bun.spawn({
       cmd: ["opencode", "serve", "--port", String(port), "--hostname", "127.0.0.1"],
       cwd: process.cwd(),
-      env: { ...env },
+      env: { ...serve.env },
       stdin: "ignore",
       stdout: logFd,
       stderr: logFd,

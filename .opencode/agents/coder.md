@@ -24,6 +24,7 @@ permission:
     "git diff*": allow
     "git log*": allow
     "git add *": allow
+    "git rm *": allow
     "git commit *": allow
 ---
 You implement one coding step in the repository opencode-subagents. Read CLAUDE.md first.

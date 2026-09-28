@@ -16,7 +16,7 @@ The tested agent files are in the terminator repository: `~/dv/terminator/.openc
 
 ## Step 1: The plugin serves the research agents
 
-Status: open.
+Status: done.
 
 1. Add `opencode/agents/researcher.md` and `opencode/agents/reader.md` to the plugin, with the content of the tested files in terminator.
 2. `oc-sub up` starts `opencode serve` with `OPENCODE_CONFIG_DIR` set to the absolute path of `opencode/` in the plugin. If the environment already sets `OPENCODE_CONFIG_DIR`, `oc-sub up` keeps it and prints a warning. See the opencode documentation, "Custom directory": https://opencode.ai/docs/config/

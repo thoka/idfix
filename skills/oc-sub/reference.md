@@ -27,7 +27,7 @@ Every command accepts `--url URL`. The default URL comes from the environment va
 
 | Command | What it does |
 | --- | --- |
-| `oc-sub up [--port N]` | Checks `GET /global/health`. If no server answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background. The log goes to `serve-<port>.log` and the PID to `serve-<port>.pid`, in `~/.local/state/oc-sub/` (or `$XDG_STATE_HOME/oc-sub/`). |
+| `oc-sub up [--port N]` | Checks `GET /global/health`. If no server answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background. It sets `OPENCODE_CONFIG_DIR` to the `opencode/` folder of the plugin, so the server loads the research agents (see [Agent files](#agent-files)). If the environment already sets `OPENCODE_CONFIG_DIR`, `up` keeps that value and prints a warning to stderr, because the research agents are then not loaded. The log goes to `serve-<port>.log` and the PID to `serve-<port>.pid`, in `~/.local/state/oc-sub/` (or `$XDG_STATE_HOME/oc-sub/`). |
 | `oc-sub down [--port N] [--force]` | Stops the server that `oc-sub up` started. If a session that `oc-sub run` started is still busy, it lists the session and exits with code 1. `--force` stops the server anyway and kills the running sessions. |
 | `oc-sub restart [--port N] [--force]` | Runs `down`, then `up` on the same port. |
 | `oc-sub run --agent NAME --dir DIR (--brief FILE \| TEXT) [--title T]` | Creates a session in DIR and sends the brief to the agent without waiting. It prints three lines: the session ID, the `opencode attach ...` command, and the path of the run record `.opencode/runs/<session-id>.json`. |
@@ -86,7 +86,11 @@ opencode run --attach http://127.0.0.1:8767 --dir <worktree> --session <session-
 
 ## Agent files
 
-An agent file is `.opencode/agents/<name>.md` in the project. The file name is the agent name. The frontmatter sets the model and the permissions, and the body is the system prompt. Templates: [templates/researcher.md](templates/researcher.md) and [templates/coder.md](templates/coder.md).
+An agent file is `.opencode/agents/<name>.md` in the project. The file name is the agent name. The frontmatter sets the model and the permissions, and the body is the system prompt.
+
+A coding step needs `.opencode/agents/coder.md` in the project. Copy it from [templates/coder.md](templates/coder.md) and adapt the bash allowlist to the test command of the project.
+
+Research needs no agent file in the project. `oc-sub up` starts `opencode serve` with `OPENCODE_CONFIG_DIR` set to the `opencode/` folder of the plugin. opencode searches that folder for agents like the project `.opencode` folder, and it loads that folder after the project folders. So an agent from `OPENCODE_CONFIG_DIR` overrides a project agent with the same name. The plugin serves two agents there: the `researcher` agent, and its hidden `reader` subagent. The researcher cannot fetch pages itself. It calls `reader` through the task tool, which fetches the pages in a fresh context and returns at most 600 words of quotes with URLs. This keeps the cost low, because each fetched page would otherwise stay in the context of the researcher until the run ends. See `docs/PLAN.md` in the repository of the plugin.
 
 Permission rules:
 
@@ -96,7 +100,7 @@ Permission rules:
 - Deny `*.env` and `*.env.*` for `read`.
 - Adapt the `bash` allowlist to the test command of the project, for example `"uv run pytest*": allow` or `"npm test*": allow`.
 
-The server reads the agent files of the folder that you pass with `--dir`. A new or changed agent file in a worktree needs no server restart.
+The server reads the agent files of the folder that you pass with `--dir`. A new or changed agent file in a worktree needs no server restart. After an update of the plugin, run `oc-sub restart`. The running server keeps the plugin folder that it got at start in `OPENCODE_CONFIG_DIR`, and a plugin update can install into a new folder.
 
 Do not use `opencode run --auto` instead of agent files. The Claude Code permission check blocks the flag, and it approves every request that is not explicitly denied.
 

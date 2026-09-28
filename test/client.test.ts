@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assertOk, errorMessage, fetchHealth, unwrap } from "../src/client";
+import { assertOk, errorMessage, fetchHealth, requireServer, ServerDownError, unwrap } from "../src/client";
 
 describe("unwrap and assertOk", () => {
   test("returns the data when present", () => {
@@ -51,6 +51,31 @@ describe("fetchHealth", () => {
         port += 1;
         if (port > 8890) throw new Error("no free port for the test server");
       }
+    }
+  });
+});
+
+describe("requireServer", () => {
+  test("throws ServerDownError with the URL when nothing answers", async () => {
+    // Reserve a port, then free it, so that nothing listens there.
+    const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("") });
+    const url = `http://127.0.0.1:${probe.port}`;
+    probe.stop(true);
+    const error = await requireServer(url, {}).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ServerDownError);
+    expect((error as ServerDownError).message).toBe(`no server on ${url}. Start it with: oc-sub up`);
+  });
+
+  test("passes when the server is healthy", async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => Response.json({ healthy: true, version: "1.0.0" }),
+    });
+    try {
+      await requireServer(`http://127.0.0.1:${server.port}`, {});
+    } finally {
+      server.stop(true);
     }
   });
 });

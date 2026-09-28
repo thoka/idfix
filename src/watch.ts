@@ -1,7 +1,7 @@
 /** `oc-sub watch`: follow one session's events live, end with a summary. */
 import path from "node:path";
 import { resolveServerUrl, type Env } from "./config";
-import { makeClient, unwrap } from "./client";
+import { makeClient, requireServer, unwrap } from "./client";
 import { belongsToSession, watchEventLine } from "./events";
 import { missingSessionIsSettled } from "./settled";
 import { countToolCalls, formatDuration, formatSummary, summarizeMessages } from "./summary";
@@ -15,6 +15,7 @@ export async function watch(
   env: Env = process.env,
 ): Promise<number> {
   const baseUrl = resolveServerUrl(args.url, env);
+  await requireServer(baseUrl, env);
   const directory = path.resolve(args.dir ?? process.cwd());
   const client = makeClient(baseUrl, env);
   const sessionId = args.session;

@@ -1,7 +1,7 @@
 /** `oc-sub run`: create a session, send the brief asynchronously, record it. */
 import path from "node:path";
 import { resolvePort, resolveServerUrl, type Env } from "./config";
-import { assertOk, makeClient, unwrap } from "./client";
+import { assertOk, makeClient, requireServer, unwrap } from "./client";
 import { makeRunRecord, writeRunRecord } from "./runs";
 import { addDir, serveDirsPath } from "./state";
 
@@ -14,6 +14,7 @@ export async function run(
   env: Env = process.env,
 ): Promise<number> {
   const baseUrl = resolveServerUrl(args.url, env);
+  await requireServer(baseUrl, env);
   const directory = path.resolve(args.dir);
   const client = makeClient(baseUrl, env);
 

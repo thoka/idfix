@@ -54,7 +54,7 @@ bun run typecheck   # tsc --noEmit
 
 `oc-sub` drives an opencode server: start it, launch subagent runs, watch them live, and read the results. Entry point: `src/cli.ts`. Run it with `bin/oc-sub`, `bun run src/cli.ts`, or `bun src/cli.ts`. With the plugin enabled, Claude runs it as `oc-sub`.
 
-The server URL comes from `--url` or the environment variable `OC_SUB_URL`, default `http://127.0.0.1:8767`. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `watch`, `log`, and `abort` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
+The server URL comes from `--url` or the environment variable `OC_SUB_URL`, default `http://127.0.0.1:8767`. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: oc-sub up` and exit with code 1. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `watch`, `log`, and `abort` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
 
 ### oc-sub up
 
@@ -108,7 +108,7 @@ The run record is a JSON file `.opencode/runs/<session-id>.json` in the current 
 bun run src/cli.ts status [--dir DIR]
 ```
 
-One line per session of the directory: ID, state (`busy`, `idle`, or `retry`), title. Child sessions (internal subagent runs) are not listed.
+One line per session of the directory: ID, state (`busy`, `idle`, or `retry`), title. Child sessions (internal subagent runs) are not listed. If no server runs, it prints `no server on <url>` and exits with code 0.
 
 ### oc-sub watch
 

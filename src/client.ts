@@ -41,6 +41,25 @@ export async function fetchHealth(baseUrl: string, env: Env, timeoutMs = 5000): 
   }
 }
 
+/** No opencode server answers on the URL. */
+export class ServerDownError extends Error {
+  constructor(readonly url: string) {
+    super(`no server on ${url}. Start it with: oc-sub up`);
+    this.name = "ServerDownError";
+  }
+}
+
+/**
+ * Throw ServerDownError when the server does not answer. Commands call this
+ * first, so that a missing server gives a clear message and not a raw fetch
+ * error after a long connect timeout.
+ */
+export async function requireServer(baseUrl: string, env: Env): Promise<void> {
+  if ((await fetchHealth(baseUrl, env, 2000)) === null) {
+    throw new ServerDownError(baseUrl);
+  }
+}
+
 /** Pull the data out of an SDK result, or throw an Error with a readable message. */
 export function unwrap<T>(result: { data?: T; error?: unknown }, what: string): T {
   if (result.data !== undefined) {

@@ -223,6 +223,17 @@ test.skipIf(!hasOpencode)(
       const noServer = runCli(workDir, ["down", "--url", url], env);
       expect(noServer.code).toBe(0);
       expect(noServer.stdout).toContain(`no server on ${url}`);
+
+      // status without a server: a normal state, so no error.
+      const statusDown = runCli(workDir, ["status", "--url", url], env);
+      expect(statusDown.code).toBe(0);
+      expect(statusDown.stdout.trim()).toBe(`no server on ${url}`);
+      expect(statusDown.stderr).toBe("");
+
+      // log without a server: an error with a clear message.
+      const logDown = runCli(workDir, ["log", "ses_missing", "--url", url], env);
+      expect(logDown.code).toBe(1);
+      expect(logDown.stderr).toContain(`no server on ${url}. Start it with: oc-sub up`);
     } finally {
       // Make sure no server survives the test.
       if (existsSync(pidFile)) {

@@ -1,7 +1,7 @@
 /** `oc-sub status`: one line per session of a directory: ID, state, title. */
 import path from "node:path";
 import { resolveServerUrl, type Env } from "./config";
-import { makeClient, unwrap } from "./client";
+import { fetchHealth, makeClient, unwrap } from "./client";
 
 export function formatStatusLine(id: string, state: string, title: string): string {
   return `${id} ${state} ${title}`;
@@ -9,6 +9,11 @@ export function formatStatusLine(id: string, state: string, title: string): stri
 
 export async function status(args: { url?: string; dir?: string }, env: Env = process.env): Promise<number> {
   const baseUrl = resolveServerUrl(args.url, env);
+  // No server means no sessions. That is a normal state, not an error.
+  if ((await fetchHealth(baseUrl, env, 2000)) === null) {
+    console.log(`no server on ${baseUrl}`);
+    return 0;
+  }
   const directory = path.resolve(args.dir ?? process.cwd());
   const client = makeClient(baseUrl, env);
 

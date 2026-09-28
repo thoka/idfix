@@ -2,7 +2,7 @@
 import { openSync, closeSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { resolvePort, resolveServerUrl, type Env } from "./config";
+import { resolveTarget, type Env } from "./config";
 import { assertUsable, probeServer } from "./client";
 import { removeFiles, serveDirsPath, serveLogPath, servePidPath } from "./state";
 
@@ -43,7 +43,8 @@ export function serveEnv(env: Env, pluginConfigDir: string = PLUGIN_CONFIG_DIR):
 }
 
 export async function up(args: { url?: string; port?: number }, env: Env = process.env): Promise<number> {
-  const targetUrl = resolveServerUrl(args.url, env);
+  const target = resolveTarget(args.url, args.port, env);
+  const targetUrl = target.url;
   const existing = await probeServer(targetUrl, env);
   if (existing.state === "up") {
     console.log(`${targetUrl} version ${existing.version}`);
@@ -55,7 +56,7 @@ export async function up(args: { url?: string; port?: number }, env: Env = proce
   const serve = serveEnv(env);
   if (serve.warning !== undefined) console.error(`warning: ${serve.warning}`);
 
-  const port = resolvePort(args.port, targetUrl);
+  const port = target.port;
   const serveUrl = `http://127.0.0.1:${port}`;
   const logPath = serveLogPath(env, port);
   const pidPath = servePidPath(env, port);

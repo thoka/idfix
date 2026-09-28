@@ -1,4 +1,5 @@
 /** Server URL and basic-auth resolution. Pure functions, no I/O. */
+import { UsageError } from "./args";
 
 export const DEFAULT_PORT = 8767;
 export const DEFAULT_SERVER_URL = `http://127.0.0.1:${DEFAULT_PORT}`;
@@ -46,4 +47,26 @@ export function portFromUrl(url: string): number | undefined {
 /** The server port: the --port flag, else the port of the URL, else the default. */
 export function resolvePort(flag: number | undefined, url: string): number {
   return flag ?? portFromUrl(url) ?? DEFAULT_PORT;
+}
+
+/**
+ * The target of `up` and `down`: the server URL and its port. The `--port`
+ * flag names the port without touching the host, so `OC_SUB_URL` keeps its
+ * host and only the port changes. When both `--url` and `--port` are given
+ * and their ports differ, that is ambiguous and a usage error. Without
+ * `--port`, the port comes from the URL, else from the default.
+ */
+export function resolveTarget(urlFlag: string | undefined, portFlag: number | undefined, env: Env): { url: string; port: number } {
+  const url = resolveServerUrl(urlFlag, env);
+  if (portFlag === undefined) {
+    return { url, port: resolvePort(undefined, url) };
+  }
+  const urlPort = portFromUrl(url);
+  if (urlFlag !== undefined && urlPort !== undefined && urlPort !== portFlag) {
+    throw new UsageError(`--port ${portFlag} does not match the port ${urlPort} of --url ${url}`);
+  }
+  // --port N replaces the port of the URL without changing the host or path.
+  const withPort = new URL(url);
+  withPort.port = String(portFlag);
+  return { url: withPort.toString().replace(/\/+$/, ""), port: portFlag };
 }

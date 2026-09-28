@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { authHeaderFromEnv, DEFAULT_PORT, DEFAULT_SERVER_URL, portFromUrl, resolvePort, resolveServerUrl } from "../src/config";
+import { authHeaderFromEnv, DEFAULT_PORT, DEFAULT_SERVER_URL, portFromUrl, resolvePort, resolveServerUrl, resolveTarget } from "../src/config";
+import { UsageError } from "../src/args";
 
 describe("resolveServerUrl", () => {
   test("prefers the flag over the environment and the default", () => {
@@ -63,5 +64,45 @@ describe("resolvePort", () => {
     expect(resolvePort(9000, "http://127.0.0.1:8767")).toBe(9000);
     expect(resolvePort(undefined, "http://127.0.0.1:8790")).toBe(8790);
     expect(resolvePort(undefined, "http://127.0.0.1")).toBe(DEFAULT_PORT);
+  });
+});
+
+describe("resolveTarget", () => {
+  test("--port replaces the port and keeps the host, also from OC_SUB_URL", () => {
+    expect(resolveTarget(undefined, 8799, {})).toEqual({ url: "http://127.0.0.1:8799", port: 8799 });
+    expect(resolveTarget(undefined, 8799, { OC_SUB_URL: "http://10.0.0.7:8767" })).toEqual({
+      url: "http://10.0.0.7:8799",
+      port: 8799,
+    });
+  });
+
+  test("--url and --port on different ports is a usage error that names both", () => {
+    expect(() => resolveTarget("http://127.0.0.1:9000", 8799, {})).toThrow(UsageError);
+    expect(() => resolveTarget("http://127.0.0.1:9000", 8799, {})).toThrow(/--port 8799.*9000/);
+  });
+
+  test("--url without a port takes the --port", () => {
+    expect(resolveTarget("http://10.0.0.7", 8799, {})).toEqual({ url: "http://10.0.0.7:8799", port: 8799 });
+  });
+
+  test("--port keeps a path of OC_SUB_URL", () => {
+    expect(resolveTarget(undefined, 8799, { OC_SUB_URL: "http://10.0.0.7:8767/opencode" })).toEqual({
+      url: "http://10.0.0.7:8799/opencode",
+      port: 8799,
+    });
+  });
+
+  test("matching ports are fine", () => {
+    expect(resolveTarget("http://127.0.0.1:8799", 8799, {})).toEqual({ url: "http://127.0.0.1:8799", port: 8799 });
+  });
+
+  test("without --port nothing changes", () => {
+    expect(resolveTarget(undefined, undefined, {})).toEqual({ url: DEFAULT_SERVER_URL, port: DEFAULT_PORT });
+    expect(resolveTarget(undefined, undefined, { OC_SUB_URL: "http://10.0.0.7:9000" })).toEqual({
+      url: "http://10.0.0.7:9000",
+      port: 9000,
+    });
+    expect(resolveTarget("http://127.0.0.1:9000", undefined, {})).toEqual({ url: "http://127.0.0.1:9000", port: 9000 });
+    expect(resolveTarget("http://127.0.0.1", undefined, {})).toEqual({ url: "http://127.0.0.1", port: DEFAULT_PORT });
   });
 });

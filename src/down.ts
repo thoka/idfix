@@ -1,5 +1,5 @@
 /** `oc-sub down`: stop the opencode server that `oc-sub up` started. */
-import { resolvePort, resolveServerUrl, type Env } from "./config";
+import { resolveTarget, type Env } from "./config";
 import { assertUsable, makeClient, probeServer, unwrap } from "./client";
 import { readDirs, readPid, removeFiles, serveDirsPath, servePidPath } from "./state";
 
@@ -67,7 +67,7 @@ async function waitUntilGone(pid: number): Promise<boolean> {
 }
 
 export async function down(args: { url?: string; port?: number; force: boolean }, env: Env = process.env): Promise<number> {
-  const port = resolvePort(args.port, resolveServerUrl(args.url, env));
+  const { port } = resolveTarget(args.url, args.port, env);
   const serveUrl = `http://127.0.0.1:${port}`;
   const pidPath = servePidPath(env, port);
   const dirsPath = serveDirsPath(env, port);

@@ -113,3 +113,24 @@ Root cause: the agent files imitate a sandbox with long bash allowlists. The all
 1. Research, with a report in `docs/research/`: how do other tools run a coding agent in a real sandbox? Cover a Docker or Podman container per run, bubblewrap (the sandbox of Claude Code on Linux), microVMs such as Firecracker, and container-use from Dagger. For each: how opencode runs inside, how `oc-sub` and `opencode attach` reach it, how the OpenRouter key gets in without being readable from the worktree, how the network is limited, and the start time on WSL2. Also: does the Agent Client Protocol (ACP) fit, and do these tools speak it?
 2. Decide the design with the user.
 3. Inside the sandbox, the agent files allow all commands. Only a few actions outside the worktree still ask, for example `git push`.
+
+## Step 10: A probe harness picks the approved providers
+
+Status: open. Decided with the user on 2026-09-29.
+
+Root cause: from the afternoon of 2026-09-28, five GLM runs in a row produced broken output. OpenRouter picked the provider by price and availability, and about a third of the providers of GLM 5.3 Flash serve it in fp4. Since then, the plugin pins GLM to Z.AI alone (`only: ["z-ai"]`, `allow_fallbacks: false` in `opencode/opencode.json`). A run fails if Z.AI is down.
+
+1. A small fixed probe task, like the A/B task in [EXPERIENCE.md](EXPERIENCE.md#ab-test-agent-prompt-against-the-default-prompt): find types in a large file with grep and paged reads, write the answer, and commit it. One probe costs about 0.005 USD.
+2. The harness runs the probe three times per candidate provider, with `only: [<provider>]` and `allow_fallbacks: false`. It also checks the curated OpenRouter endpoints for reliable tool calls (as far as known, "Exacto"), if GLM 5.3 Flash has them.
+3. Pass rules, checked by code: the correct answer, a commit, no repeated identical calls, no unreadable text, and reasoning under a limit.
+4. The result is two or three approved fallback providers after Z.AI. Estimated cost: 0.15 to 0.30 USD.
+
+## Step 11: A local proxy, the real cost per request, and a penalty for bad providers
+
+Status: open. Decided with the user on 2026-09-29. It builds on step 6 (the detectors) and step 10 (the approved list).
+
+Root cause: opencode stores neither the provider nor the real cost of a step. The OpenRouter response names both, but opencode drops them.
+
+1. A small local proxy between opencode and OpenRouter records the provider, the generation ID, and the real cost of each request (see [REAL_COST.md](research/REAL_COST.md), option b). This also gives the exact real cost per run, also for overlapping runs.
+2. When a detector of step 6 flags a run (a loop, a stall, unreadable text, runaway reasoning), the provider of the flagged steps gets a strike.
+3. After two or three strikes, the provider goes onto the OpenRouter `ignore` list for some days. After that, it gets a new chance.

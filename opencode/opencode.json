@@ -6,8 +6,8 @@
         "z-ai/glm-5.3-flash": {
           "options": {
             "provider": {
-              "order": ["z-ai"],
-              "quantizations": ["fp8", "bf16", "fp16"]
+              "only": ["z-ai"],
+              "allow_fallbacks": false
             }
           }
         }

@@ -138,7 +138,7 @@ Permission rules:
 - Deny `*.env` and `*.env.*` for `read`.
 - Adapt the `bash` allowlist to the test command of the project, for example `"uv run pytest*": allow` or `"npm test*": allow`.
 
-The server reads the agent files of the folder that you pass with `--dir`. A new or changed agent file in a worktree needs no server restart. After an update of the plugin, run `oc-sub restart`. The running server keeps the plugin folder that it got at start in `OPENCODE_CONFIG_DIR`, and a plugin update can install into a new folder.
+The server reads the agent files of the folder that you pass with `--dir`. The server loads the agent files of a folder once, when that folder gets its first request. A new worktree gets the current files. A changed agent file takes effect for a folder that the server already knows only after `oc-sub restart`. After an update of the plugin, run `oc-sub restart`. The running server keeps the plugin folder that it got at start in `OPENCODE_CONFIG_DIR`, and a plugin update can install into a new folder.
 
 Do not use `opencode run --auto` instead of agent files. The Claude Code permission check blocks the flag, and it approves every request that is not explicitly denied.
 

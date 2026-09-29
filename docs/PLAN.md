@@ -103,3 +103,13 @@ Status: open. Decided with the user on 2026-09-29. It builds on the detection mo
 5. A detail pane for the selected session: the last events as a short log, a pending question or permission request, and the subagent sessions as a tree. A footer with the server, the totals of the day, and the key usage per project.
 6. Library: Ink, because models know React best, so a subagent makes fewer mistakes and uses fewer tokens.
 7. First version shows only. The key `o` prints the `opencode attach` command. Keys that act (answer, abort, follow up) come in a later step.
+
+## Step 9: A real sandbox instead of permission rules
+
+Status: open, research first. Decided with the user on 2026-09-29. Steps 6 and 8 wait for the result.
+
+Root cause: the agent files imitate a sandbox with long bash allowlists. The allowlist stops no deliberate harm (a test command can run any code), but every command outside it pauses the run until the orchestrator answers. In the step 5 and step 8 runs, most pauses were for read-only commands such as `cat`, `sed -n`, `rg`, and `ls`.
+
+1. Research, with a report in `docs/research/`: how do other tools run a coding agent in a real sandbox? Cover a Docker or Podman container per run, bubblewrap (the sandbox of Claude Code on Linux), microVMs such as Firecracker, and container-use from Dagger. For each: how opencode runs inside, how `oc-sub` and `opencode attach` reach it, how the OpenRouter key gets in without being readable from the worktree, how the network is limited, and the start time on WSL2. Also: does the Agent Client Protocol (ACP) fit, and do these tools speak it?
+2. Decide the design with the user.
+3. Inside the sandbox, the agent files allow all commands. Only a few actions outside the worktree still ask, for example `git push`.

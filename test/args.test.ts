@@ -13,9 +13,9 @@ function usage(fn: () => unknown): UsageError {
 
 describe("parseArgs", () => {
   test("up with and without a port", () => {
-    expect(parseArgs(["up"])).toEqual({ command: "up" });
-    expect(parseArgs(["up", "--port", "8767"])).toEqual({ command: "up", port: 8767 });
-    expect(parseArgs(["up", "--port=1234"])).toEqual({ command: "up", port: 1234 });
+    expect(parseArgs(["up"])).toEqual({ command: "up", sandbox: false });
+    expect(parseArgs(["up", "--port", "8767"])).toEqual({ command: "up", port: 8767, sandbox: false });
+    expect(parseArgs(["up", "--port=1234"])).toEqual({ command: "up", port: 1234, sandbox: false });
   });
 
   test("up rejects bad ports and positionals", () => {
@@ -26,9 +26,41 @@ describe("parseArgs", () => {
   });
 
   test("down and restart with port and force", () => {
-    expect(parseArgs(["down"])).toEqual({ command: "down", force: false });
-    expect(parseArgs(["down", "--port", "8790", "--force"])).toEqual({ command: "down", port: 8790, force: true });
-    expect(parseArgs(["restart", "--port=8790"])).toEqual({ command: "restart", port: 8790, force: false });
+    expect(parseArgs(["down"])).toEqual({ command: "down", force: false, sandbox: false });
+    expect(parseArgs(["down", "--port", "8790", "--force"])).toEqual({
+      command: "down",
+      port: 8790,
+      force: true,
+      sandbox: false,
+    });
+    expect(parseArgs(["restart", "--port=8790"])).toEqual({ command: "restart", port: 8790, force: false, sandbox: false });
+  });
+
+  test("sandbox mode with --dir", () => {
+    expect(parseArgs(["up", "--sandbox"])).toEqual({ command: "up", sandbox: true });
+    expect(parseArgs(["up", "--sandbox", "--dir", "/w"])).toEqual({ command: "up", sandbox: true, dir: "/w" });
+    expect(parseArgs(["down", "--sandbox", "--dir=/w", "--force"])).toEqual({
+      command: "down",
+      sandbox: true,
+      dir: "/w",
+      force: true,
+    });
+    expect(parseArgs(["restart", "--sandbox", "--dir", "/w"])).toEqual({
+      command: "restart",
+      sandbox: true,
+      dir: "/w",
+      force: false,
+    });
+  });
+
+  test("sandbox mode rejects --dir without --sandbox and --url or --port with --sandbox", () => {
+    expect(() => parseArgs(["up", "--dir", "/w"])).toThrow(/--dir is only allowed with --sandbox/);
+    expect(() => parseArgs(["down", "--dir=/w"])).toThrow(/--dir is only allowed with --sandbox/);
+    expect(() => parseArgs(["restart", "--dir", "/w"])).toThrow(/--dir is only allowed with --sandbox/);
+    expect(() => parseArgs(["up", "--sandbox", "--url", "http://h:1"])).toThrow(/--sandbox cannot be combined/);
+    expect(() => parseArgs(["up", "--sandbox", "--port", "8767"])).toThrow(/--sandbox cannot be combined/);
+    expect(() => parseArgs(["down", "--sandbox", "--port=8767"])).toThrow(/--sandbox cannot be combined/);
+    expect(() => parseArgs(["restart", "--sandbox", "--url=http://h:1"])).toThrow(/--sandbox cannot be combined/);
   });
 
   test("down and restart reject positionals and a value for --force", () => {
@@ -174,7 +206,7 @@ describe("parseArgs", () => {
   });
 
   test("--url is accepted by every command", () => {
-    expect(parseArgs(["up", "--url", "http://h:1"])).toEqual({ command: "up", url: "http://h:1" });
+    expect(parseArgs(["up", "--url", "http://h:1"])).toEqual({ command: "up", url: "http://h:1", sandbox: false });
     expect(parseArgs(["status", "--url=http://h:1"])).toEqual({ command: "status", url: "http://h:1", all: false });
     expect(parseArgs(["watch", "s", "--url", "http://h:1"])).toEqual({ command: "watch", session: "s", json: false, url: "http://h:1" });
   });

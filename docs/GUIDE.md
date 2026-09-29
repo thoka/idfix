@@ -131,6 +131,36 @@ It prints one short line per tool call. When the run ends, it prints a summary l
 - **Abort**: tell Claude to stop the run, or run `oc-sub abort <session-id> --dir <worktree>`.
 - **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and two cost lines in USD. The first line is the estimate of opencode: it multiplies the tokens by the prices in its model catalog from models.dev. The second line is the real cost at OpenRouter: the growth of the usage of the project key during the run. Both cover the session and all of its subagent sessions. With subagents, the first line reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. The second reads `real cost $0.0512 at OpenRouter (key usage since the start of the run)`. Other runs with the same key that overlap in time add their cost to the same number, so the real cost line names them. OpenRouter counts a request a minute or two late, so a `log` some minutes later can show a slightly higher real cost. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
 
+## Sandbox mode
+
+By default, the opencode server of `oc-sub` runs on the host, and the agent works inside your user account. The permission rules in the agent files limit what it may do, but a test command can always run any code.
+
+In sandbox mode, the server runs inside a Docker Sandbox (`sbx`): one microVM per project. The agent gets sudo in the VM, but it can only reach the file system and network that you share. It reaches OpenRouter through the credential proxy of `sbx`, so it cannot read your project key.
+
+Setup, once:
+
+1. Install `sbx` and run `sbx login` once.
+2. Remove the global network rule, so that each sandbox can reach only the hosts of its agent kit: `sbx policy rm network --id default-allow-all`.
+
+Use it:
+
+```
+oc-sub up --sandbox
+oc-sub down --sandbox
+oc-sub restart --sandbox
+```
+
+`--sandbox` starts the server for the project of the current folder. Add `--dir DIR` to name another project folder. `up` prints `export OC_SUB_URL=http://127.0.0.1:<port>`. Set that variable (or use it per command) so that `run`, `watch`, `say`, and `answer` reach the sandboxed server.
+
+Details:
+
+- Each project gets the sandbox `oc-sub-<project>` and a fixed host port, stored in `~/.local/state/oc-sub/sandbox-<project>.json`. The port stays the same across restarts.
+- `up` needs the project key file `~/.config/<project>/openrouter.key`. It checks only that the file exists; it never reads it.
+- `down --sandbox` stops the sandbox and keeps the state file, so the port stays the same.
+- In sandbox mode, the agent files can allow all bash commands, because the sandbox replaces the permission rules. Until the agent files are adapted, the project rules still apply.
+- The project `opencode.json` can read the key with `{file:~/.config/<project>/openrouter.key}`. That file does not exist inside the sandbox, so `up` writes a placeholder file with the value `proxy-managed` there. The proxy of `sbx` replaces it with the real key.
+- Known limit until step 9b of `docs/PLAN.md`: `oc-sub run` refuses the sandboxed server, and `oc-sub ping` reports the key as rejected. Both check the placeholder instead of the project key.
+
 ## Security
 
 - **The server listens only on 127.0.0.1.** Do not start it with `--hostname 0.0.0.0`. The server can read and change every file of a project, and it can run the allowed commands.

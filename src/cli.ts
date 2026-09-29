@@ -3,6 +3,7 @@
 import { UsageError, parseArgs } from "./args";
 import { up } from "./up";
 import { down } from "./down";
+import { upSandbox, downSandbox } from "./sandbox";
 import { run } from "./run";
 import { status } from "./status";
 import { ping } from "./ping";
@@ -16,8 +17,11 @@ const HELP = `oc-sub - drive an opencode server for subagent runs
 
 Usage:
   oc-sub up [--port N]
+  oc-sub up --sandbox [--dir DIR]
   oc-sub down [--port N] [--force]
+  oc-sub down --sandbox [--dir DIR] [--force]
   oc-sub restart [--port N] [--force]
+  oc-sub restart --sandbox [--dir DIR] [--force]
   oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T]
   oc-sub status [--dir DIR | --all]
   oc-sub ping [--dir DIR]
@@ -30,10 +34,17 @@ Usage:
 Every command accepts:
   --url URL   opencode server URL (default: $OC_SUB_URL or http://127.0.0.1:8767)
 
+Sandbox mode:
+  --sandbox   run the opencode server in a Docker Sandbox (sbx) per project.
+  --dir DIR   the project directory (only with --sandbox; default: the current folder).
+              The sandbox needs sbx on PATH (or $SBX_BIN) and one sbx login.
+              It cannot be combined with --url or --port.
+
 Environment:
   OC_SUB_URL                 default server URL
   OPENCODE_SERVER_PASSWORD   enables basic auth (never printed)
-  OPENCODE_SERVER_USERNAME   basic-auth user (default: opencode)`;
+  OPENCODE_SERVER_USERNAME   basic-auth user (default: opencode)
+  SBX_BIN                    the sbx binary (default: sbx on PATH)`;
 
 const HELP_EXIT_HINT = "run `oc-sub --help` for usage";
 
@@ -46,10 +57,14 @@ export async function main(argv: readonly string[]): Promise<number> {
   const args = parseArgs(argv);
   switch (args.command) {
     case "up":
-      return up(args);
+      return args.sandbox ? upSandbox(args, process.env) : up(args);
     case "down":
-      return down(args);
+      return args.sandbox ? downSandbox(args, process.env) : down(args);
     case "restart": {
+      if (args.sandbox) {
+        const stoppedSandbox = await downSandbox(args, process.env);
+        return stoppedSandbox === 0 ? upSandbox(args, process.env) : stoppedSandbox;
+      }
       const stopped = await down(args);
       return stopped === 0 ? up(args) : stopped;
     }

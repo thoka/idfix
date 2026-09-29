@@ -6,6 +6,7 @@ This file holds the details for the skill `oc-sub`. [SKILL.md](SKILL.md) has the
 
 - [Setup](#setup)
 - [Commands](#commands)
+- [Sandbox mode](#sandbox-mode)
 - [Follow-up messages](#follow-up-messages)
 - [Guards](#guards)
 - [Questions and permission requests](#questions-and-permission-requests)
@@ -29,9 +30,9 @@ Every command accepts `--url URL`. The default URL comes from the environment va
 
 | Command | What it does |
 | --- | --- |
-| `oc-sub up [--port N]` | Checks `GET /global/health` on the target URL (the URL with the port of `--port`, see above). If no server answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background. It sets `OPENCODE_CONFIG_DIR` to the `opencode/` folder of the plugin, so the server loads the research agents (see [Agent files](#agent-files)). If the environment already sets `OPENCODE_CONFIG_DIR`, `up` keeps that value and prints a warning to stderr, because the research agents are then not loaded. The log goes to `serve-<port>.log` and the PID to `serve-<port>.pid`, in `~/.local/state/oc-sub/` (or `$XDG_STATE_HOME/oc-sub/`). |
-| `oc-sub down [--port N] [--force]` | Stops the server that `oc-sub up` started on the target port (see `--port` above). If a session that `oc-sub run` started is still busy, it lists the session and exits with code 1. `--force` stops the server anyway and kills the running sessions. |
-| `oc-sub restart [--port N] [--force]` | Runs `down`, then `up` on the same target port. |
+| `oc-sub up [--port N]` | Checks `GET /global/health` on the target URL (the URL with the port of `--port`, see above). If no server answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background. It sets `OPENCODE_CONFIG_DIR` to the `opencode/` folder of the plugin, so the server loads the research agents (see [Agent files](#agent-files)). If the environment already sets `OPENCODE_CONFIG_DIR`, `up` keeps that value and prints a warning to stderr, because the research agents are then not loaded. The log goes to `serve-<port>.log` and the PID to `serve-<port>.pid`, in `~/.local/state/oc-sub/` (or `$XDG_STATE_HOME/oc-sub/`). With `--sandbox`, it runs the server in a Docker Sandbox instead (see [Sandbox mode](#sandbox-mode)). |
+| `oc-sub down [--port N] [--force]` | Stops the server that `oc-sub up` started on the target port (see `--port` above). If a session that `oc-sub run` started is still busy, it lists the session and exits with code 1. `--force` stops the server anyway and kills the running sessions. With `--sandbox`, it stops the sandbox of the project instead (see [Sandbox mode](#sandbox-mode)). |
+| `oc-sub restart [--port N] [--force]` | Runs `down`, then `up` on the same target port. With `--sandbox`, it restarts the sandbox of the project. |
 | `oc-sub run --agent NAME --dir DIR (--brief FILE \| TEXT) [--title T]` | Creates a session in DIR and sends the brief to the agent without waiting. Before it creates the session, it checks the OpenRouter key: the run directory must use its project key file, and no directory of another project may resolve to the same key. On a shared key it prints an error that names the other project and exits with code 1. It also reads the usage of the key at OpenRouter for the start value of the real cost. It prints four lines: the session ID, the `opencode attach ...` command, and the two paths of the run record (`.opencode/runs/<session-id>.json` in the start directory, and a copy in `~/.local/state/oc-sub/runs/`). |
 | `oc-sub status [--dir DIR \| --all]` | One line per session: ID, state (`busy`, `waiting`, `idle`, `retry`), title. `waiting` means that the session has a pending question or permission request and waits for an answer. Without `--all`, it lists the folder and each of its git worktrees. A session of another worktree shows its folder at the end (`.worktrees/x` when it is inside the folder, else absolute). With `--all`, it lists the running sessions of all projects and their worktrees, each with the absolute folder, or `no running sessions`. A directory that fails to list prints `warning: <directory>: <message>` to stderr and does not stop the listing. |
 | `oc-sub ping [--dir DIR]` | Shows which OpenRouter key the server uses for DIR, where it comes from (project key file, environment, or global auth.json), and whether OpenRouter accepts it. Prints a SHA-256 fingerprint of the key, never the key itself. Warns when the server does not use the project key file, because the cost then goes to another key. |
@@ -42,6 +43,36 @@ Every command accepts `--url URL`. The default URL comes from the environment va
 | `oc-sub say SESSION [--dir DIR] [--agent NAME] TEXT` | Sends TEXT as a follow-up message into the session and returns at once. It uses `prompt_async`, so it does not wait for the reply to end. Without `--agent`, it takes the agent from the last user message of the session. A session without a user message needs `--agent NAME`. It prints one line with the session, the agent, and the `watch` command. |
 
 Exit codes: 0 for success, 1 for an error (including a shared OpenRouter key in `run`), 2 for wrong arguments, 3 when `watch` found a pending question or permission request (the run is paused), and 4 when `watch` saw a warning sign in the run (see [Guards](#guards)). If no server runs, `status` prints `no server on <url>` and exits with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
+
+## Sandbox mode
+
+`up`, `down`, and `restart` accept `--sandbox`. The server then runs inside a Docker Sandbox (`sbx`) per project, instead of on the host. The agent works in a microVM and reaches OpenRouter through the credential proxy of `sbx`, so it cannot read the project key.
+
+One-time setup:
+
+- Install `sbx` (for example with mise from `github:docker/sbx-releases`) and run `sbx login` once.
+- Remove the global network rule of `sbx`, so that each sandbox may reach only the hosts of its agent kit: `sbx policy rm network --id default-allow-all`. A deny rule beats every allow rule, so the per-sandbox allowlist works only without it.
+
+What the commands do:
+
+- `oc-sub up --sandbox [--dir DIR]` resolves the project from `--dir` (default: the current folder). It refuses to start when the project key file `~/.config/<project>/openrouter.key` is missing. It only checks that the file exists; it never reads it. It creates the sandbox `oc-sub-<project>` if needed, mounts the plugin folder read-only, sets the `openrouter` secret once from the key file, publishes the port, and starts the server inside. It prints the URL, the sandbox, the log, and one line `export OC_SUB_URL=http://127.0.0.1:<port>`. Use that URL for `oc-sub run`, `watch`, `say`, and `answer`.
+- `oc-sub down --sandbox [--dir DIR] [--force]` keeps the busy check of `down`, then stops the sandbox with `sbx stop`. It removes the PID file. It keeps the state file, so the port stays the same.
+- `oc-sub restart --sandbox [--dir DIR]` is `down --sandbox` followed by `up --sandbox`.
+
+State file and ports:
+
+- Each project sandbox has the state file `$XDG_STATE_HOME/oc-sub/sandbox-<project>.json` (default `~/.local/state/oc-sub/`) with `{"name", "root", "port"}`.
+- The host port is picked once: the first port from 18768 upward that no other sandbox state uses and that is free on 127.0.0.1. Later `up` calls keep it.
+- The `sbx` binary comes from `SBX_BIN` in the environment, else from `sbx` on the PATH.
+
+Notes:
+
+- `--dir` is only allowed with `--sandbox`, and `--sandbox` cannot be combined with `--url` or `--port`, because the URL comes from the sandbox state.
+- A host process holds `sbx exec ... opencode serve` in the foreground, because `sbx` stops a sandbox 30 seconds after the last `sbx` session ends. Stop the server with `oc-sub down --sandbox`, not by killing the sandbox yourself.
+- In sandbox mode, the agent files can allow all bash commands (step 9c of `docs/PLAN.md`). Until then, the permission rules of the project still apply.
+- `up` writes the placeholder key file `$HOME/.config/<project>/openrouter.key` with the value `proxy-managed` inside the sandbox. Without it, a project `opencode.json` with `{file:~/.config/<project>/openrouter.key}` is invalid inside the sandbox. The proxy of `sbx` replaces the placeholder with the real key.
+- If a publish of the port fails, `up` lists the ports again and accepts the port when it is there. A stopped sandbox can list no ports although its publication persists.
+- Known limit until step 9b: `oc-sub run` refuses the sandboxed server, and `oc-sub ping` reports the key as rejected, because both check the placeholder.
 
 ### Watch in the background
 

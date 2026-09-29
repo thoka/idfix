@@ -44,7 +44,7 @@ export function commandLineOf(pid: number): string | null {
 }
 
 /** Sessions that are not idle, in the directories that `oc-sub run` used. */
-async function busySessions(serveUrl: string, directories: readonly string[], env: Env): Promise<BusySession[]> {
+export async function busySessions(serveUrl: string, directories: readonly string[], env: Env): Promise<BusySession[]> {
   const client = makeClient(serveUrl, env);
   const busy: BusySession[] = [];
   for (const directory of directories) {
@@ -57,7 +57,7 @@ async function busySessions(serveUrl: string, directories: readonly string[], en
   return busy;
 }
 
-async function waitUntilGone(pid: number): Promise<boolean> {
+export async function waitUntilGone(pid: number): Promise<boolean> {
   const deadline = Date.now() + STOP_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (!isAlive(pid)) return true;

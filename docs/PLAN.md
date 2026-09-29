@@ -88,3 +88,17 @@ Root cause: the body of an opencode agent file replaces the default system promp
 
 1. A/B test: the same small coding brief two or three times with the current `coder`, and with a `coder` without a body whose role rules come through the `system` field of the prompt request.
 2. If the test confirms it, the agent files lose their body, and `oc-sub run` sends the role rules as `system`.
+
+## Step 8: `oc-sub top`, a live view
+
+Status: open. Decided with the user on 2026-09-29. It builds on the detection module of step 6.
+
+`oc-sub status` stays short and line-based for agents, and gets `--json`. `oc-sub top` is a full-screen live view for the user, like `htop`. `oc-sub top --once` prints one text snapshot for agents.
+
+1. Research first, with a report in `docs/research/`. Does Ink run under bun? Does the opencode server have one event stream across all projects, or does `top` subscribe per directory?
+2. Scope: the current project and its worktrees. `--all` shows all projects, like `status`.
+3. One line per session: project and worktree, agent, state (busy, waiting, stalled, looping, idle), elapsed time, steps, tool calls, context size, estimated and real cost.
+4. The numbers at a glance: state, time since the last token, real cost, and thinking (reasoning tokens as a share of the output, and in the current step).
+5. A detail pane for the selected session: the last events as a short log, a pending question or permission request, and the subagent sessions as a tree. A footer with the server, the totals of the day, and the key usage per project.
+6. Library: Ink, because models know React best, so a subagent makes fewer mistakes and uses fewer tokens.
+7. First version shows only. The key `o` prints the `opencode attach` command. Keys that act (answer, abort, follow up) come in a later step.

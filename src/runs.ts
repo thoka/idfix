@@ -133,6 +133,8 @@ export function otherRunIds(records: readonly RunRecord[], run: RunRecord): stri
         other.startedAt >= run.startedAt,
     )
     .map((other) => other.sessionId)
+    // A record exists twice: in the state folder and in `.opencode/runs/`.
+    .filter((id, index, ids) => ids.indexOf(id) === index)
     .sort();
 }
 

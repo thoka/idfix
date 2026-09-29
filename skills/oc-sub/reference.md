@@ -37,7 +37,8 @@ Every command accepts `--url URL`. The default URL comes from the environment va
 | `oc-sub watch SESSION [--dir DIR] [--json]` | Prints one short line per tool call, failed tool call, assistant text, and session error. When the session and its subagent sessions are idle, it prints a summary line and then the real-cost line (see [Cost and tokens](#cost-and-tokens)), and exits with code 0. The summary covers the session and all of its subagent sessions. When the session or one of its subagent sessions has a pending question or permission request, it prints one block per request and exits with code 3 (see [Questions and permission requests](#questions-and-permission-requests)). With `--json`, it prints the events as JSON lines, and the summary and the request blocks go to stderr. |
 | `oc-sub log SESSION [--dir DIR]` | Prints the last assistant text (the report of the agent), a line with the cost and the tokens, and the real-cost line. The totals cover the session and all of its subagent sessions (see [Cost and tokens](#cost-and-tokens)). |
 | `oc-sub abort SESSION [--dir DIR]` | Stops the session. |
-| `oc-sub answer REQUEST_ID [--dir DIR] (--reply once\|always\|reject \| --reject \| ANSWER...)` | Answers a pending question or permission request of the run in DIR. The command looks the ID up in the two pending lists to learn its kind. A question takes one positional ANSWER per question, in order. An ANSWER is the label of an option or free text. `--reject` rejects a question. A permission request takes `--reply once`, `--reply always`, or `--reply reject`. An unknown ID, a wrong kind, and a wrong answer count stop with an error before anything is sent. After the answer, start `watch` again. |
+| `oc-sub answer REQUEST_ID [--dir DIR] (--reply once\|always\|reject \| --reject \| ANSWER...)` | Answers a pending question or permission request of the run in DIR. The command looks the ID up in the two pending lists to learn its kind. A question takes one positional ANSWER per question, in order. An ANSWER is the label of an option or free text. `--reject` rejects a question. A permission request takes `--reply once`, `--reply always`, or `--reply reject`. With `--reply reject`, `--message TEXT` gives the agent the reason. It sees the message as the error of the tool call. A rejected permission request ends the turn of the agent. The command prints a hint to send a follow-up message with `oc-sub say`. `--message` is only allowed with `--reply reject`. An unknown ID, a wrong kind, and a wrong answer count stop with an error before anything is sent. After the answer, start `watch` again. |
+| `oc-sub say SESSION [--dir DIR] [--agent NAME] TEXT` | Sends TEXT as a follow-up message into the session and returns at once. It uses `prompt_async`, so it does not wait for the reply to end. Without `--agent`, it takes the agent from the last user message of the session. A session without a user message needs `--agent NAME`. It prints one line with the session, the agent, and the `watch` command. |
 
 Exit codes: 0 for success, 1 for an error (including a shared OpenRouter key in `run`), 2 for wrong arguments, 3 when `watch` found a pending question or permission request (the run is paused). If no server runs, `status` prints `no server on <url>` and exits with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
 
@@ -89,6 +90,8 @@ oc-sub answer per_07b1 --dir /path/to/worktree --reply once
 
 - `once` allows the tool call one time. `always` allows it for the rest of the session. `reject` refuses it.
 - `--reject` on a question makes the tool call of the agent fail. The agent then continues and can react to it.
+- `--reply reject --message TEXT` on a permission request gives the agent the reason. It sees the message as the error of the tool call.
+- A rejected permission request ends the turn of the agent. To continue, send a follow-up message with `oc-sub say`.
 - Decide yourself whether the request is safe. For a risky command or a deletion, ask the user first.
 - After the answer, start `watch` again to follow the rest of the run.
 - `oc-sub status` shows the session as `waiting` while it pauses.
@@ -105,15 +108,16 @@ The user runs it in a second terminal or in a tmux window. It opens the full ope
 
 ## Follow-up messages
 
-Send a correction or a new question into the same session. The agent keeps its context, and the cost stays low:
+Send a correction or a new question into the same session with `oc-sub say`. The agent keeps its context, and the cost stays low:
 
 ```
-opencode run --attach http://127.0.0.1:8767 --dir <worktree> --session <session-id> --agent <agent> "<message>" < /dev/null
+oc-sub say <session-id> --dir <worktree> "<message>"
 ```
 
-- `< /dev/null` is necessary. Without it, `opencode run` waits for input and hangs.
-- The `opencode run` process can end before the session ends. Wait with `oc-sub watch` as usual.
-- If the server has a password, `opencode run` reads it from `OPENCODE_SERVER_PASSWORD`.
+- The command returns at once. `opencode run --attach` instead blocks until the reply ends, so use `oc-sub say`.
+- Without `--agent`, the command takes the agent from the last user message of the session. Give `--agent NAME` for a session without a user message.
+- After a rejected permission request, the turn of the agent has ended. Always send a follow-up message with `oc-sub say` to continue.
+- Wait with `oc-sub watch` as usual after the message.
 
 ## Cost and tokens
 

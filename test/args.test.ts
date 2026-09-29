@@ -123,6 +123,48 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["answer", "que_1", "--reply"])).toThrow(/needs a value/);
   });
 
+  test("answer --message is only allowed with --reply reject", () => {
+    expect(parseArgs(["answer", "per_1", "--reply", "reject", "--message", "no, use rg instead"])).toEqual({
+      command: "answer",
+      request: "per_1",
+      reject: false,
+      reply: "reject",
+      message: "no, use rg instead",
+      answers: [],
+    });
+    expect(() => parseArgs(["answer", "per_1", "--reply", "once", "--message", "x"])).toThrow(/--message is only allowed/);
+    expect(() => parseArgs(["answer", "que_1", "--reject", "--message", "x"])).toThrow(/--message is only allowed/);
+    expect(() => parseArgs(["answer", "que_1", "a", "--message", "x"])).toThrow(/--message is only allowed/);
+  });
+
+  test("say takes a session and a message text", () => {
+    expect(parseArgs(["say", "ses_1", "please continue"])).toEqual({
+      command: "say",
+      session: "ses_1",
+      agent: undefined,
+      text: "please continue",
+    });
+    expect(parseArgs(["say", "ses_1", "--dir", "/w", "--agent", "coder", "try again with rg"])).toEqual({
+      command: "say",
+      session: "ses_1",
+      dir: "/w",
+      agent: "coder",
+      text: "try again with rg",
+    });
+    expect(parseArgs(["say", "ses_1", "one", "two three"])).toEqual({
+      command: "say",
+      session: "ses_1",
+      agent: undefined,
+      text: "one two three",
+    });
+  });
+
+  test("say rejects a missing session and a missing text", () => {
+    expect(() => parseArgs(["say"])).toThrow(/session/);
+    expect(() => parseArgs(["say", "ses_1"])).toThrow(/TEXT/);
+    expect(() => parseArgs(["say", "ses_1", "--agent", "coder"])).toThrow(/TEXT/);
+  });
+
   test("ping parses like status", () => {
     expect(parseArgs(["ping"])).toEqual({ command: "ping" });
     expect(parseArgs(["ping", "--dir", "/w"])).toEqual({ command: "ping", dir: "/w" });

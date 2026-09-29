@@ -162,14 +162,28 @@ It never misses the end of a run: it checks the status of the session and of all
 ### oc-sub answer
 
 ```
-bun run src/cli.ts answer REQUEST_ID [--dir DIR] (--reply once|always|reject | --reject | ANSWER...)
+bun run src/cli.ts answer REQUEST_ID [--dir DIR] (--reply once|always|reject [--message TEXT] | --reject | ANSWER...)
 ```
 
 Answers a pending question or permission request of the run in DIR. The command looks the request ID up in the two pending lists of the server (`GET /question` and `GET /permission`) to learn its kind. If the ID is in neither list, it stops with an error.
 
-For a question, pass one positional ANSWER per question, in order. The answer is the label of an option or free text. `--reject` rejects the question, and the tool call of the agent fails with a clear message. For a permission request, `--reply` is required: `once` allows the tool call one time, `always` allows it for the rest of the session, and `reject` refuses it.
+For a question, pass one positional ANSWER per question, in order. The answer is the label of an option or free text. `--reject` rejects the question, and the tool call of the agent fails with a clear message. For a permission request, `--reply` is required: `once` allows the tool call one time, `always` allows it for the rest of the session, and `reject` refuses it. With `--reply reject`, `--message TEXT` gives the agent the reason. The agent sees the message as the error of the tool call.
+
+A rejected permission request ends the turn of the agent. After such a rejection, the command prints a hint to send a follow-up message with `oc-sub say`. `--message` is only allowed with `--reply reject`.
 
 An unknown ID, a wrong kind (for example `--reply` on a question), and an answer count that does not match the questions stop with an error before anything is sent. After the answer, start `watch` again to follow the rest of the run.
+
+### oc-sub say
+
+```
+bun run src/cli.ts say SESSION [--dir DIR] [--agent NAME] TEXT
+```
+
+Sends TEXT as a follow-up message into the session and returns at once. It uses `prompt_async`, so it does not wait for the reply to end. Without `--agent`, it takes the agent from the last user message of the session. A session without a user message needs `--agent NAME`. It prints one line:
+
+```
+sent to ses_abc123 (agent coder). Watch it with: oc-sub watch ses_abc123 --dir /path/to/worktree
+```
 
 ### oc-sub log
 

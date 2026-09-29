@@ -121,18 +121,19 @@ export async function rejectQuestion(
   );
 }
 
-/** Answer a pending permission request. */
+/** Answer a pending permission request. A message with `reject` gives the agent the reason. */
 export async function replyPermission(
   baseUrl: string,
   directory: string,
   requestID: string,
   reply: PermissionReply,
   env: Env,
+  message?: string,
 ): Promise<boolean> {
   return fetchJson<boolean>(
     baseUrl,
     `/permission/${encodeURIComponent(requestID)}/reply?directory=${encodeURIComponent(directory)}`,
-    { method: "POST", body: { reply } },
+    { method: "POST", body: message === undefined ? { reply } : { reply, message } },
     env,
     "answer permission",
   );

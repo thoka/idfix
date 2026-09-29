@@ -125,6 +125,51 @@ describe("answer", () => {
     }
   });
 
+  test("passes --message with a rejection and prints the follow-up hint", async () => {
+    const server = startFakeServer({ permissions: [PERMISSION] });
+    try {
+      const { code, logged, error } = await runAnswer(server, [
+        "per_1",
+        "--reply",
+        "reject",
+        "--message",
+        "no, use rg instead",
+        "--dir",
+        "/w",
+      ]);
+      expect(error).toBeUndefined();
+      expect(code).toBe(0);
+      expect(server.calls).toEqual([
+        {
+          method: "POST",
+          path: "/permission/per_1/reply?directory=%2Fw",
+          body: { reply: "reject", message: "no, use rg instead" },
+        },
+      ]);
+      expect(logged).toEqual([
+        "permission per_1 in ses_1: reject",
+        "a rejected permission request ends the turn of the agent. Send a follow-up message to continue:",
+        `  oc-sub say ses_1 --dir /w "<what the agent should do instead>"`,
+        "watch the session again to follow the rest of the run",
+      ]);
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("sends a permission reply without a message when --message is absent", async () => {
+    const server = startFakeServer({ permissions: [PERMISSION] });
+    try {
+      const { error } = await runAnswer(server, ["per_1", "--reply", "reject", "--dir", "/w"]);
+      expect(error).toBeUndefined();
+      expect(server.calls).toEqual([
+        { method: "POST", path: "/permission/per_1/reply?directory=%2Fw", body: { reply: "reject" } },
+      ]);
+    } finally {
+      server.stop();
+    }
+  });
+
   test("stops with an error when the ID is in neither list", async () => {
     const server = startFakeServer({});
     try {

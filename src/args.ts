@@ -16,7 +16,17 @@ export type ParsedArgs =
   | { command: "watch"; url?: string; session: string; dir?: string; json: boolean }
   | { command: "log"; url?: string; session: string; dir?: string }
   | { command: "abort"; url?: string; session: string; dir?: string }
-  | { command: "answer"; url?: string; request: string; dir?: string; reply?: Reply; reject: boolean; answers: string[] };
+  | {
+      command: "answer";
+      url?: string;
+      request: string;
+      dir?: string;
+      reply?: Reply;
+      reject: boolean;
+      message?: string;
+      answers: string[];
+    }
+  | { command: "say"; url?: string; session: string; dir?: string; agent?: string; text: string };
 
 /** The reply values of a permission request. */
 export type Reply = "once" | "always" | "reject";
@@ -208,7 +218,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "answer": {
       const { flags, positionals, globals } = collectFlags(
         rest,
-        new Set(["dir", "url", "reply", "reject"]),
+        new Set(["dir", "url", "reply", "reject", "message"]),
         new Set(["reject"]),
       );
       const request = positionals[0];
@@ -234,6 +244,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (!reject && reply === undefined && answers.length === 0) {
         throw new UsageError("give one answer per question, --reply once|always|reject, or --reject");
       }
+      const message = optionalString(flags, "message");
+      if (message !== undefined && reply !== "reject") {
+        throw new UsageError("--message is only allowed with --reply reject");
+      }
       return {
         command: "answer",
         url: globals.url,
@@ -241,7 +255,24 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         dir: optionalString(flags, "dir"),
         reply,
         reject,
+        message,
         answers,
+      };
+    }
+    case "say": {
+      const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "agent", "url"]), new Set<string>());
+      const session = requireSession(positionals);
+      const text = positionals.slice(1).join(" ");
+      if (text.trim().length === 0) {
+        throw new UsageError("a message TEXT is required after the session ID");
+      }
+      return {
+        command: "say",
+        url: globals.url,
+        session,
+        dir: optionalString(flags, "dir"),
+        agent: optionalString(flags, "agent"),
+        text,
       };
     }
     default:

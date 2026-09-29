@@ -30,7 +30,7 @@ Do not delegate:
 5. Start the run: `oc-sub run --agent coder --dir <worktree> --brief <scratch>/brief.md --title "<short title>"`. For a research step, use `--agent researcher`. It prints the session ID, an `opencode attach ...` command, and the paths of the run record. If the project shares its OpenRouter key with another project, `run` stops and says so. Each project needs its own key.
 6. Give the user the `opencode attach ...` command, so that they can watch the run live.
 7. Wait with `oc-sub watch <session-id> --dir <worktree>` as a background command. When the session and its subagent sessions are idle, it prints the elapsed time, the tool calls, and the cost, and it ends.
-8. If `watch` ends with exit code 3, the agent has paused on a question or a permission request. Read the request in the output of `watch`. Decide yourself if it is safe, or ask the user. Then answer it with `oc-sub answer <request-id> ...` (the output names the exact command) and start `watch` again.
+8. If `watch` ends with exit code 3, the agent has paused on a question or a permission request. Read the request in the output of `watch`. Decide yourself if it is safe, or ask the user. Then answer it with `oc-sub answer <request-id> ...` (the output names the exact command) and start `watch` again. With `--reply reject --message "<reason>"`, the agent sees the reason as the error of the tool call. A rejected permission request ends the turn of the agent. To continue, send a follow-up message with `oc-sub say`.
 9. Read the result with `oc-sub log <session-id> --dir <worktree>`.
 10. Review the work yourself: read `git -C <worktree> diff main...HEAD`, and run the tests yourself. Do not trust the report of the agent alone.
 11. If the diff is correct and the tests pass, merge. Then remove the worktree.
@@ -39,17 +39,17 @@ Tell the user the cost of each run. `watch` and `log` print two cost lines in US
 
 ## Follow up and abort
 
-To send a correction or a question, write into the same session. Do not start a new agent for the same step:
+To send a correction or a question, write into the same session with `oc-sub say`. The command returns at once. It does not wait for the reply to end. Without `--agent`, it uses the agent of the last user message of the session:
 
 ```
-opencode run --attach http://127.0.0.1:8767 --dir <worktree> --session <session-id> --agent coder "<message>" < /dev/null
+oc-sub say <session-id> --dir <worktree> "<message>"
 ```
 
-Then wait again with `oc-sub watch`. To stop a run, use `oc-sub abort <session-id> --dir <worktree>`.
+Then wait again with `oc-sub watch`. After a rejected permission request, the turn of the agent has ended. Always send a follow-up message with `oc-sub say` to continue. To stop a run, use `oc-sub abort <session-id> --dir <worktree>`.
 
 ## Rules
 
-- Always give `opencode run` the input `< /dev/null`. Without it, the command waits for input and hangs.
+- Send follow-up messages with `oc-sub say`. It returns at once. If you use `opencode run` directly instead, always give it the input `< /dev/null`. Without it, the command waits for input and hangs.
 - Do not use `opencode run --auto`. The Claude Code permission check blocks it, and it approves too much. Give each agent an agent file with permission rules instead.
 - The permission rules stop some mistakes, but they are not a sandbox. A test command such as `bun test` or `pytest` can run any code. The real protection is the worktree, no access to `.env`, and your review of every diff.
 - Never read or print `.env` files or keys. Keep the server on 127.0.0.1.

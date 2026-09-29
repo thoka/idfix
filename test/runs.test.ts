@@ -133,3 +133,11 @@ describe("makeRunRecord keeps the new fields optional", () => {
     expect(record.usageAtStart).toBeUndefined();
   });
 });
+
+describe("otherRunIds with duplicate records", () => {
+  test("names a run once, although its record exists in two folders", () => {
+    const run = makeRunRecord({ sessionId: "ses_a", directory: "/d", agent: "coder", keyFingerprint: "k1", startedAt: new Date(1000) });
+    const other = makeRunRecord({ sessionId: "ses_b", directory: "/d", agent: "coder", keyFingerprint: "k1", startedAt: new Date(2000) });
+    expect(otherRunIds([run, other, other], run)).toEqual(["ses_b"]);
+  });
+});

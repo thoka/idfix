@@ -6,7 +6,7 @@ import { listPendingRequests, rejectQuestion, replyPermission, replyQuestion } f
 import type { Reply } from "./args";
 
 export async function answer(
-  args: { url?: string; request: string; dir?: string; reply?: Reply; reject: boolean; answers: string[] },
+  args: { url?: string; request: string; dir?: string; reply?: Reply; reject: boolean; message?: string; answers: string[] },
   env: Env = process.env,
 ): Promise<number> {
   const baseUrl = resolveServerUrl(args.url, env);
@@ -26,8 +26,15 @@ export async function answer(
     if (args.reply === undefined) {
       throw new Error(`request ${args.request} is a permission request. Give --reply once, --reply always, or --reply reject`);
     }
-    await replyPermission(baseUrl, directory, args.request, args.reply, env);
+    await replyPermission(baseUrl, directory, args.request, args.reply, env, args.message);
     console.log(`permission ${args.request} in ${found.request.sessionID}: ${args.reply}`);
+    if (args.reply === "reject") {
+      const dir = `--dir ${directory}`;
+      console.log(
+        `a rejected permission request ends the turn of the agent. Send a follow-up message to continue:`,
+      );
+      console.log(`  oc-sub say ${found.request.sessionID} ${dir} "<what the agent should do instead>"`);
+    }
   } else {
     if (args.reply !== undefined) {
       throw new Error(`request ${args.request} is a question. Give one answer per question, or --reject`);

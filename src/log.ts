@@ -2,6 +2,7 @@
 import path from "node:path";
 import { resolveServerUrl, type Env } from "./config";
 import { makeClient, requireServer } from "./client";
+import { realCostOutput } from "./realcost";
 import { finalAssistantText, formatTotals } from "./summary";
 import { loadSessionTree, treeUsage } from "./tree";
 
@@ -22,5 +23,8 @@ export async function log(args: { url?: string; session: string; dir?: string },
     console.error("no assistant text in this session");
   }
   console.log(formatTotals(treeUsage(tree)));
+  // The real cost from OpenRouter, below the estimated cost line.
+  const realCost = await realCostOutput(client, args.session, env);
+  if (realCost !== null) console.log(realCost);
   return 0;
 }

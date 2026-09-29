@@ -27,7 +27,7 @@ Do not delegate:
 2. Create a git worktree with its own branch, for example `git worktree add -b feature/x ../proj-x main`. The agent works only there.
 3. Write the brief into a file outside the worktree, for example in your scratch folder. `oc-sub run` sends its text, so the agent never needs the file, and it cannot commit it by mistake. The agent cannot read files outside its project folder. If it needs other files, copy them into `.opencode/context/` of the worktree, which git ignores, or paste their content into the brief.
 4. Start the server once: `oc-sub up`. It sets `OPENCODE_CONFIG_DIR` to the plugin folder, so the server also loads the research agents of the plugin. To stop it, use `oc-sub down`. After a change to the agent files or the opencode configuration, use `oc-sub restart`. After an update of the plugin, use `oc-sub restart` too, because the running server keeps the plugin folder that it got at start in `OPENCODE_CONFIG_DIR`.
-5. Start the run: `oc-sub run --agent coder --dir <worktree> --brief <scratch>/brief.md --title "<short title>"`. For a research step, use `--agent researcher`. It prints the session ID, an `opencode attach ...` command, and the path of the run record.
+5. Start the run: `oc-sub run --agent coder --dir <worktree> --brief <scratch>/brief.md --title "<short title>"`. For a research step, use `--agent researcher`. It prints the session ID, an `opencode attach ...` command, and the paths of the run record. If the project shares its OpenRouter key with another project, `run` stops and says so. Each project needs its own key.
 6. Give the user the `opencode attach ...` command, so that they can watch the run live.
 7. Wait with `oc-sub watch <session-id> --dir <worktree>` as a background command. When the session and its subagent sessions are idle, it prints the elapsed time, the tool calls, and the cost, and it ends.
 8. If `watch` ends with exit code 3, the agent has paused on a question or a permission request. Read the request in the output of `watch`. Decide yourself if it is safe, or ask the user. Then answer it with `oc-sub answer <request-id> ...` (the output names the exact command) and start `watch` again.
@@ -35,7 +35,7 @@ Do not delegate:
 10. Review the work yourself: read `git -C <worktree> diff main...HEAD`, and run the tests yourself. Do not trust the report of the agent alone.
 11. If the diff is correct and the tests pass, merge. Then remove the worktree.
 
-Tell the user the cost of each run. `watch` and `log` print it in USD, with the tokens. The cost covers the session and all of its subagent sessions. With subagents, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. This cost is an estimate: opencode multiplies the tokens by the prices in its model catalog from models.dev. The real charge is on the activity page of OpenRouter. To compare runs, compare their tokens.
+Tell the user the cost of each run. `watch` and `log` print two cost lines in USD. The first line is the estimate of opencode: it multiplies the tokens by the prices in its model catalog from models.dev. The second line is the real cost at OpenRouter: the growth of the key usage of the project key during the run. Both lines cover the session and all of its subagent sessions. With subagents, the first line reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. The real cost line reads `real cost $0.0512 at OpenRouter (key usage since the start of the run)`. Other runs with the same key that overlap in time add their cost to the same number, so the line names them: `, includes other runs: ses_a, ses_b`. OpenRouter can count a request some seconds late, so a `log` some minutes later can show a slightly higher real cost. To compare runs, compare their tokens.
 
 ## Follow up and abort
 
@@ -53,5 +53,6 @@ Then wait again with `oc-sub watch`. To stop a run, use `oc-sub abort <session-i
 - Do not use `opencode run --auto`. The Claude Code permission check blocks it, and it approves too much. Give each agent an agent file with a permission allowlist instead.
 - The allowlist stops mistakes, but it is not a sandbox. A test command such as `bun test` or `pytest` can run any code. The real protection is the worktree, no access to `.env`, and your review of every diff.
 - Never read or print `.env` files or keys. Keep the server on 127.0.0.1.
+- Each project needs its own OpenRouter key in `~/.config/<project>/openrouter.key`. A key that two projects share is not allowed: `oc-sub run` refuses to start and names the other project. Create a key for one of the projects and run `oc-sub restart`. The real cost of a run is only correct with a project key of its own.
 - For a pure JSON answer without tools, GLM needs `reasoning: {"effort": "low"}`. With the default thinking, it can use all output tokens and give no answer. See [reference.md](reference.md#reasoning-effort).
 - If a command is denied or a run fails, report it to the user. Do not go around the block.

@@ -66,7 +66,7 @@ claude plugin marketplace remove opencode-subagents
 3. Set the model in the file. The template uses `openrouter/z-ai/glm-5.3-flash`.
 4. Add `.opencode/runs/` and `.opencode/context/` to `.gitignore`.
 5. Commit the agent files.
-6. Give the project its own OpenRouter key, so that OpenRouter shows the cost of this project. Create a key with a monthly limit in the OpenRouter dashboard and put it into the project key file. The file holds only the key. Never commit it.
+6. Give the project its own OpenRouter key, so that OpenRouter shows the cost of this project and `oc-sub` can show the real cost of a run. Each project needs its own key. A key that two projects share is not allowed: `oc-sub run` refuses to start and names the other project. Create a key with a monthly limit in the OpenRouter dashboard and put it into the project key file. The file holds only the key. Never commit it.
 
    ```
    ~/.config/<project>/openrouter.key
@@ -125,14 +125,14 @@ A short live view is also available in the shell:
 oc-sub watch ses_abc123 --dir /path/to/worktree
 ```
 
-It prints one short line per tool call. When the run ends, it prints a summary line with the cost. The cost covers the session and all of its subagent sessions. When the run pauses on a question or a permission request, it prints the request and ends. Claude answers it and watches again.
+It prints one short line per tool call. When the run ends, it prints a summary line with the cost, then the real-cost line from OpenRouter. The cost covers the session and all of its subagent sessions. When the run pauses on a question or a permission request, it prints the request and ends. Claude answers it and watches again.
 
 ## Follow up, abort, and read the cost
 
 - **Follow up**: tell Claude what to change. Claude sends the message into the same session with `opencode run --attach ... --session <id>`. You can also type into the attached opencode interface yourself.
 - **Questions**: an agent can ask a question, and a command outside its allowlist can raise a permission request. The run then pauses until Claude answers. `oc-sub watch` ends with exit code 3 and prints the request. Claude decides whether it is safe, asks you if it is not, and answers with `oc-sub answer <request-id> ...`. Then Claude watches again.
 - **Abort**: tell Claude to stop the run, or run `oc-sub abort <session-id> --dir <worktree>`.
-- **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and a line with the cost in USD and the tokens. The cost covers the session and all of its subagent sessions. With subagents, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. This cost is an estimate: opencode multiplies the tokens by the prices in its model catalog from models.dev. The real charge is on the activity page of OpenRouter. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
+- **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and two cost lines in USD. The first line is the estimate of opencode: it multiplies the tokens by the prices in its model catalog from models.dev. The second line is the real cost at OpenRouter: the growth of the usage of the project key during the run. Both cover the session and all of its subagent sessions. With subagents, the first line reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. The second reads `real cost $0.0512 at OpenRouter (key usage since the start of the run)`. Other runs with the same key that overlap in time add their cost to the same number, so the real cost line names them. OpenRouter can count a request some seconds late, so a `log` some minutes later can show a slightly higher real cost. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
 
 ## Security
 

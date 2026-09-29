@@ -58,7 +58,7 @@ Root cause: the agent files deny the `question` tool and use `deny` for risky co
 
 ## Step 5: The real cost from OpenRouter
 
-Status: open.
+Status: done.
 
 Root cause: `oc-sub watch` and `oc-sub log` show the cost that opencode computes from its model catalog, not the charge at OpenRouter. When the catalog price changes, the reported cost changes, although the real charge does not.
 

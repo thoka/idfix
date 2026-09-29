@@ -72,6 +72,7 @@ One server serves many project folders, so its state lives in one folder per use
 - `serve-<port>.log` holds the output of the server.
 - `serve-<port>.pid` holds its PID.
 - `serve-<port>.dirs` lists the folders that `oc-sub run` sent sessions to. `oc-sub down` checks these folders for busy sessions.
+- `runs/` holds a copy of every run record, so `watch` and `log` find the real cost from any working directory.
 
 ### oc-sub down
 
@@ -97,13 +98,20 @@ Runs `down` and then `up` on the same port. If `down` fails, `restart` stops the
 bun run src/cli.ts run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T]
 ```
 
-Creates a session for the directory DIR, sends the brief to the agent asynchronously (`POST /session/:id/prompt_async`), and returns immediately. The brief is either a file (`--brief brief.md`) or positional text. With `--title T` the session gets that title. The command prints, one per line:
+Creates a session for the directory DIR, sends the brief to the agent asynchronously (`POST /session/:id/prompt_async`), and returns immediately. The brief is either a file (`--brief brief.md`) or positional text. With `--title T` the session gets that title.
+
+Before it creates the session, `run` checks the OpenRouter key. Each project needs its own key. The run directory must use its project key file `~/.config/<project>/openrouter.key`, and no directory of another project may resolve to the same key. The known directories come from the same sources as `status --all`: the folders of past runs, the projects of the server, and their git worktrees. A directory of the same project may share the key, because it has the same git common dir. When another project shares the key, or when the run directory uses the global key from auth.json or the environment, `run` stops with exit code 1 before any session exists. The message names the other project and tells you to create `~/.config/<project>/openrouter.key` for one of the projects and to run `oc-sub restart`. A directory that cannot be checked prints `warning: <directory>: <message>` to stderr and does not stop the run.
+
+`run` also reads the cumulative usage of the key at OpenRouter (`GET https://openrouter.ai/api/v1/key`, which costs nothing) for the start value of the real cost (see `watch` and `log`). If OpenRouter does not answer, the run still starts.
+
+The command prints, one per line:
 
 1. the session ID (so `oc-sub run ... | head -1` gives it to a script),
 2. the exact `opencode attach ...` command for a person to watch the run live,
-3. the path of the run record.
+3. the path of the run record in the current directory,
+4. the path of the run record copy in the state folder.
 
-The run record is a JSON file `.opencode/runs/<session-id>.json` in the current directory, with the session ID, directory, agent, title (`null` when unset), and start time.
+The run record is a JSON file `.opencode/runs/<session-id>.json` in the current directory, with the session ID, directory, agent, title (`null` when unset), and start time. It also holds the first 8 hex digits of the SHA-256 of the key (`keyFingerprint`, never the key) and the key usage at the start in USD (`usageAtStart`, `null` without an answer). A copy goes to `~/.local/state/oc-sub/runs/` (or `$XDG_STATE_HOME/oc-sub/runs/`), so `watch` and `log` find the record from any working directory.
 
 ### oc-sub status
 
@@ -145,7 +153,7 @@ The server caches the configuration. After a change of a configuration file, `pi
 bun run src/cli.ts watch SESSION [--dir DIR] [--json]
 ```
 
-Follows the server's event stream and prints one short line per event of that session: tool calls with their main argument (`tool bash: git status`), failed tool calls (`tool bash failed: ...`), finished assistant texts (`assistant: ...`), and session errors. When the session and its subagent sessions become idle, it prints a summary line with the elapsed time, the number of tool calls, the cost in USD, and the tokens, and exits with code 0. The cost and the tokens cover the session and all of its subagent sessions (child sessions, recursively). With subagent sessions, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. Without subagent sessions, the line shows only the total.
+Follows the server's event stream and prints one short line per event of that session: tool calls with their main argument (`tool bash: git status`), failed tool calls (`tool bash failed: ...`), finished assistant texts (`assistant: ...`), and session errors. When the session and its subagent sessions become idle, it prints a summary line with the elapsed time, the number of tool calls, the cost in USD, and the tokens, then the real-cost line from OpenRouter (see `log`), and exits with code 0. The cost and the tokens cover the session and all of its subagent sessions (child sessions, recursively). With subagent sessions, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. Without subagent sessions, the line shows only the total.
 
 When the session or one of its subagent sessions has a pending question or permission request, the run is paused. `watch` then prints one block per request with the request ID, the session ID, and the content, plus the exact `oc-sub answer ...` command, and exits with code 3. It detects the pause at the start, in every status poll, and on the `question.asked` and `permission.asked` events, so a request that was already pending is found too.
 
@@ -169,7 +177,9 @@ An unknown ID, a wrong kind (for example `--reply` on a question), and an answer
 bun run src/cli.ts log SESSION [--dir DIR]
 ```
 
-Prints the final assistant text of the session and one summary line with the cost and the token totals (input, output, reasoning, cache read, cache write). The totals cover the session and all of its subagent sessions (child sessions, recursively). With subagent sessions, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`.
+Prints the final assistant text of the session, one summary line with the cost and the token totals (input, output, reasoning, cache read, cache write), and one real-cost line. The totals cover the session and all of its subagent sessions (child sessions, recursively). With subagent sessions, the cost part reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`.
+
+The real-cost line is the real charge at OpenRouter, not the estimate of opencode. `run` stores the key usage at the start in the run record, and `log` reads the usage now. The line shows the difference: `real cost $0.0512 at OpenRouter (key usage since the start of the run)`. The real cost is only exact when no other run used the project key during the run. Other runs with the same key that overlap in time add their cost to the same number, so the line names them: `, includes other runs: ses_a, ses_b`. OpenRouter can count a request some seconds late, so a `log` some minutes later can show a slightly higher real cost. Without a run record or without the usage at the start, the line reads `real cost: unknown (no key usage at the start of the run)`.
 
 ### oc-sub abort
 
@@ -202,7 +212,9 @@ bun run src/cli.ts log <session-id> --dir <repo>
 - `src/events.ts` — event filtering and watch lines (pure)
 - `src/tree.ts` — the descendant sessions of a session, their messages, and their cost
 - `src/requests.ts` — pending questions and permissions: list, filter, format, answer
-- `src/runs.ts` — run records under `.opencode/runs/`
+- `src/keys.ts` — OpenRouter key handling: fingerprint, key sources, key check, shared-key refusal
+- `src/runs.ts` — run records in `.opencode/runs/` and in the state folder, real-cost line
+- `src/realcost.ts` — the real-cost output of `watch` and `log`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
 - `src/state.ts` — per-user state files of the server (PID, log, folders with runs)
 - `src/up.ts`, `src/down.ts`, `src/run.ts`, `src/status.ts`, `src/ping.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts`, `src/answer.ts` — the commands

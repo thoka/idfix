@@ -7,6 +7,7 @@ import { missingSessionIsSettled, treeIsSettled } from "./settled";
 import { countToolCalls, formatDuration, formatTotals } from "./summary";
 import { childIdsOf, collectDescendants, loadSessionTree, treeUsage } from "./tree";
 import { answerHint, filterRequests, formatRequest, listPendingRequests, type PendingRequest } from "./requests";
+import { realCostOutput } from "./realcost";
 
 const STATUS_POLL_MS = 2000;
 
@@ -187,6 +188,15 @@ export async function watch(
     console.error(line);
   } else {
     console.log(line);
+  }
+  // The real cost from OpenRouter, below the estimated cost of the summary.
+  const realCost = await realCostOutput(client, sessionId, env);
+  if (realCost !== null) {
+    if (args.json) {
+      console.error(realCost);
+    } else {
+      console.log(realCost);
+    }
   }
   return 0;
 }

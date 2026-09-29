@@ -195,8 +195,9 @@ test.skipIf(!hasOpencode)(
 
         const watched = runCli(workDir, ["watch", watchSessionId, "--url", url, "--dir", otherDir], env);
         expect(watched.code).toBe(0);
+        // Without a run record, watch prints the unknown real cost after the summary.
         expect(watched.stdout.trim()).toMatch(
-          /^idle after \d+m\d\d?s, 0 tool calls, cost \$0\.0000, tokens in 0, out 0, reasoning 0, cache read 0, cache write 0$/,
+          /^idle after \d+m\d\d?s, 0 tool calls, cost \$0\.0000, tokens in 0, out 0, reasoning 0, cache read 0, cache write 0\nreal cost: unknown \(no key usage at the start of the run\)$/,
         );
         expect(watched.stderr).toBe("");
 

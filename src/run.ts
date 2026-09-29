@@ -1,17 +1,68 @@
 /** `oc-sub run`: create a session, send the brief asynchronously, record it. */
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { assertOk, errorMessage, makeClient, requireServer, unwrap } from "./client";
 import { resolvePort, resolveServerUrl, type Env } from "./config";
-import { assertOk, makeClient, requireServer, unwrap } from "./client";
-import { makeRunRecord, writeRunRecord } from "./runs";
-import { addDir, serveDirsPath } from "./state";
+import {
+  checkOpenRouterKey,
+  keyFingerprint,
+  projectNameOf,
+  readTextFile,
+  resolveDirectoryKey,
+  sharedKeyRefusal,
+  type KeyFetch,
+  type KeyOwner,
+} from "./keys";
+import { makeRunRecord, writeRunRecord, writeStateRunRecord } from "./runs";
+import { addDir, readDirs, serveDirsPath } from "./state";
+import { uniqueDirectories, worktreesOf } from "./status";
 
 export function attachCommand(url: string, directory: string, sessionId: string): string {
   return `opencode attach ${url} --dir ${directory} --session ${sessionId}`;
 }
 
+/** The parts of run that the tests replace: fetch, git, the file system, and the working directory. */
+export type RunDeps = {
+  fetch: KeyFetch;
+  projectName: (directory: string) => string;
+  worktreesOf: (directory: string) => string[];
+  exists: (file: string) => boolean;
+  cwd: string;
+};
+
+const defaultDeps: RunDeps = {
+  fetch,
+  projectName: projectNameOf,
+  worktreesOf,
+  exists: existsSync,
+  cwd: process.cwd(),
+};
+
+/**
+ * The known directories, with the same sources as `oc-sub status --all`:
+ * the dirs file of the server, the projects of the server, and their git
+ * worktrees.
+ */
+async function knownDirectories(
+  client: ReturnType<typeof makeClient>,
+  baseUrl: string,
+  env: Env,
+  deps: Pick<RunDeps, "worktreesOf" | "exists">,
+): Promise<string[]> {
+  const port = resolvePort(undefined, baseUrl);
+  const fromDirsFile = await readDirs(serveDirsPath(env, port));
+  const projects = unwrap(await client.project.list({}), "list projects");
+  const projectDirs = projects.map((project) => project.worktree).filter((dir) => dir !== "/");
+  const base = uniqueDirectories([...fromDirsFile, ...projectDirs]);
+  return uniqueDirectories([...base, ...base.flatMap((dir) => deps.worktreesOf(dir))]).filter((dir) =>
+    deps.exists(dir),
+  );
+}
+
 export async function run(
   args: { url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string },
   env: Env = process.env,
+  deps: RunDeps = defaultDeps,
 ): Promise<number> {
   const baseUrl = resolveServerUrl(args.url, env);
   await requireServer(baseUrl, env);
@@ -19,6 +70,47 @@ export async function run(
   const client = makeClient(baseUrl, env);
 
   const brief = args.briefFile !== undefined ? await readBrief(args.briefFile) : (args.text ?? "");
+
+  // Each project needs its own OpenRouter key. Resolve the key of the run
+  // directory and of every other known directory, and refuse a shared key
+  // before the session exists.
+  const runKey = await resolveDirectoryKey(client, directory, env, {
+    readText: readTextFile,
+  }).catch(() => null);
+  let fingerprint: string | undefined;
+  let usageAtStart: number | null = null;
+  if (runKey !== null) {
+    const project = deps.projectName(directory);
+    const owners: KeyOwner[] = [];
+    for (const dir of await knownDirectories(client, baseUrl, env, deps)) {
+      if (dir === directory) continue;
+      try {
+        const key = await resolveDirectoryKey(client, dir, env, { readText: readTextFile });
+        owners.push({
+          project: deps.projectName(dir),
+          fingerprint: key?.fingerprint ?? null,
+          isProjectKey: key?.isProjectKey ?? false,
+        });
+      } catch (error) {
+        // One broken project must not stop the run, like in `status --all`.
+        console.error(`warning: ${dir}: ${error instanceof Error ? error.message : errorMessage(error)}`);
+      }
+    }
+    const refusal = sharedKeyRefusal(
+      { project, fingerprint: runKey.fingerprint, isProjectKey: runKey.isProjectKey },
+      owners,
+      env,
+    );
+    if (refusal !== null) {
+      console.error(refusal);
+      return 1;
+    }
+    fingerprint = keyFingerprint(runKey.key);
+    // The real cost of the run is the growth of the key usage at OpenRouter.
+    // Without an answer, the run still starts and the real cost stays unknown.
+    const check = await checkOpenRouterKey(runKey.key, deps.fetch);
+    usageAtStart = check.status === "ok" ? check.usage : null;
+  }
 
   const created = unwrap(
     await client.session.create({
@@ -45,14 +137,18 @@ export async function run(
     directory,
     agent: args.agent,
     title: args.title,
+    keyFingerprint: fingerprint,
+    usageAtStart,
   });
-  const recordPath = await writeRunRecord(process.cwd(), record);
+  const recordPath = await writeRunRecord(deps.cwd, record);
+  const stateRecordPath = await writeStateRunRecord(env, record);
   // `oc-sub down` checks these directories for busy sessions.
   await addDir(serveDirsPath(env, resolvePort(undefined, baseUrl)), directory);
 
   console.log(created.id);
   console.log(attachCommand(baseUrl, directory, created.id));
   console.log(`run record: ${recordPath}`);
+  console.log(`run record (state): ${stateRecordPath}`);
   return 0;
 }
 

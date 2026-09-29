@@ -144,7 +144,11 @@ Design of step 9a, decided on 2026-09-29:
 
 - `alpha` holds step 9 and is not pushed. The user agreed: when the sandbox mode runs stably for a few real steps (after the mise fix and a first part of step 8), merge `alpha` into `main` and push.
 - Done: `sbx` no longer forwards the SSH agent of the host (`ssh.agentForwardingEnabled false`, set on 2026-09-29). The goal of the sandbox is the smallest blast radius, so actions outside in the name of the user stay on the host.
-- The sandbox has no `bun` and no `mise`, so an agent in the sandbox cannot run `bun test`. The 9c run reported this correctly. Root cause: the sandbox image of `sbx` has only its own tools, not the tools of the project from `mise.toml`. `up --sandbox` must install mise and run `mise install` in the sandbox, and the network policy must allow the download hosts. This comes before step 8.
+- Step 9d, next before step 8: the sandbox has no `bun`, so an agent in the sandbox cannot run `bun test`. The 9c run reported this correctly. Root cause: the sandbox image of `sbx` has only its own tools, not the tools of the project from `mise.toml`. Design, tested on 2026-09-29: the host binaries of mise run unchanged in the sandbox (bun 1.4.2, node 22, Python 3.13, although the host is Arch Linux and the sandbox Ubuntu 26.04).
+  1. `up --sandbox` runs `mise install` on the host in the project root, so that every tool of `mise.toml` exists.
+  2. `sbx create` mounts `~/.local/share/mise/installs` read-only under the same path (relative path with `:ro`, like the plugin folder). No download happens twice, the versions are the same as on the host, and the network policy needs no new hosts. The agent cannot change the tools.
+  3. `up` reads the tool paths of the project with `mise env -C ROOT` on the host, and passes them to the holder command as the start of `PATH`. mise itself is not needed inside.
+  4. A mount can only be set at `sbx create`. An existing sandbox without the mount must be removed and created again. `up` detects this in the output of `sbx ls` and says so.
 - In step 9a, the tests of the GLM coder were green, but three bugs stayed hidden, because its fake of `sbx` used an invented output format. For code that parses the output of a tool, test with real output.
 
 ## Step 10: A probe picks the approved providers

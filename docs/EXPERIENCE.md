@@ -75,3 +75,19 @@ Lessons:
 
 1. Watch the tool calls of a run, not only its end. A run with many calls and no changed file is a warning sign.
 2. Give a coder a short excerpt of large generated files, for example the relevant SDK types, in `.opencode/context/`.
+
+## A/B test: agent prompt against the default prompt
+
+The body of an opencode agent file replaces the default system prompt of opencode. On 2026-09-29, a test compared two variants of the `coder` on the same task, four runs each, with GLM 5.3 Flash:
+
+- A: the agent file with its body, as in `.opencode/agents/coder.md`.
+- B: the same agent file without a body. The same text went into the `system` field of the prompt request, so opencode kept its default prompt.
+
+The task: find three types in a file of 11,656 lines, at lines 4,868, 5,047, and 7,820, write their field names into `answer.md`, and commit it.
+
+| Variant | Correct and committed | Reads with `offset` | Repeated calls | Mean input tokens | Mean estimated cost |
+| --- | --- | --- | --- | --- | --- |
+| A | 4 of 4 | 12 | 0 | 50,315 | 0.0100 USD |
+| B | 4 of 4 | 11 | 0 | 30,506 | 0.0062 USD |
+
+Every run found the types with `grep` and then read with `offset`. The test did not bring back the loop, so it neither confirms nor refutes that the missing default prompt causes loops. The loops came in long runs after many steps. The token difference comes mostly from one run (A2) and needs more runs to count. The eight runs cost an estimated 0.067 USD. One run paused on a permission request for a chained git command, and `oc-sub answer` resumed it.

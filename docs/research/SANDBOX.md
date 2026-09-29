@@ -99,8 +99,39 @@ What `oc-sub` keeps: `up/run/watch/answer/log` semantics, the HTTP API, `opencod
 
 ## 6. Open questions
 
-- Does opencode run correctly inside a Docker Sandbox microVM, and can a server inside it be reached from the host? If yes, the credential proxy would beat every other key model.
+- Does opencode run correctly inside a Docker Sandbox microVM, and can a server inside it be reached from the host? Answered yes by the test in section 7.
 - Does the official opencode image (`ghcr.io/anomalyco/opencode`) work as a headless `serve` image as-is, or does it need a small Dockerfile on top?
 - Nested KVM in WSL2 for Firecracker — unverified; assumed unavailable.
-- What egress does an opencode run actually need beyond openrouter.ai (models.dev catalog fetch, npm/bun/pip installs, GitHub)? Determines the proxy allowlist.
+- What egress does an opencode run actually need beyond openrouter.ai (models.dev catalog fetch, npm/bun/pip installs, GitHub)? Determines the proxy allowlist. Section 7 lists what one small run used.
 - E2B and Docker Sandboxes start-time and pricing numbers were not on the fetched pages.
+
+## 7. Test of Docker Sandboxes on 2026-09-29
+
+Setup: `sbx` 0.45.1 on WSL2, logged in with `sbx login`, one local sandbox `oc-test` for a scratch git repository. The user chose this test before our own container, because the credential proxy of `sbx` keeps the key out of the sandbox.
+
+### What works
+
+- `sbx create --name oc-test opencode DIR` took 65 seconds the first time, mostly for a 1.1 GB image. A start of a stopped sandbox took about 3 seconds.
+- The sandbox runs Ubuntu 26.04 with opencode 1.18.32, the same version as `mise.toml`. The user is `agent`. The workspace appears under the same absolute path as on the host. The home folder of the host is not visible.
+- `sbx secret set openrouter --sandbox oc-test --command 'cat ~/.config/<project>/openrouter.key'` scopes the key to one sandbox. `sbx` runs the command on the host.
+- Inside, `OPENROUTER_API_KEY` holds the placeholder `proxy-managed`. The proxy of `sbx` (`HTTPS_PROXY=http://gateway.docker.internal:3128`) adds the real key to each request to openrouter.ai, also to a request without an `Authorization` header. The agent can use the key but cannot read it.
+- `opencode serve --hostname 0.0.0.0 --port 4096` runs inside. `sbx ports oc-test --publish 18767:4096` publishes it on 127.0.0.1 of the host. `oc-sub watch`, `oc-sub say`, and `oc-sub answer` work unchanged with `OC_SUB_URL=http://127.0.0.1:18767`.
+- The plugin agents work after `sbx cp opencode oc-test:/home/agent/oc-sub-config` and `OPENCODE_CONFIG_DIR=/home/agent/oc-sub-config`. A mount of the plugin folder read-only (`sbx create ... PLUGIN_DIR:ro`) is the likely better way.
+- A small `coder` run with GLM 5.3 Flash wrote a file and committed it, in 13 tool calls for an estimated 0.0024 USD. `sbx` copies the git identity of the host into the sandbox.
+- The sessions of opencode survive a stop of the sandbox, because the disk of the sandbox persists.
+
+### Problems found
+
+1. Auto-stop. `sbx` stops a sandbox 30 seconds after the last `sbx` session (for example `sbx exec` or `sbx run`) disconnects. Traffic through a published port does not count. A server that is started in the background with `sbx exec ... &` dies with the sandbox. No setting turns the auto-stop off. The fix: a host process holds `sbx exec -e OPENCODE_CONFIG_DIR=... SANDBOX opencode serve ...` in the foreground for the life of the server. `oc-sub up` can start this process instead of `opencode serve`.
+2. The key check of `oc-sub run` refuses the sandbox. It resolves the key of the run directory, finds `proxy-managed`, and reports that the project does not use its project key. With `sbx`, the key check must use the `sbx` secret scope instead.
+3. The network is open by default. The global policy `local-policy` has the rule `default-allow-all`. The kit of the agent `opencode` adds 31 allowed hosts (openrouter.ai, api.github.com, registry.npmjs.org, and others), but they matter only when the global rule is removed. A deny rule always beats an allow rule, so `sbx policy deny network --sandbox oc-test "**"` also blocks openrouter.ai, even with a more specific allow rule. A per-sandbox allowlist needs a change of the global policy (`sbx policy rm network --id default-allow-all`), which affects every sandbox.
+4. The sandbox reaches the host. `curl http://host.docker.internal:8767` from inside reached the host `opencode serve`, which runs without a sandbox. An agent can create a session there and run commands on the host. `sbx policy check` allows it under the current global policy. If the plugin moves to `sbx`, the host server must stop, or the policy must deny `host.docker.internal`.
+5. A background `pkill -f "opencode serve"` inside `sbx exec sh -c '...'` also matches the shell of that command. Stop the server through its holding host process instead.
+
+### Egress of one small run
+
+The policy log (`sbx policy log oc-test`) showed these hosts: openrouter.ai, models.opencode.ai (the model catalog), registry.npmjs.org (29 requests, the packages of the configuration folder), mcp-gateway.docker.internal (the MCP gateway of `sbx`), and the Ubuntu and Docker package hosts during the start.
+
+### Verdict
+
+Docker Sandboxes fits the design of `oc-sub`: one server per project sandbox, reached through a published port, with a key that the agent cannot read. Three things need a decision or code: the global network policy, the end of the unsandboxed host server, and the key check of `oc-sub run`.

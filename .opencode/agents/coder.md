@@ -19,19 +19,26 @@ permission:
   external_directory: deny
   question: allow
   bash:
-    "*": ask
-    "bun test*": allow
-    "bun run typecheck*": allow
-    "bun run src/cli.ts *": allow
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-    "git add *": allow
-    "git rm *": allow
-    "git commit *": allow
+    # The worktree protects the repository, not this list. Everything runs,
+    # except actions outside the worktree or that destroy work.
+    "*": allow
+    "git push*": ask
+    "git merge*": ask
+    "git rebase*": ask
+    "git reset*": ask
+    "git switch*": ask
+    "git checkout*": ask
+    "rm -r*": ask
+    "rm -f*": ask
+    "curl*": ask
+    "wget*": ask
+    "npm install*": ask
+    "bun add*": ask
+    "bun install*": ask
+    "pip install*": ask
+    "uv add*": ask
     # Last, so that they win.
     "*.env*": deny
-    # The stash is shared by all worktrees of the repository.
     "git stash*": deny
 ---
 You implement one coding step in the repository opencode-subagents. Read CLAUDE.md first.

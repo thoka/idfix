@@ -139,7 +139,7 @@ export function otherRunIds(records: readonly RunRecord[], run: RunRecord): stri
 /**
  * One real-cost line after the cost line of `watch` and `log`. Pure function.
  * The real cost is the growth of the key usage at OpenRouter during the run.
- * OpenRouter can count a request some seconds late, so a later `log` can
+ * OpenRouter counts a request a minute or two late, so a later `log` can
  * show a slightly higher real cost.
  */
 export function realCostLine(run: RunRecord | null, usageNow: number | null, others: readonly string[]): string {

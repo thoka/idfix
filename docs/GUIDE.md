@@ -56,12 +56,7 @@ claude plugin marketplace remove opencode-subagents
    cp <path-to-a-clone>/skills/oc-sub/templates/coder.md .opencode/agents/
    ```
 
-2. In `.opencode/agents/coder.md`, replace the lines `"bun test*"` and `"bun run typecheck*"` with the test and lint commands of your project. For a Python project with uv, for example:
-
-   ```
-   "uv run pytest*": allow
-   "uv run ruff*": allow
-   ```
+2. Read the permissions in `.opencode/agents/coder.md`. The permissions allow every bash command, except the commands that act outside the worktree or destroy work. Those ask first: `git push`, `merge`, `rebase`, `reset`, `switch`, and `checkout`, `rm -r` and `rm -f`, `curl` and `wget`, and package installs. A bash command that names a `.env` file and `git stash` are denied.
 
 3. Set the model in the file. The template uses `openrouter/z-ai/glm-5.3-flash`.
 4. Add `.opencode/runs/` and `.opencode/context/` to `.gitignore`.
@@ -130,15 +125,15 @@ It prints one short line per tool call. When the run ends, it prints a summary l
 ## Follow up, abort, and read the cost
 
 - **Follow up**: tell Claude what to change. Claude sends the message into the same session with `opencode run --attach ... --session <id>`. You can also type into the attached opencode interface yourself.
-- **Questions**: an agent can ask a question, and a command outside its allowlist can raise a permission request. The run then pauses until Claude answers. `oc-sub watch` ends with exit code 3 and prints the request. Claude decides whether it is safe, asks you if it is not, and answers with `oc-sub answer <request-id> ...`. Then Claude watches again.
+- **Questions**: an agent can ask a question, and a command with an `ask` rule can raise a permission request. The run then pauses until Claude answers. `oc-sub watch` ends with exit code 3 and prints the request. Claude decides whether it is safe, asks you if it is not, and answers with `oc-sub answer <request-id> ...`. Then Claude watches again.
 - **Abort**: tell Claude to stop the run, or run `oc-sub abort <session-id> --dir <worktree>`.
-- **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and two cost lines in USD. The first line is the estimate of opencode: it multiplies the tokens by the prices in its model catalog from models.dev. The second line is the real cost at OpenRouter: the growth of the usage of the project key during the run. Both cover the session and all of its subagent sessions. With subagents, the first line reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. The second reads `real cost $0.0512 at OpenRouter (key usage since the start of the run)`. Other runs with the same key that overlap in time add their cost to the same number, so the real cost line names them. OpenRouter can count a request some seconds late, so a `log` some minutes later can show a slightly higher real cost. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
+- **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and two cost lines in USD. The first line is the estimate of opencode: it multiplies the tokens by the prices in its model catalog from models.dev. The second line is the real cost at OpenRouter: the growth of the usage of the project key during the run. Both cover the session and all of its subagent sessions. With subagents, the first line reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. The second reads `real cost $0.0512 at OpenRouter (key usage since the start of the run)`. Other runs with the same key that overlap in time add their cost to the same number, so the real cost line names them. OpenRouter counts a request a minute or two late, so a `log` some minutes later can show a slightly higher real cost. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
 
 ## Security
 
 - **The server listens only on 127.0.0.1.** Do not start it with `--hostname 0.0.0.0`. The server can read and change every file of a project, and it can run the allowed commands.
 - **Set a password on a shared machine.** Put `OPENCODE_SERVER_PASSWORD` into the environment before you start the server. `oc-sub`, `opencode run`, and `opencode attach` read it from there. The username is `opencode`, unless you set `OPENCODE_SERVER_USERNAME`. Never commit the password.
-- **The allowlist is not a sandbox.** It stops mistakes of the agent. But a test command such as `bun test` or `pytest` runs any code that the agent wrote.
+- **The permission rules are not a sandbox.** They stop some mistakes of the agent. But a test command such as `bun test` or `pytest` runs any code that the agent wrote.
 - **The real protection** is a separate git worktree for each run, no access to `.env` files or keys, and a review of every diff. Claude reviews the diff and runs the tests itself before a merge. Check the merge yourself for risky changes.
 - **Do not use `--auto`.** `opencode run --auto` approves every request that is not explicitly denied. Use the agent files instead.
 

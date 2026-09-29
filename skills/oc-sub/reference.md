@@ -60,7 +60,7 @@ The cost and the tokens cover the session and all of its subagent sessions. With
 
 ### Questions and permission requests
 
-An agent can ask a question with the `question` tool, and a command outside its allowlist can raise a permission request. Both pause the session until an answer arrives. There is no timeout. The session stays `busy` in the status map, so `watch` detects the pause through the two pending lists of the server.
+An agent can ask a question with the `question` tool, and a command with an `ask` rule can raise a permission request. Both pause the session until an answer arrives. There is no timeout. The session stays `busy` in the status map, so `watch` detects the pause through the two pending lists of the server.
 
 When `watch` finds a pending request for the watched session or for one of its subagent sessions, it prints one block per request and ends with exit code 3:
 
@@ -121,7 +121,7 @@ opencode run --attach http://127.0.0.1:8767 --dir <worktree> --session <session-
 - The first line is the estimate of opencode. It sums `cost` and `tokens` over all assistant messages of the session and of all its subagent sessions (child sessions, recursively). opencode computes it by multiplying the tokens by the prices in its model catalog from models.dev, so it can differ from the real charge. With subagent sessions, the line names their share, for example `cost $0.0816 (subagents $0.0665 in 4 sessions)`. Without subagent sessions, the line shows only the total.
 - The second line is the real cost at OpenRouter. `oc-sub run` reads the cumulative usage of the project key at OpenRouter (`GET https://openrouter.ai/api/v1/key`, field `data.usage`) before it sends the brief, and stores it in the run record. When the run ends, `watch` and `log` read the usage again. The line shows the difference: `real cost $0.0512 at OpenRouter (key usage since the start of the run)`.
 - The real cost is only exact when the project key did nothing else during the run. Other `oc-sub` runs with the same key that overlap in time add their cost to the same number, so the line names them: `..., includes other runs: ses_a, ses_b`.
-- OpenRouter can count a request some seconds late. A `log` some minutes after the run can therefore show a slightly higher real cost than `watch` did.
+- OpenRouter counts a request a minute or two late. A `log` some minutes after the run can therefore show a slightly higher real cost than `watch` did.
 - Without a run record, without the usage at the start, or when OpenRouter does not answer, the line reads `real cost: unknown (no key usage at the start of the run)` or `real cost: unknown (OpenRouter did not answer)`.
 - The run record is a JSON file with the session ID, directory, agent, title, start time, `keyFingerprint` (the first 8 hex digits of the SHA-256 of the key, never the key), and `usageAtStart` in USD. `run` writes it to `.opencode/runs/` in the start directory and to `~/.local/state/oc-sub/runs/` (or `$XDG_STATE_HOME/oc-sub/runs/`), so `watch` and `log` find it from any working directory.
 - Each project needs its own OpenRouter key in `~/.config/<project>/openrouter.key`. A key that two projects share is not allowed. `oc-sub run` checks every known directory (the same sources as `status --all`) and refuses to start when a directory of another project resolves to the same key, or when the run directory uses the global key from auth.json or the environment. It names the other project and tells you to create a key for one of the projects and run `oc-sub restart`. A directory that cannot be checked prints a warning and does not stop the run.
@@ -133,7 +133,7 @@ opencode run --attach http://127.0.0.1:8767 --dir <worktree> --session <session-
 
 An agent file is `.opencode/agents/<name>.md` in the project. The file name is the agent name. The frontmatter sets the model and the permissions, and the body is the system prompt.
 
-A coding step needs `.opencode/agents/coder.md` in the project. Copy it from [templates/coder.md](templates/coder.md) and adapt the bash allowlist to the test command of the project.
+A coding step needs `.opencode/agents/coder.md` in the project. Copy it from [templates/coder.md](templates/coder.md). The permissions allow every bash command, except the commands that act outside the worktree or destroy work. Those ask first: `git push`, `merge`, `rebase`, `reset`, `switch`, and `checkout`, `rm -r` and `rm -f`, `curl` and `wget`, and package installs. A bash command that names a `.env` file and `git stash` are denied.
 
 Research needs no agent file in the project. `oc-sub up` starts `opencode serve` with `OPENCODE_CONFIG_DIR` set to the `opencode/` folder of the plugin. opencode searches that folder for agents like the project `.opencode` folder, and it loads that folder after the project folders. So an agent from `OPENCODE_CONFIG_DIR` overrides a project agent with the same name. The plugin serves two agents there: the `researcher` agent, and its hidden `reader` subagent. The researcher cannot fetch pages itself. It calls `reader` through the task tool, which fetches the pages in a fresh context and returns at most 600 words of quotes with URLs. The reader fetches only the URLs that it gets, and it stops after six steps (`steps: 6`). Without this limit, one reader call with an open task made 42 fetches. This keeps the cost low, because each fetched page would otherwise stay in the context of the researcher until the run ends. See `docs/PLAN.md` in the repository of the plugin.
 
@@ -141,10 +141,10 @@ Permission rules:
 
 - Each key is `allow`, `ask`, or `deny`. `ask` pauses the run with a permission request. `oc-sub watch` shows it and ends with exit code 3, and `oc-sub answer` replies. Use `deny` only for what the agent must never do, for example reading `.env` files.
 - Allow the `question` tool. The agent then asks instead of guessing or looking for a detour.
-- For `bash`, `edit`, and `read`, you can give a map of patterns. The last pattern that matches wins, so put the catch-all `"*": ask` first and the allowed commands after it.
+- For `bash`, `edit`, and `read`, you can give a map of patterns. The last pattern that matches wins. So put the catch-all `"*": allow` first, the commands that ask after it, and the denies last.
 - `external_directory: deny` keeps the agent inside the project folder. `task: deny` stops it from starting more agents.
 - Deny `*.env` and `*.env.*` for `read`.
-- Adapt the `bash` allowlist to the test command of the project, for example `"uv run pytest*": allow` or `"npm test*": allow`.
+- A long allowlist pauses the run at every command outside it, also at read-only commands such as `cat` or `rg`. In September 2026, that cost minutes per pause. The worktree and the review protect the repository, not the list. See step 9 of `docs/PLAN.md` for a real sandbox.
 
 The server reads the agent files of the folder that you pass with `--dir`. The server loads the agent files of a folder once, when that folder gets its first request. A new worktree gets the current files. A changed agent file takes effect for a folder that the server already knows only after `oc-sub restart`. After an update of the plugin, run `oc-sub restart`. The running server keeps the plugin folder that it got at start in `OPENCODE_CONFIG_DIR`, and a plugin update can install into a new folder.
 
@@ -201,7 +201,7 @@ For research, name the output file, for example `docs/research/<topic>.md`, and 
 
 ## Security
 
-- The allowlist stops mistakes of the agent. It is not a sandbox. A test command such as `bun test` or `pytest` runs any code that the agent wrote.
+- The permission rules stop some mistakes of the agent. They are not a sandbox. A test command such as `bun test` or `pytest` runs any code that the agent wrote.
 - The real protection is: a separate git worktree, no access to `.env` or keys, and your review of every diff before a merge.
 - Keep the server on `127.0.0.1`. If other users share the machine, set `OPENCODE_SERVER_PASSWORD`. `oc-sub` and `opencode` read it from the environment. Never print it.
 - If a command is denied, the agent reports it. Do not go around the denial. Tell the user.

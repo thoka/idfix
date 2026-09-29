@@ -111,7 +111,7 @@ Status: in progress. The research and the test of Docker Sandboxes (`sbx`) are d
 
 State of the test on 2026-09-29: the test is done. The details are in [SANDBOX.md](research/SANDBOX.md#7-test-of-docker-sandboxes-on-2026-09-29).
 
-- `sbx` 0.45.1 comes from the GitHub releases `docker/sbx-releases`, through mise without an entry in `mise.toml`: `$(mise where github:docker/sbx-releases@0.45.1)/sbx`. It needs no Docker Desktop, but a Docker login (`sbx login`).
+- `sbx` 0.45.1 comes from the GitHub releases `docker/sbx-releases`, through `mise.toml` (`"github:docker/sbx-releases" = "0.45.1"`). It needs no Docker Desktop, but a Docker login (`sbx login`).
 - `opencode serve` runs inside a sandbox. `oc-sub watch`, `say`, and `answer` reach it through `sbx ports`. The agent sees only the placeholder `proxy-managed`, and the proxy of `sbx` adds the real key of the project. A small `coder` run committed its work.
 - A host process must hold `sbx exec SANDBOX opencode serve` in the foreground, because `sbx` stops a sandbox 30 seconds after the last `sbx` session ends.
 - `oc-sub run` refuses the sandbox, because its key check finds `proxy-managed` instead of the project key.

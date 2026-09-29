@@ -29,6 +29,10 @@ permission:
     "git add *": allow
     "git rm *": allow
     "git commit *": allow
+    # Last, so that they win.
+    "*.env*": deny
+    # The stash is shared by all worktrees of the repository.
+    "git stash*": deny
 ---
 You implement one coding step in the repository opencode-subagents. Read CLAUDE.md first.
 Follow the style of the surrounding code. Write all code, comments, and commit messages in English.

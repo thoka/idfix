@@ -66,9 +66,9 @@ Root cause: `oc-sub watch` and `oc-sub log` show the cost that opencode computes
 2. Decide with the user where the real cost comes from, and whether `oc-sub` reads the OpenRouter key for it.
 3. Look at the real routing at OpenRouter. If requests go to an expensive provider, set a routing rule. The research report names `provider.openrouter.options.extraBody.provider` as the likely path.
 
-## Step 6: A loop guard in `oc-sub watch`
+## Step 6: Guards in `oc-sub watch`, and better answers
 
-Status: open.
+Status: in progress. Part A (guards) covers items 1 to 4 and 9. Part B (answers) covers items 5 to 7.
 
 Root cause: the first step 4 run read the same 75 lines of one file 40 times in a row, with the same input each time. It cost an estimated 0.49 USD without a result. The `doom_loop` permission of opencode defaults to `ask`, but it did not stop the run (see [EXPERIENCE.md](EXPERIENCE.md#a-coder-in-a-loop)).
 
@@ -79,7 +79,8 @@ Root cause: the first step 4 run read the same 75 lines of one file 40 times in 
 5. `oc-sub answer --reply reject --message TEXT` passes the reason to the agent. The reply endpoint accepts `message` next to `reply`.
 6. A command sends a follow-up message into a session without waiting, for example `oc-sub say SESSION TEXT`. It uses `prompt_async`, because `opencode run --attach` blocks until the reply ends.
 7. The documentation says that a rejected permission request ends the turn of the agent, also with a message. To continue, send a follow-up message.
-8. The coder allowlist gets `ls` and `wc`. `cat`, `head`, `tail`, and `sed` stay on `ask`, because through bash they can print a `.env` file.
+8. Done differently: since commit 62ed63c, the agents allow every bash command by default. Only actions outside the worktree ask, and `.env` and `git stash` are denied.
+9. `oc-sub watch` also warns when one step uses more than 16,000 reasoning tokens. Runs with 13,000 to 32,000 reasoning tokens in one step derailed on 2026-09-29.
 
 ## Step 7: Agent files keep the default system prompt
 

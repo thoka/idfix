@@ -21,11 +21,19 @@ permission:
   question: allow
   bash:
     "*": ask
+    "ls*": allow
+    "wc *": allow
+    "cat *": allow
+    "head*": allow
+    "tail*": allow
+    "sed -n *": allow
     "git status*": allow
     "git diff*": allow
     "git log*": allow
     "git add docs/research/*": allow
     "git commit *": allow
+    # Last, so that it wins: no bash command may name a .env file.
+    "*.env*": deny
 ---
 You research one question for this project and write the answer as a report into `docs/research/`.
 Read AGENTS.md or CLAUDE.md, and the files that the brief names first.

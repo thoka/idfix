@@ -68,7 +68,7 @@ Root cause: `oc-sub watch` and `oc-sub log` show the cost that opencode computes
 
 ## Step 6: Guards in `oc-sub watch`, and better answers
 
-Status: in progress. Part A (guards) covers items 1 to 4 and 9. Part B (answers) covers items 5 to 7.
+Status: done. Part A (guards) covers items 1 to 4 and 9. Part B (answers) covers items 5 to 7. Known limit: a single bash command that runs longer than three minutes sends no events, so `watch` reports a stall although nothing is wrong. The fix of the false idle report is not proven in a live run yet.
 
 Root cause: the first step 4 run read the same 75 lines of one file 40 times in a row, with the same input each time. It cost an estimated 0.49 USD without a result. The `doom_loop` permission of opencode defaults to `ask`, but it did not stop the run (see [EXPERIENCE.md](EXPERIENCE.md#a-coder-in-a-loop)).
 

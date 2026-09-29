@@ -7,6 +7,7 @@ This file holds the details for the skill `oc-sub`. [SKILL.md](SKILL.md) has the
 - [Setup](#setup)
 - [Commands](#commands)
 - [Follow-up messages](#follow-up-messages)
+- [Guards](#guards)
 - [Questions and permission requests](#questions-and-permission-requests)
 - [Cost and tokens](#cost-and-tokens)
 - [Agent files](#agent-files)
@@ -34,13 +35,13 @@ Every command accepts `--url URL`. The default URL comes from the environment va
 | `oc-sub run --agent NAME --dir DIR (--brief FILE \| TEXT) [--title T]` | Creates a session in DIR and sends the brief to the agent without waiting. Before it creates the session, it checks the OpenRouter key: the run directory must use its project key file, and no directory of another project may resolve to the same key. On a shared key it prints an error that names the other project and exits with code 1. It also reads the usage of the key at OpenRouter for the start value of the real cost. It prints four lines: the session ID, the `opencode attach ...` command, and the two paths of the run record (`.opencode/runs/<session-id>.json` in the start directory, and a copy in `~/.local/state/oc-sub/runs/`). |
 | `oc-sub status [--dir DIR \| --all]` | One line per session: ID, state (`busy`, `waiting`, `idle`, `retry`), title. `waiting` means that the session has a pending question or permission request and waits for an answer. Without `--all`, it lists the folder and each of its git worktrees. A session of another worktree shows its folder at the end (`.worktrees/x` when it is inside the folder, else absolute). With `--all`, it lists the running sessions of all projects and their worktrees, each with the absolute folder, or `no running sessions`. A directory that fails to list prints `warning: <directory>: <message>` to stderr and does not stop the listing. |
 | `oc-sub ping [--dir DIR]` | Shows which OpenRouter key the server uses for DIR, where it comes from (project key file, environment, or global auth.json), and whether OpenRouter accepts it. Prints a SHA-256 fingerprint of the key, never the key itself. Warns when the server does not use the project key file, because the cost then goes to another key. |
-| `oc-sub watch SESSION [--dir DIR] [--json]` | Prints one short line per tool call, failed tool call, assistant text, and session error. When the session and its subagent sessions are idle, it prints a summary line and then the real-cost line (see [Cost and tokens](#cost-and-tokens)), and exits with code 0. The summary covers the session and all of its subagent sessions. When the session or one of its subagent sessions has a pending question or permission request, it prints one block per request and exits with code 3 (see [Questions and permission requests](#questions-and-permission-requests)). With `--json`, it prints the events as JSON lines, and the summary and the request blocks go to stderr. |
+| `oc-sub watch SESSION [--dir DIR] [--json]` | Prints one short line per tool call, failed tool call, assistant text, and session error. When the session and its subagent sessions are idle, it prints a summary line and then the real-cost line (see [Cost and tokens](#cost-and-tokens)), and exits with code 0. The summary covers the session and all of its subagent sessions. When the session or one of its subagent sessions has a pending question or permission request, it prints one block per request and exits with code 3 (see [Questions and permission requests](#questions-and-permission-requests)). When a guard sees a warning sign (see [Guards](#guards)), it prints one block per finding and exits with code 4. The run itself keeps running. With `--json`, it prints the events as JSON lines, and the summary and the blocks go to stderr. |
 | `oc-sub log SESSION [--dir DIR]` | Prints the last assistant text (the report of the agent), a line with the cost and the tokens, and the real-cost line. The totals cover the session and all of its subagent sessions (see [Cost and tokens](#cost-and-tokens)). |
 | `oc-sub abort SESSION [--dir DIR]` | Stops the session. |
 | `oc-sub answer REQUEST_ID [--dir DIR] (--reply once\|always\|reject \| --reject \| ANSWER...)` | Answers a pending question or permission request of the run in DIR. The command looks the ID up in the two pending lists to learn its kind. A question takes one positional ANSWER per question, in order. An ANSWER is the label of an option or free text. `--reject` rejects a question. A permission request takes `--reply once`, `--reply always`, or `--reply reject`. With `--reply reject`, `--message TEXT` gives the agent the reason. It sees the message as the error of the tool call. A rejected permission request ends the turn of the agent. The command prints a hint to send a follow-up message with `oc-sub say`. `--message` is only allowed with `--reply reject`. An unknown ID, a wrong kind, and a wrong answer count stop with an error before anything is sent. After the answer, start `watch` again. |
 | `oc-sub say SESSION [--dir DIR] [--agent NAME] TEXT` | Sends TEXT as a follow-up message into the session and returns at once. It uses `prompt_async`, so it does not wait for the reply to end. Without `--agent`, it takes the agent from the last user message of the session. A session without a user message needs `--agent NAME`. It prints one line with the session, the agent, and the `watch` command. |
 
-Exit codes: 0 for success, 1 for an error (including a shared OpenRouter key in `run`), 2 for wrong arguments, 3 when `watch` found a pending question or permission request (the run is paused). If no server runs, `status` prints `no server on <url>` and exits with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
+Exit codes: 0 for success, 1 for an error (including a shared OpenRouter key in `run`), 2 for wrong arguments, 3 when `watch` found a pending question or permission request (the run is paused), and 4 when `watch` saw a warning sign in the run (see [Guards](#guards)). If no server runs, `status` prints `no server on <url>` and exits with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
 
 ### Watch in the background
 
@@ -57,7 +58,33 @@ idle after 6m12s, 41 tool calls, cost $0.0816 (subagents $0.0665 in 4 sessions),
 real cost $0.0834 at OpenRouter (key usage since the start of the run)
 ```
 
-The cost and the tokens cover the session and all of its subagent sessions. Without subagent sessions, the line omits the part in parentheses. The watch ends only when the session and its subagent sessions are all done. You can start `watch` right after `run`. A session that the server has not yet marked busy does not end the watch.
+The cost and the tokens cover the session and all of its subagent sessions. Without subagent sessions, the line omits the part in parentheses. The watch ends only when the session and its subagent sessions are all done and no request of the tree is pending. The status of a session can flip to idle for a moment between two requests. So the watch checks the pending lists even when the status map says idle. It ends as idle only when the session and all its descendants are idle or missing in the status map, and no request is pending. You can start `watch` right after `run`. A session that the server has not yet marked busy does not end the watch.
+
+### Guards
+
+The watch tells you early when a run goes wrong. It does not wait for the end of the run. It checks three warning signs, for the watched session and for all of its subagent sessions:
+
+- **Loop**: five tool calls in a row with the same tool and the same input. The comparison sorts the keys of the input, so the order of the keys does not matter.
+- **Stall**: the session is busy, and no event of the session arrived for 180 seconds.
+- **Reasoning**: one step used more than 16,000 reasoning tokens. Runs with 13,000 to 32,000 reasoning tokens in one step derailed on 2026-09-29.
+
+On a finding, the watch prints one block and ends with exit code 4:
+
+```
+needs attention: loop
+session ses_9f2a
+tool read, 5 calls in a row with the same input: /repo/sdk.gen.d.ts
+
+The run keeps running. Abort it, or send a correction to the session.
+```
+
+Each finding is reported once. The run itself keeps running. As the orchestrator, you decide:
+
+- Read the block. A loop usually needs a correction that names the right file or the next step. Send it into the session (see [Follow-up messages](#follow-up-messages)), or abort the run with `oc-sub abort`.
+- A stall usually needs an abort and a follow-up message.
+- A session whose model claims broken tools is poisoned. Do not send a follow-up message into it. Start a fresh session with the same brief instead.
+
+Then start `watch` again to follow the rest of the run.
 
 ### Questions and permission requests
 

@@ -122,6 +122,8 @@ oc-sub watch ses_abc123 --dir /path/to/worktree
 
 It prints one short line per tool call. When the run ends, it prints a summary line with the cost, then the real-cost line from OpenRouter. The cost covers the session and all of its subagent sessions. When the run pauses on a question or a permission request, it prints the request and ends. Claude answers it and watches again.
 
+`watch` also warns early when a run goes wrong, for example when the agent repeats the same tool call five times in a row. Then it prints a block that names the problem and the session, and it ends with exit code 4. The run itself keeps running. Claude reads the block and then aborts the run or sends a correction. You do not need to act yourself.
+
 ## Follow up, abort, and read the cost
 
 - **Follow up**: tell Claude what to change. Claude sends the message into the same session with `oc-sub say <session-id> --dir <worktree> "<message>"`. The command returns at once and does not block. You can also type into the attached opencode interface yourself.
@@ -145,6 +147,7 @@ It prints one short line per tool call. When the run ends, it prints a summary l
 | `opencode run` hangs | The command waits for input. Add `< /dev/null`. |
 | `oc-sub status` shows nothing | The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. `oc-sub status --all` shows the running sessions of all projects and their worktrees, each with its folder. |
 | A run seems stuck | The agent may wait for an answer to a question or a permission request. Run `oc-sub watch <session-id> --dir <worktree>` again. It ends with exit code 3 and prints the request. |
+| `watch` ends with exit code 4 | The watch saw a warning sign: a loop of identical tool calls, a stalled session, or runaway reasoning in one step. The run itself keeps running. Claude reads the block, then aborts the run or sends a correction. A session whose model claims broken tools is poisoned. Claude starts a fresh session with the same brief instead of a follow-up message. |
 | The agent cannot read a file | The agent cannot leave its project folder. Copy the file into the worktree, or put its content into the brief. |
 | A run takes very long | The step is too big. Abort it and split the brief into smaller steps. |
 | `oc-sub ping` shows an old key after a configuration change | The server caches the configuration. Run `oc-sub restart`. |

@@ -2,7 +2,8 @@
 import path from "node:path";
 import { resolveServerUrl, type Env } from "./config";
 import { makeClient, requireServer, unwrap } from "./client";
-import { belongsToSession, isRequestAskedEvent, watchEventLine } from "./events";
+import { belongsToSession, eventSessionId, isRequestAskedEvent, watchEventLine } from "./events";
+import { createGuard, formatFinding, type Finding } from "./detect";
 import { missingSessionIsSettled, treeIsSettled } from "./settled";
 import { countToolCalls, formatDuration, formatTotals } from "./summary";
 import { childIdsOf, collectDescendants, loadSessionTree, treeUsage } from "./tree";
@@ -13,8 +14,9 @@ const STATUS_POLL_MS = 2000;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** Exit codes of watch: 0 when the run ended, 3 when it waits for an answer. */
+/** Exit codes of watch: 0 ended, 3 waits for an answer, 4 needs attention. */
 export const WATCH_PAUSED_EXIT = 3;
+export const WATCH_ATTENTION_EXIT = 4;
 
 export async function watch(
   args: { url?: string; session: string; dir?: string; json: boolean },
@@ -58,34 +60,77 @@ export async function watch(
 
   const childrenOf = childIdsOf(client, directory);
 
-  // The watched session and all of its descendant sessions. A pending request
-  // of any of them pauses the watch.
+  // The guards watch the session and all of its descendant sessions. A
+  // finding does not stop the run: the orchestrator decides.
+  const guard = createGuard();
+  let treeIdSet = new Set<string>([sessionId]);
+
+  // The watch tree is the session and all of its descendant sessions. A
+  // pending request of any of them pauses the watch.
   const treeIds = async (): Promise<Set<string>> =>
     new Set([sessionId, ...(await collectDescendants(sessionId, childrenOf))]);
+
+  /** Print one block per finding, then end with exit code 4. */
+  const reportFindings = (findings: readonly Finding[]): void => {
+    if (findings.length === 0) return;
+    const lines: string[] = [];
+    findings.forEach((finding, index) => {
+      if (index > 0) lines.push("");
+      lines.push(...formatFinding(finding));
+    });
+    lines.push("", "The run keeps running. Abort it, or send a correction to the session.");
+    printLines(lines, args.json);
+    finish(WATCH_ATTENTION_EXIT);
+  };
+
+  /**
+   * The pending requests of the watch tree, or undefined when the lists
+   * could not be read. An empty array means: none pending.
+   */
+  const findPending = async (ids: ReadonlySet<string>): Promise<PendingRequest[] | undefined> => {
+    try {
+      return filterRequests(await listPendingRequests(baseUrl, directory, env), ids);
+    } catch {
+      // Server unreachable right now; the next poll tries again.
+      return undefined;
+    }
+  };
 
   // Print one block per pending request of the watch tree, then end with
   // exit code 3. The session stays busy until the request is answered.
   const checkPending = async (ids?: ReadonlySet<string>): Promise<void> => {
-    try {
-      const mine = filterRequests(await listPendingRequests(baseUrl, directory, env), ids ?? (await treeIds()));
-      if (mine.length === 0) return;
-      printPending(mine, directory, args.json);
-      finish(WATCH_PAUSED_EXIT);
-    } catch {
-      // Server unreachable right now; the next poll tries again.
-    }
+    const mine = await findPending(ids ?? (await treeIds()));
+    if (mine === undefined || mine.length === 0) return;
+    printPending(mine, directory, args.json);
+    finish(WATCH_PAUSED_EXIT);
   };
 
   const checkStatus = async (): Promise<void> => {
     try {
       const states = unwrap(await client.session.status({ query: { directory } }), "session status");
+      const now = Date.now();
       // The watch tree is the session and all of its descendant sessions.
       const descendants = await collectDescendants(sessionId, childrenOf);
       const ids = new Set([sessionId, ...descendants]);
+      treeIdSet = ids;
+      ids.forEach((id) => guard.touch(id, now));
+      reportFindings(guard.checkStalls(states, now));
+      if (finished) return;
       if (!treeIsSettled([sessionId, ...descendants], states)) {
         // Someone is still busy. A pending request explains it: the run is
         // paused on a question or a permission and waits for an answer.
         await checkPending(ids);
+        return;
+      }
+      // The tree looks idle, but a request may still wait for an answer.
+      // The status of a session can flip to idle for a moment between two
+      // requests, so the watch only ends as idle when no request is
+      // pending. When the lists cannot be read, it keeps watching.
+      const pending = await findPending(ids);
+      if (pending === undefined) return;
+      if (pending.length > 0) {
+        printPending(pending, directory, args.json);
+        finish(WATCH_PAUSED_EXIT);
         return;
       }
       if (states[sessionId] !== undefined) {
@@ -140,6 +185,13 @@ export async function watch(
         if (finished) break;
         continue;
       }
+      // The guards see the events of the watched session and of its
+      // descendant sessions.
+      const eventSession = eventSessionId(event);
+      if (eventSession !== undefined && treeIdSet.has(eventSession)) {
+        reportFindings(guard.feed(event, Date.now()));
+        if (finished) break;
+      }
       if (!belongsToSession(event, sessionId)) continue;
       if (event.type === "session.idle" && event.properties.sessionID === sessionId) {
         if (args.json) console.log(JSON.stringify(event));
@@ -171,7 +223,7 @@ export async function watch(
     console.error(`error: event stream ended before session ${sessionId} became idle`);
     return 1;
   }
-  if (exitCode === WATCH_PAUSED_EXIT) return exitCode;
+  if (exitCode !== 0) return exitCode;
 
   const elapsed = Date.now() - startedAt;
   let toolCalls = watchedToolCalls;
@@ -201,6 +253,17 @@ export async function watch(
   return 0;
 }
 
+/** Print lines to stdout, or to stderr in JSON mode, where the events go. */
+function printLines(lines: readonly string[], json: boolean): void {
+  for (const line of lines) {
+    if (json) {
+      console.error(line);
+    } else {
+      console.log(line);
+    }
+  }
+}
+
 /** The pending request blocks, each with the exact answer command as a hint. */
 function printPending(pending: readonly PendingRequest[], directory: string, json: boolean): void {
   const lines: string[] = [];
@@ -209,11 +272,5 @@ function printPending(pending: readonly PendingRequest[], directory: string, jso
     lines.push(...formatRequest(request), answerHint(request, directory));
   });
   lines.push("", "The session waits for an answer. After answering, watch again.");
-  for (const line of lines) {
-    if (json) {
-      console.error(line);
-    } else {
-      console.log(line);
-    }
-  }
+  printLines(lines, json);
 }

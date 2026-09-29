@@ -30,7 +30,14 @@ Do not delegate:
 5. Start the run: `oc-sub run --agent coder --dir <worktree> --brief <scratch>/brief.md --title "<short title>"`. For a research step, use `--agent researcher`. It prints the session ID, an `opencode attach ...` command, and the paths of the run record. If the project shares its OpenRouter key with another project, `run` stops and says so. Each project needs its own key.
 6. Give the user the `opencode attach ...` command, so that they can watch the run live.
 7. Wait with `oc-sub watch <session-id> --dir <worktree>` as a background command. When the session and its subagent sessions are idle, it prints the elapsed time, the tool calls, and the cost, and it ends.
+<<<<<<< HEAD
 8. If `watch` ends with exit code 3, the agent has paused on a question or a permission request. Read the request in the output of `watch`. Decide yourself if it is safe, or ask the user. Then answer it with `oc-sub answer <request-id> ...` (the output names the exact command) and start `watch` again. With `--reply reject --message "<reason>"`, the agent sees the reason as the error of the tool call. A rejected permission request ends the turn of the agent. To continue, send a follow-up message with `oc-sub say`.
+=======
+8. `watch` ends with one of three exit codes. The output of `watch` tells you what to do:
+   - 0: the run ended. Read the result with `oc-sub log`.
+   - 3: the run paused on a question or a permission request. Read the request in the output of `watch`. Decide yourself if it is safe, or ask the user. Then answer it with `oc-sub answer <request-id> ...` (the output names the exact command) and start `watch` again.
+   - 4: `watch` saw a warning sign: a loop of identical tool calls, a stalled session, or runaway reasoning in one step. Read the block in the output of `watch`. Then abort the run with `oc-sub abort <session-id> --dir <worktree>`, or send a correction into the session and start `watch` again. The run itself keeps running. A session whose model claims broken tools is poisoned. Do not send a follow-up message into it. Start a fresh session with the same brief instead.
+>>>>>>> feature/step6-guards
 9. Read the result with `oc-sub log <session-id> --dir <worktree>`.
 10. Review the work yourself: read `git -C <worktree> diff main...HEAD`, and run the tests yourself. Do not trust the report of the agent alone.
 11. If the diff is correct and the tests pass, merge. Then remove the worktree.

@@ -157,6 +157,10 @@ Follows the server's event stream and prints one short line per event of that se
 
 When the session or one of its subagent sessions has a pending question or permission request, the run is paused. `watch` then prints one block per request with the request ID, the session ID, and the content, plus the exact `oc-sub answer ...` command, and exits with code 3. It detects the pause at the start, in every status poll, and on the `question.asked` and `permission.asked` events, so a request that was already pending is found too.
 
+The guards tell the orchestrator early when a run goes wrong, without waiting for the end of the run. They cover the session and all of its subagent sessions, and they check three warning signs: a loop of five tool calls in a row with the same tool and the same input (the input is compared as JSON with sorted keys), a busy session with no event for 180 seconds, and one step with more than 16,000 reasoning tokens. On a finding, `watch` prints one block with the kind (`loop`, `stall`, or `reasoning`), the session ID, and the details, and exits with code 4. The run itself keeps running. The orchestrator reads the block, then aborts the run or sends a correction. The detectors are pure functions in `src/detect.ts`, so a later live view and a provider penalty can reuse them. Each finding is reported once.
+
+The watch ends as idle only when the session and all its descendant sessions are idle or missing in the status map, and no request of the tree is pending. The status of a session can flip to idle for a moment between two requests, so `watch` checks the pending lists even when the status map says idle. Without a readable pending list it keeps watching.
+
 It never misses the end of a run: it checks the status of the session and of all its subagent sessions when it starts, after every reconnect of the event stream, and every two seconds as a safety net. The final summary is computed from the messages of the session tree, not from the watched events. The server lists only sessions that are not idle in `GET /session/status`. A session that is missing from that map has either ended, or it was started a moment ago and the server has not marked it busy yet. So `watch` reads the messages of a missing main session. If the last message is a finished assistant message, the session has ended, and the watch ends at once. Otherwise the watch ends only when the session was quiet for 10 seconds (no update and no new message). This closes the race when `watch` starts right after `run`. A missing subagent session counts as ended. With `--json`, it prints the filtered events as JSON lines instead, and the summary and the request blocks go to stderr.
 
 ### oc-sub answer
@@ -224,6 +228,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 - `src/client.ts` — SDK client, health check, result handling
 - `src/summary.ts` — cost/token accounting and formatting (pure)
 - `src/events.ts` — event filtering and watch lines (pure)
+- `src/detect.ts` — the guards of `watch`: loop, stall, and reasoning detectors (pure)
 - `src/tree.ts` — the descendant sessions of a session, their messages, and their cost
 - `src/requests.ts` — pending questions and permissions: list, filter, format, answer
 - `src/keys.ts` — OpenRouter key handling: fingerprint, key sources, key check, shared-key refusal

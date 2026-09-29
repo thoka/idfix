@@ -141,6 +141,7 @@ Setup, once:
 
 1. Install `sbx` and run `sbx login` once.
 2. Remove the global network rule, so that each sandbox can reach only the hosts of its agent kit: `sbx policy rm network --id default-allow-all`.
+3. Turn off the forwarding of your SSH agent into the sandboxes, then restart the daemon: `sbx settings set ssh.agentForwardingEnabled false` and `sbx daemon restart`. Otherwise an agent can log in with your SSH keys, for example to push to GitHub in your name.
 
 Use it:
 
@@ -158,7 +159,7 @@ Details:
 - `up` needs the project key file `~/.config/<project>/openrouter.key`. It checks only that the file exists; it never reads it.
 - `down --sandbox` stops the sandbox and keeps the state file, so the port stays the same.
 - Inside the sandbox, `coder` and `researcher` run every bash command without a permission request: `up` passes a config into the sandbox that replaces the bash rules of these agent files with `allow`. The agent files stay the same, and the host server keeps their rules. The other permissions still apply, for example `edit` of `researcher` and `external_directory`.
-- `git push` over SSH fails in the sandbox, because `SSH_AUTH_SOCK` is empty there: no SSH agent is forwarded. To turn the forwarding off for all sandboxes, run `sbx settings set ssh.agentForwardingEnabled false`.
+- `git push` over SSH fails in the sandbox, because no SSH agent is forwarded (setup step 3). As a second guard, `up` also starts the server with an empty `SSH_AUTH_SOCK`. You push from the host, where the commits of the agent appear at once.
 - The project `opencode.json` can read the key with `{file:~/.config/<project>/openrouter.key}`. That file does not exist inside the sandbox, so `up` writes a placeholder file with the value `proxy-managed` there. The proxy of `sbx` replaces it with the real key.
 - Every command finds its server on its own. The URL comes from `--url`, then `OC_SUB_URL`, then the sandbox state of the project of `--dir` (or of the current folder), then the default `http://127.0.0.1:8767`. `run`, `ping`, `watch`, `log`, `abort`, `answer`, `say`, and `status` follow that order. `status --all` skips the sandbox step, because it covers all projects. `up`, `down`, and `restart` keep their own target resolution with `--port`.
 - `run`, `ping`, and the real cost work with a sandboxed server. The sandbox reports the placeholder key `proxy-managed`; `oc-sub` then reads the project key file on the host and checks that key at OpenRouter. The shared-key check of `run` and the real-cost line use it too. `ping` prints the source as `sbx proxy with the project key file <path>`. It prints only fingerprints, never a key.

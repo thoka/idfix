@@ -142,8 +142,8 @@ Design of step 9a, decided on 2026-09-29:
 
 ## Open points from 2026-09-29
 
-- `alpha` holds step 9 in six commits and is not pushed. A merge into `main` and a push need the agreement of the user.
-- `sbx` forwards the SSH agent of the host into every sandbox by default. `up --sandbox` hides it with an empty `SSH_AUTH_SOCK`, but a deliberate agent can still find the socket. The stronger fix is the global setting `sbx settings set ssh.agentForwardingEnabled false`. The user has not decided it yet.
+- `alpha` holds step 9 and is not pushed. The user agreed: when the sandbox mode runs stably for a few real steps (after the mise fix and a first part of step 8), merge `alpha` into `main` and push.
+- Done: `sbx` no longer forwards the SSH agent of the host (`ssh.agentForwardingEnabled false`, set on 2026-09-29). The goal of the sandbox is the smallest blast radius, so actions outside in the name of the user stay on the host.
 - The sandbox has no `bun` and no `mise`, so an agent in the sandbox cannot run `bun test`. The 9c run reported this correctly. Root cause: the sandbox image of `sbx` has only its own tools, not the tools of the project from `mise.toml`. `up --sandbox` must install mise and run `mise install` in the sandbox, and the network policy must allow the download hosts. This comes before step 8.
 - In step 9a, the tests of the GLM coder were green, but three bugs stayed hidden, because its fake of `sbx` used an invented output format. For code that parses the output of a tool, test with real output.
 

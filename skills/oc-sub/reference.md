@@ -52,6 +52,7 @@ One-time setup:
 
 - Install `sbx` (for example with mise from `github:docker/sbx-releases`) and run `sbx login` once.
 - Remove the global network rule of `sbx`, so that each sandbox may reach only the hosts of its agent kit: `sbx policy rm network --id default-allow-all`. A deny rule beats every allow rule, so the per-sandbox allowlist works only without it.
+- Turn off the forwarding of the host SSH agent, then restart the daemon: `sbx settings set ssh.agentForwardingEnabled false` and `sbx daemon restart`. With forwarding on, an agent can log in with the SSH keys of the user, for example to push to GitHub.
 
 What the commands do:
 
@@ -70,7 +71,7 @@ Notes:
 - `--dir` is only allowed with `--sandbox`, and `--sandbox` cannot be combined with `--url` or `--port`, because the URL comes from the sandbox state.
 - A host process holds `sbx exec ... opencode serve` in the foreground, because `sbx` stops a sandbox 30 seconds after the last `sbx` session ends. Stop the server with `oc-sub down --sandbox`, not by killing the sandbox yourself.
 - Inside the sandbox, `up` passes `OPENCODE_CONFIG_CONTENT` into the server. It replaces the whole bash rule object of the `coder` and `researcher` agent files with `bash: "allow"`, so these two agents run every bash command without a permission request. The agent files stay the same, and the host server keeps their rules. The other permissions of the files still apply, for example `edit` of `researcher` and `external_directory`. `reader` is not affected: its file denies bash on purpose, because it only reads web pages.
-- `git push` over SSH fails inside the sandbox: `up` sets `SSH_AUTH_SOCK` to empty, so the commands of the agent find no SSH agent. The stronger option is `sbx settings set ssh.agentForwardingEnabled false`, which turns the forwarding off for all sandboxes.
+- `git push` over SSH fails inside the sandbox, because the setup turns off the SSH agent forwarding. As a second guard, `up` sets `SSH_AUTH_SOCK` to empty. The user pushes from the host.
 - If the host sets `OPENCODE_CONFIG_CONTENT`, `up` prints a warning: that value does not go into the sandbox. Only a value that the holder command names with `-e` reaches the sandbox.
 - `up` writes the placeholder key file `$HOME/.config/<project>/openrouter.key` with the value `proxy-managed` inside the sandbox. Without it, a project `opencode.json` with `{file:~/.config/<project>/openrouter.key}` is invalid inside the sandbox. The proxy of `sbx` replaces the placeholder with the real key.
 - If a publish of the port fails, `up` lists the ports again and accepts the port when it is there. A stopped sandbox can list no ports although its publication persists.

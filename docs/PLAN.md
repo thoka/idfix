@@ -107,7 +107,16 @@ Status: open. Decided with the user on 2026-09-29. It builds on the detection mo
 
 ## Step 9: A real sandbox instead of permission rules
 
-Status: open, research first. Decided with the user on 2026-09-29. Steps 6 and 8 wait for the result.
+Status: in progress. The research is done: [SANDBOX.md](research/SANDBOX.md). The user chose to test Docker Sandboxes (`sbx`) first, before our own Docker container and proxy. Step 8 waits for the result.
+
+State of the test on 2026-09-29:
+
+- `sbx` 0.45.1 comes from the GitHub releases `docker/sbx-releases`, through mise without an entry in `mise.toml`: `$(mise where github:docker/sbx-releases@0.45.1)/sbx`. It needs no Docker Desktop.
+- `sbx diagnose` passes on this WSL2: `/dev/kvm` is accessible, and nested virtualization works. The daemon starts with `sbx daemon start`, which runs in the foreground.
+- `sbx` needs a Docker login in the browser: `sbx login`. The user does this. Local sandboxes are free.
+- `opencode` is a built-in agent of `sbx create`. `sbx ports` publishes a sandbox port on 127.0.0.1. `sbx secret set` knows the service `openrouter`, and with `--command` and `--sandbox`, each project sandbox can read its own key file on the host. The key then never enters the sandbox. `sbx policy` limits the network.
+
+Next: after the login, create a sandbox for a scratch folder with the agent `opencode`. Make sure that `opencode serve` runs inside, that `oc-sub` and `opencode attach` reach it through `sbx ports`, that the agent sees no key while requests to OpenRouter work, and that the policy blocks other hosts. Write the result into `docs/research/SANDBOX.md`, then decide the design with the user.
 
 Root cause: the agent files imitate a sandbox with long bash allowlists. The allowlist stops no deliberate harm (a test command can run any code), but every command outside it pauses the run until the orchestrator answers. In the step 5 and step 8 runs, most pauses were for read-only commands such as `cat`, `sed -n`, `rg`, and `ls`.
 

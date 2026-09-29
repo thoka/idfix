@@ -74,10 +74,11 @@ Root cause: the first step 4 run read the same 75 lines of one file 40 times in 
 
 1. `oc-sub watch` counts tool calls with the same tool and the same input in a row. At five, it prints a warning with the call, and it ends with its own exit code. The orchestrator then aborts the run or sends a correction.
 2. Tests with invented events.
-3. `oc-sub answer --reply reject --message TEXT` passes the reason to the agent. The reply endpoint accepts `message` next to `reply`.
-4. A command sends a follow-up message into a session without waiting, for example `oc-sub say SESSION TEXT`. It uses `prompt_async`, because `opencode run --attach` blocks until the reply ends.
-5. The documentation says that a rejected permission request ends the turn of the agent, also with a message. To continue, send a follow-up message.
-6. The coder allowlist gets `ls` and `wc`. `cat`, `head`, `tail`, and `sed` stay on `ask`, because through bash they can print a `.env` file.
+3. `oc-sub watch` also warns when a model call brings no token for three minutes. On 2026-09-29, a step 5 run hung in an empty text part for over three minutes, and only an abort and a follow-up message resumed it.
+4. `oc-sub answer --reply reject --message TEXT` passes the reason to the agent. The reply endpoint accepts `message` next to `reply`.
+5. A command sends a follow-up message into a session without waiting, for example `oc-sub say SESSION TEXT`. It uses `prompt_async`, because `opencode run --attach` blocks until the reply ends.
+6. The documentation says that a rejected permission request ends the turn of the agent, also with a message. To continue, send a follow-up message.
+7. The coder allowlist gets `ls` and `wc`. `cat`, `head`, `tail`, and `sed` stay on `ask`, because through bash they can print a `.env` file.
 
 ## Step 7: Agent files keep the default system prompt
 

@@ -4,6 +4,9 @@ mode: subagent
 hidden: true
 steps: 6
 model: openrouter/z-ai/glm-5.3-flash
+# GLM can spend its whole output budget on thinking. This caps it.
+reasoning:
+  effort: low
 permission:
   read: deny
   edit: deny

@@ -2,6 +2,9 @@
 description: Researches one question on the web and in the repository, and writes a report into docs/research/.
 mode: primary
 model: openrouter/z-ai/glm-5.3-flash
+# GLM can spend its whole output budget on thinking. This caps it.
+reasoning:
+  effort: medium
 permission:
   read:
     "*": allow

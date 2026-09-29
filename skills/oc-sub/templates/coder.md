@@ -13,6 +13,9 @@
 description: Implements one small or medium coding step in this repository, with tests.
 mode: primary
 model: openrouter/z-ai/glm-5.3-flash
+# GLM can spend its whole output budget on thinking. This caps it.
+reasoning:
+  effort: medium
 permission:
   read:
     "*": allow

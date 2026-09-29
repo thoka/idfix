@@ -52,7 +52,7 @@ Status: done. A live test on 2026-09-28 paused on a question and on a permission
 
 Root cause: the agent files deny the `question` tool and use `deny` for risky commands, because "nobody answers questions in a run" (`skills/oc-sub/reference.md`). A denied agent gets an error and looks for a detour. In the step 1 run, GLM tried `rm` after the allowlist blocked the deletion of a file. opencode has the missing channel already. The `question` tool and the `ask` permission pause the session, and the server lists and answers the pending requests.
 
-1. Research first, with a report in `docs/research/`. How do established tools let an orchestrator answer the question or the permission request of a subagent? Cover at least opencode itself (the `question` tool, `ask` permissions, the server endpoints and events in 1.18.32), `opencode-mcp`, the Claude Agent SDK (`canUseTool`), the Agent Client Protocol (`session/request_permission`), the A2A protocol (`input-required`), MCP elicitation, the OpenAI Agents SDK, and LangGraph (`interrupt`). Name the pattern that most of them share, and what `oc-sub` can reuse.
+1. Research first, with a report in `docs/research/`. How do established tools let an orchestrator answer the question or the permission request of a subagent? Cover opencode itself: the `question` tool, `ask` permissions, and the server endpoints and events in 1.18.32. Also cover `opencode-mcp`, the Claude Agent SDK (`canUseTool`), and the Agent Client Protocol (`session/request_permission`). Also cover the A2A protocol (`input-required`), MCP elicitation, the OpenAI Agents SDK, and LangGraph (`interrupt`). Name the pattern that most of them share, and what `oc-sub` can reuse.
 2. Decide the design with the user, based on the report.
 3. Implement it in small steps with tests. The likely parts: the agent files allow `question` and use `ask` for risky commands. `oc-sub watch` shows a pending request and ends. A new command answers or rejects it in the same session.
 
@@ -64,17 +64,17 @@ Root cause: `oc-sub watch` and `oc-sub log` show the cost that opencode computes
 
 1. Research: how does OpenRouter report the real cost of a request (the `usage` object with `cost`, and `GET /api/v1/generation?id=...`)? Does opencode store the generation ID or the real cost of a step? The first research report is `docs/research/OPENROUTER_ROUTING.md`.
 2. Decide with the user where the real cost comes from, and whether `oc-sub` reads the OpenRouter key for it.
-3. Check the real routing at OpenRouter. If requests go to an expensive provider, set a routing rule. The research report names `provider.openrouter.options.extraBody.provider` as the likely path.
+3. Look at the real routing at OpenRouter. If requests go to an expensive provider, set a routing rule. The research report names `provider.openrouter.options.extraBody.provider` as the likely path.
 
 ## Step 6: A loop guard in `oc-sub watch`
 
 Status: open.
 
-Root cause: the first step 4 run read the same 75 lines of one file 40 times in a row, with the same input each time, and cost an estimated 0.49 USD without a result. The `doom_loop` permission of opencode defaults to `ask`, but it did not stop the run (see [EXPERIENCE.md](EXPERIENCE.md#a-coder-in-a-loop)).
+Root cause: the first step 4 run read the same 75 lines of one file 40 times in a row, with the same input each time. It cost an estimated 0.49 USD without a result. The `doom_loop` permission of opencode defaults to `ask`, but it did not stop the run (see [EXPERIENCE.md](EXPERIENCE.md#a-coder-in-a-loop)).
 
 1. `oc-sub watch` counts tool calls with the same tool and the same input in a row. At five, it prints a warning with the call, and it ends with its own exit code. The orchestrator then aborts the run or sends a correction.
 2. Tests with invented events.
-3. `oc-sub watch` also warns when a model call brings no token for three minutes. On 2026-09-29, a step 5 run hung in an empty text part for over three minutes, and only an abort and a follow-up message resumed it.
+3. If a model call brings no token for three minutes, `oc-sub watch` also warns. On 2026-09-29, a step 5 run hung in an empty text part for over three minutes. Only an abort and a follow-up message resumed it.
 4. Bug: on 2026-09-29, `oc-sub watch` printed `idle after 0m10s` while the session was busy and waited on a new permission request. The status check probably ran in the gap after one answer and before the next request. `watch` must not report idle while `GET /session/status` shows the session as busy.
 5. `oc-sub answer --reply reject --message TEXT` passes the reason to the agent. The reply endpoint accepts `message` next to `reply`.
 6. A command sends a follow-up message into a session without waiting, for example `oc-sub say SESSION TEXT`. It uses `prompt_async`, because `opencode run --attach` blocks until the reply ends.
@@ -87,7 +87,7 @@ Status: open. A first A/B test found no difference (see [EXPERIENCE.md](EXPERIEN
 
 Root cause: the body of an opencode agent file replaces the default system prompt of opencode (`packages/opencode/src/session/llm/request.ts:60` in v1.18.32). GLM then works without the default guidance. In the TUI, with the default prompt, GLM continued 449 of 1,008 partial file reads with an `offset` and never repeated a call. In `oc-sub` runs, with our agent prompts, it continued only 29 of 776, and two runs looped 111 and 536 times on the same call.
 
-1. A/B test: the same small coding brief two or three times with the current `coder`, and with a `coder` without a body whose role rules come through the `system` field of the prompt request.
+1. A/B test: the same small coding brief two or three times with each of two variants. Variant A is the current `coder`. Variant B is a `coder` without a body. Its role rules come through the `system` field of the prompt request.
 2. If the test confirms it, the agent files lose their body, and `oc-sub run` sends the role rules as `system`.
 
 ## Step 8: `oc-sub top`, a live view
@@ -110,18 +110,18 @@ Status: open, research first. Decided with the user on 2026-09-29. Steps 6 and 8
 
 Root cause: the agent files imitate a sandbox with long bash allowlists. The allowlist stops no deliberate harm (a test command can run any code), but every command outside it pauses the run until the orchestrator answers. In the step 5 and step 8 runs, most pauses were for read-only commands such as `cat`, `sed -n`, `rg`, and `ls`.
 
-1. Research, with a report in `docs/research/`: how do other tools run a coding agent in a real sandbox? Cover a Docker or Podman container per run, bubblewrap (the sandbox of Claude Code on Linux), microVMs such as Firecracker, and container-use from Dagger. For each: how opencode runs inside, how `oc-sub` and `opencode attach` reach it, how the OpenRouter key gets in without being readable from the worktree, how the network is limited, and the start time on WSL2. Also: does the Agent Client Protocol (ACP) fit, and do these tools speak it?
+1. Research, with a report in `docs/research/`: how do other tools run a coding agent in a real sandbox? Cover a Docker or Podman container per run, bubblewrap (the sandbox of Claude Code on Linux), microVMs such as Firecracker, and container-use from Dagger. For each: how opencode runs inside, and how `oc-sub` and `opencode attach` reach it. How the OpenRouter key gets in without being readable from the worktree. How the network is limited, and the start time on WSL2. Also: does the Agent Client Protocol (ACP) fit, and do these tools speak it?
 2. Decide the design with the user.
 3. Inside the sandbox, the agent files allow all commands. Only a few actions outside the worktree still ask, for example `git push`.
 
-## Step 10: A probe harness picks the approved providers
+## Step 10: A probe picks the approved providers
 
 Status: open. Decided with the user on 2026-09-29.
 
-Root cause: from the afternoon of 2026-09-28, five GLM runs in a row produced broken output. OpenRouter picked the provider by price and availability, and about a third of the providers of GLM 5.3 Flash serve it in fp4. Since then, the plugin pins GLM to Z.AI alone (`only: ["z-ai"]`, `allow_fallbacks: false` in `opencode/opencode.json`). A run fails if Z.AI is down.
+Root cause: from the afternoon of 2026-09-28, five GLM runs in a row produced broken output. OpenRouter picked the provider by price and availability, and about a third of the providers of GLM 5.3 Flash serve it in fp4. Since then, the plugin pins GLM to Z.AI alone (`only: ["z-ai"]`, `allow_fallbacks: false` in `opencode/opencode.json`). If Z.AI is down, a run fails.
 
 1. A small fixed probe task, like the A/B task in [EXPERIENCE.md](EXPERIENCE.md#ab-test-agent-prompt-against-the-default-prompt): find types in a large file with grep and paged reads, write the answer, and commit it. One probe costs about 0.005 USD.
-2. The harness runs the probe three times per candidate provider, with `only: [<provider>]` and `allow_fallbacks: false`. It also checks the curated OpenRouter endpoints for reliable tool calls (as far as known, "Exacto"), if GLM 5.3 Flash has them.
+2. A small test program runs the probe three times per candidate provider, with `only: [<provider>]` and `allow_fallbacks: false`. OpenRouter has curated endpoints for reliable tool calls for some models (as far as known, "Exacto"). If GLM 5.3 Flash has them, the program tests them too.
 3. Pass rules, checked by code: the correct answer, a commit, no repeated identical calls, no unreadable text, and reasoning under a limit.
 4. The result is two or three approved fallback providers after Z.AI. Estimated cost: 0.15 to 0.30 USD.
 
@@ -132,5 +132,5 @@ Status: open. Decided with the user on 2026-09-29. It builds on step 6 (the dete
 Root cause: opencode stores neither the provider nor the real cost of a step. The OpenRouter response names both, but opencode drops them.
 
 1. A small local proxy between opencode and OpenRouter records the provider, the generation ID, and the real cost of each request (see [REAL_COST.md](research/REAL_COST.md), option b). This also gives the exact real cost per run, also for overlapping runs.
-2. When a detector of step 6 flags a run (a loop, a stall, unreadable text, runaway reasoning), the provider of the flagged steps gets a strike.
+2. The detectors of step 6 flag a run with a loop, a stall, unreadable text, or runaway reasoning. Then the provider of the flagged steps gets a strike.
 3. After two or three strikes, the provider goes onto the OpenRouter `ignore` list for some days. After that, it gets a new chance.

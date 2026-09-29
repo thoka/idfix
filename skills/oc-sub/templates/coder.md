@@ -28,6 +28,7 @@ permission:
   external_directory: deny
   question: allow
   bash:
+    # The sandbox of `oc-sub up --sandbox` replaces these rules with "allow".
     # The worktree protects the repository, not this list. Everything runs,
     # except actions outside the worktree or that destroy work.
     "*": allow

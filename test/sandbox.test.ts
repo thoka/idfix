@@ -14,8 +14,10 @@ import {
   readSandboxState,
   relativeMount,
   resolveCommandUrl,
+  sandboxConfigContent,
   sandboxName,
   sandboxUrlFor,
+  SANDBOX_BASH_AGENTS,
   shellQuote,
   upSandbox,
   usedSandboxPorts,
@@ -258,6 +260,71 @@ describe("placeholderKeyScript", () => {
   });
 });
 
+describe("sandboxConfigContent", () => {
+  test("is JSON with exactly the sandbox agents, each with bash allow", () => {
+    const parsed = JSON.parse(sandboxConfigContent()) as {
+      agent: Record<string, { permission: { bash: string } }>;
+    };
+    expect(Object.keys(parsed.agent).sort()).toEqual([...SANDBOX_BASH_AGENTS].sort());
+    for (const agent of SANDBOX_BASH_AGENTS) {
+      expect(parsed.agent[agent]).toEqual({ permission: { bash: "allow" } });
+    }
+  });
+
+  test("the holder command names both -e options before the sandbox name", async () => {
+    const env = makeEnv();
+    const { runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: "oc-sub-test\n" };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
+      return { stdout: "" };
+    });
+    const holderCommands: string[][] = [];
+    // The first probe finds no server, so up starts the holder.
+    let probes = 0;
+    const result = await upSandbox({}, env, makeDeps({
+      runner,
+      probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
+      spawnServe: (cmd) => {
+        holderCommands.push([...cmd]);
+        return { pid: 4242, exitCode: () => null };
+      },
+    }));
+    expect(result).toBe(0);
+    expect(holderCommands).toHaveLength(1);
+    const cmd = holderCommands[0] ?? [];
+    const nameIndex = cmd.indexOf("oc-sub-test");
+    const contentFlag = cmd.indexOf(`OPENCODE_CONFIG_CONTENT=${sandboxConfigContent()}`);
+    const sshFlag = cmd.indexOf("SSH_AUTH_SOCK=");
+    expect(sshFlag).toBe(contentFlag + 2);
+    expect(contentFlag).toBeLessThan(nameIndex);
+    expect(sshFlag).toBeLessThan(nameIndex);
+  });
+
+  test("a set host OPENCODE_CONFIG_CONTENT gives a warning on stderr", async () => {
+    const env = { ...makeEnv(), OPENCODE_CONFIG_CONTENT: '{"agent":{}}' };
+    const { runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: "oc-sub-test\n" };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
+      return { stdout: "" };
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    try {
+      await upSandbox({}, env, makeDeps({
+        runner,
+        probe: async () => ({ state: "up", version: "1.18.32" }),
+        spawnServe: () => ({ pid: 4242, exitCode: () => null }),
+      }));
+    } finally {
+      console.error = err;
+    }
+    expect(errors.some((line) => line.includes("OPENCODE_CONFIG_CONTENT") && line.includes("sandbox"))).toBe(true);
+  });
+});
+
 describe("upSandbox", () => {
   const PORTS_HEADER = "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n";
 
@@ -349,6 +416,10 @@ describe("upSandbox", () => {
       "exec",
       "-e",
       `OPENCODE_CONFIG_DIR=${PLUGIN_CONFIG_DIR}`,
+      "-e",
+      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent()}`,
+      "-e",
+      "SSH_AUTH_SOCK=",
       "oc-sub-test",
       "opencode",
       "serve",

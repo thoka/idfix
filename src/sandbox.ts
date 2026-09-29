@@ -29,6 +29,26 @@ const SERVE_PORT = 4096;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/**
+ * The agents that may run every bash command inside the sandbox. `reader` is
+ * not one of them: its file denies bash on purpose, because it only reads
+ * web pages.
+ */
+export const SANDBOX_BASH_AGENTS = ["coder", "researcher"] as const;
+
+/**
+ * The JSON that `upSandbox` passes as `OPENCODE_CONFIG_CONTENT` into the
+ * sandbox. opencode merges it into its configuration, and its value wins
+ * over the agent files. A whole rule object such as `"bash": "allow"`
+ * replaces the bash rules of the agent file; an object value would only be
+ * merged key by key, and the later `ask` rules of the file would win.
+ */
+export function sandboxConfigContent(): string {
+  const agents: Record<string, { permission: { bash: string } }> = {};
+  for (const agent of SANDBOX_BASH_AGENTS) agents[agent] = { permission: { bash: "allow" } };
+  return JSON.stringify({ agent: agents });
+}
+
 /** The name of the sandbox of a project: `oc-sub-<project>`, sanitized. */
 export function sandboxName(project: string): string {
   const safe = project.toLowerCase().replace(/[^a-z0-9_.-]/g, "-");
@@ -318,6 +338,14 @@ export async function upSandbox(
   const root = deps.rootOf(dir);
   const bin = sbxBin(env);
 
+  // The host value stays on the host: only an `-e` option of the holder
+  // command reaches the sandbox, so the host value never gets there anyway.
+  if (env.OPENCODE_CONFIG_CONTENT !== undefined && env.OPENCODE_CONFIG_CONTENT.trim().length > 0) {
+    console.error(
+      `warning: OPENCODE_CONFIG_CONTENT is set on the host. Its value does not go into the sandbox ${name}.`,
+    );
+  }
+
   const keyPath = projectKeyPath(project, env);
   if (!(await deps.keyExists(keyPath))) {
     console.error(`error: no OpenRouter key file for project ${project}: ${keyPath}`);
@@ -399,13 +427,20 @@ export async function upSandbox(
   // A new server has no runs yet. A list left by a crashed server is stale.
   await removeFiles(serveDirsPath(env, port));
   // The holder process keeps the sandbox alive: `sbx` stops a sandbox 30
-  // seconds after the last `sbx` session ends.
+  // seconds after the last `sbx` session ends. `OPENCODE_CONFIG_CONTENT`
+  // replaces the whole bash rule object of the sandbox agents with `allow`,
+  // and an empty `SSH_AUTH_SOCK` hides the SSH agent of the host from the
+  // commands of the agent.
   const holder = deps.spawnServe(
     [
       bin,
       "exec",
       "-e",
       `OPENCODE_CONFIG_DIR=${PLUGIN_CONFIG_DIR}`,
+      "-e",
+      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent()}`,
+      "-e",
+      "SSH_AUTH_SOCK=",
       name,
       "opencode",
       "serve",

@@ -93,7 +93,7 @@ Root cause: the body of an opencode agent file replaces the default system promp
 
 ## Step 8: `oc-sub top`, a live view
 
-Status: open. Decided with the user on 2026-09-29. It builds on the detection module of step 6.
+Status: open. Decided with the user on 2026-09-29. It builds on the detection module of step 6. It is the next step. Since step 9, several servers can run: the host server on 8767 and one sandbox server per project. `top` finds the sandbox servers through the state files `~/.local/state/oc-sub/sandbox-<project>.json` (`sandboxUrlFor` in `src/sandbox.ts`). `status --all` still covers only one server. The research report [TOP_VIEW.md](research/TOP_VIEW.md) predates step 9, so check it against this change.
 
 `oc-sub status` stays short and line-based for agents, and gets `--json`. `oc-sub top` is a full-screen live view for the user, like `htop`. `oc-sub top --once` prints one text snapshot for agents.
 
@@ -107,7 +107,7 @@ Status: open. Decided with the user on 2026-09-29. It builds on the detection mo
 
 ## Step 9: A real sandbox instead of permission rules
 
-Status: in progress. The research and the test of Docker Sandboxes (`sbx`) are done: [SANDBOX.md](research/SANDBOX.md). The design decision is open. Step 8 waits for it.
+Status: done on 2026-09-29. Steps 9a to 9c are on `alpha`. This project (opencode-subagents) runs in sandbox mode: the sandbox `oc-sub-opencode-subagents` serves port 18768, and its state file is `~/.local/state/oc-sub/sandbox-opencode-subagents.json`. Other projects still use the host server on port 8767.
 
 State of the test on 2026-09-29: the test is done. The details are in [SANDBOX.md](research/SANDBOX.md#7-test-of-docker-sandboxes-on-2026-09-29).
 
@@ -139,6 +139,12 @@ Design of step 9a, decided on 2026-09-29:
 - `sbx` comes from `SBX_BIN`, else from `sbx` on `PATH`. The tests replace every call of `sbx` with a fake.
 
 
+
+## Open points from 2026-09-29
+
+- `alpha` holds step 9 in six commits and is not pushed. A merge into `main` and a push need the agreement of the user.
+- `sbx` forwards the SSH agent of the host into every sandbox by default. `up --sandbox` hides it with an empty `SSH_AUTH_SOCK`, but a deliberate agent can still find the socket. The stronger fix is the global setting `sbx settings set ssh.agentForwardingEnabled false`. The user has not decided it yet.
+- Twice on 2026-09-29, a GLM coder reported green tests that were not green, or tests that could not see a bug (a fake with the wrong output format of `sbx`). Review each diff and run the tests yourself. For code that parses the output of a tool, test with real output.
 
 ## Step 10: A probe picks the approved providers
 

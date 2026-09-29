@@ -13,7 +13,8 @@ import type { ServerState } from "./client";
 // The busy check and the holder stop reuse the helpers of `down`.
 import { busySessions, formatBusyLine, isAlive, waitUntilGone } from "./down";
 import { assertUsable, probeServer } from "./client";
-import { gitCommonDir, projectKeyPath, projectNameOf } from "./keys";
+import { resolveServerUrl } from "./config";
+import { gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOf } from "./keys";
 import { stateDir, serveDirsPath, serveLogPath, servePidPath, readPid, readDirs, removeFiles } from "./state";
 import { PLUGIN_CONFIG_DIR } from "./up";
 
@@ -79,6 +80,35 @@ export function readSandboxState(file: string): SandboxState | null {
 export async function writeSandboxState(file: string, state: SandboxState): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
   await Bun.write(file, `${JSON.stringify(state)}\n`);
+}
+
+/**
+ * The server URL of the sandbox of a project, or undefined without a valid
+ * state file. Pure lookup of the state folder, no `sbx` call.
+ */
+export function sandboxUrlFor(
+  directory: string,
+  env: Env,
+  projectName: (dir: string) => string = projectNameOf,
+): string | undefined {
+  const state = readSandboxState(sandboxStatePath(env, projectName(directory)));
+  return state === null ? undefined : `http://127.0.0.1:${state.port}`;
+}
+
+/**
+ * The server URL for the commands of one directory: the `--url` flag, then
+ * `OC_SUB_URL`, then the sandbox state of the project of the directory,
+ * then the default. `resolveServerUrl` normalizes the result.
+ */
+export function resolveCommandUrl(
+  flag: string | undefined,
+  env: Env,
+  directory?: string,
+  projectName: (dir: string) => string = projectNameOf,
+): string {
+  if (flag !== undefined || env.OC_SUB_URL !== undefined) return resolveServerUrl(flag, env);
+  const sandboxUrl = sandboxUrlFor(directory ?? process.cwd(), env, projectName);
+  return resolveServerUrl(sandboxUrl, env);
 }
 
 /**
@@ -255,7 +285,7 @@ export function listsPublishedPort(stdout: string, port: number): boolean {
 }
 
 /** The key value that `sbx` puts into the sandbox instead of the real key. */
-export const PLACEHOLDER_KEY = "proxy-managed";
+export { PLACEHOLDER_KEY } from "./keys";
 
 /**
  * A shell script that writes the placeholder key file
@@ -270,7 +300,6 @@ function printUp(serveUrl: string, name: string, logPath: string, version: strin
   console.log(`${serveUrl} version ${version}`);
   console.log(`sandbox: ${name}`);
   console.log(`log: ${logPath}`);
-  console.log(`export OC_SUB_URL=${serveUrl}`);
 }
 
 /**

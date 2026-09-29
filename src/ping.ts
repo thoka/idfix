@@ -1,17 +1,15 @@
 /** `oc-sub ping`: show which OpenRouter key the server uses for a directory. */
 import path from "node:path";
 import { makeClient, requireServer, unwrap } from "./client";
-import { resolveServerUrl, type Env } from "./config";
+import { type Env } from "./config";
+import { resolveCommandUrl } from "./sandbox";
 import {
   checkOpenRouterKey,
   formatOpenRouterLine,
-  identifyKeySource,
-  keyCandidates,
-  keyFingerprint,
   projectNameOf,
   projectKeyPath,
-  PROJECT_KEY_SOURCE_PREFIX,
   readTextFile,
+  resolvedKeyOf,
   resolvedProviderKey,
   type KeyFetch,
 } from "./keys";
@@ -33,6 +31,7 @@ export {
   projectKeyPath,
   PROJECT_KEY_SOURCE_PREFIX,
   readTextFile,
+  resolvedKeyOf,
   resolvedProviderKey,
   type KeyCandidate,
   type KeyFetch,
@@ -62,7 +61,7 @@ export async function ping(
   env: Env = process.env,
   deps: PingDeps = defaultDeps,
 ): Promise<number> {
-  const baseUrl = resolveServerUrl(args.url, env);
+  const baseUrl = resolveCommandUrl(args.url, env, args.dir);
   await requireServer(baseUrl, env);
   const directory = path.resolve(args.dir ?? process.cwd());
   const client = makeClient(baseUrl, env);
@@ -83,18 +82,15 @@ export async function ping(
     return 1;
   }
 
-  const source = identifyKeySource(
-    resolved.key,
-    resolved.fromConfigFile,
-    await keyCandidates(project, env, { readText: deps.readText }),
-  );
-  console.log(`key: sha256 ${keyFingerprint(resolved.key)}`);
-  console.log(`source: ${source}`);
+  // The sandbox rule lives in src/keys.ts; run and the real cost share it.
+  const key = await resolvedKeyOf(resolved, project, env, { readText: deps.readText });
+  console.log(`key: sha256 ${key.fingerprint}`);
+  console.log(`source: ${key.source}`);
 
-  const check = await checkOpenRouterKey(resolved.key, deps.fetch);
+  const check = await checkOpenRouterKey(key.key, deps.fetch);
   console.log(formatOpenRouterLine(check));
   if (check.status !== "ok") return 1;
-  if (!source.startsWith(PROJECT_KEY_SOURCE_PREFIX)) {
+  if (!key.isProjectKey) {
     console.log(
       `warning: not the project key. The cost goes to another key. Create ${projectKeyPath(project, env)} and refer to it in opencode.json. If you changed a configuration file, run oc-sub restart.`,
     );

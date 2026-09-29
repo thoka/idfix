@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { assertOk, errorMessage, makeClient, requireServer, unwrap } from "./client";
-import { resolvePort, resolveServerUrl, type Env } from "./config";
+import { resolvePort, type Env } from "./config";
 import {
   checkOpenRouterKey,
   keyFingerprint,
@@ -14,6 +14,7 @@ import {
   type KeyOwner,
 } from "./keys";
 import { makeRunRecord, writeRunRecord, writeStateRunRecord } from "./runs";
+import { resolveCommandUrl } from "./sandbox";
 import { addDir, readDirs, serveDirsPath } from "./state";
 import { uniqueDirectories, worktreesOf } from "./status";
 
@@ -64,7 +65,7 @@ export async function run(
   env: Env = process.env,
   deps: RunDeps = defaultDeps,
 ): Promise<number> {
-  const baseUrl = resolveServerUrl(args.url, env);
+  const baseUrl = resolveCommandUrl(args.url, env, args.dir);
   await requireServer(baseUrl, env);
   const directory = path.resolve(args.dir);
   const client = makeClient(baseUrl, env);

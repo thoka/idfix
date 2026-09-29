@@ -1,6 +1,7 @@
 /** `oc-sub watch`: follow a session and its subagent sessions, end with a summary. */
 import path from "node:path";
-import { resolveServerUrl, type Env } from "./config";
+import type { Env } from "./config";
+import { resolveCommandUrl } from "./sandbox";
 import { makeClient, requireServer, unwrap } from "./client";
 import { belongsToSession, eventSessionId, isRequestAskedEvent, watchEventLine } from "./events";
 import { createGuard, formatFinding, type Finding } from "./detect";
@@ -22,7 +23,7 @@ export async function watch(
   args: { url?: string; session: string; dir?: string; json: boolean },
   env: Env = process.env,
 ): Promise<number> {
-  const baseUrl = resolveServerUrl(args.url, env);
+  const baseUrl = resolveCommandUrl(args.url, env, args.dir);
   await requireServer(baseUrl, env);
   const directory = path.resolve(args.dir ?? process.cwd());
   const client = makeClient(baseUrl, env);

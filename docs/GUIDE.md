@@ -150,7 +150,7 @@ oc-sub down --sandbox
 oc-sub restart --sandbox
 ```
 
-`--sandbox` starts the server for the project of the current folder. Add `--dir DIR` to name another project folder. `up` prints `export OC_SUB_URL=http://127.0.0.1:<port>`. Set that variable (or use it per command) so that `run`, `watch`, `say`, and `answer` reach the sandboxed server.
+`--sandbox` starts the server for the project of the current folder. Add `--dir DIR` to name another project folder. You do not need `OC_SUB_URL`: every other command finds the sandboxed server of the project of `--dir` by itself (see the URL order below).
 
 Details:
 
@@ -159,7 +159,8 @@ Details:
 - `down --sandbox` stops the sandbox and keeps the state file, so the port stays the same.
 - In sandbox mode, the agent files can allow all bash commands, because the sandbox replaces the permission rules. Until the agent files are adapted, the project rules still apply.
 - The project `opencode.json` can read the key with `{file:~/.config/<project>/openrouter.key}`. That file does not exist inside the sandbox, so `up` writes a placeholder file with the value `proxy-managed` there. The proxy of `sbx` replaces it with the real key.
-- Known limit until step 9b of `docs/PLAN.md`: `oc-sub run` refuses the sandboxed server, and `oc-sub ping` reports the key as rejected. Both check the placeholder instead of the project key.
+- Every command finds its server on its own. The URL comes from `--url`, then `OC_SUB_URL`, then the sandbox state of the project of `--dir` (or of the current folder), then the default `http://127.0.0.1:8767`. `run`, `ping`, `watch`, `log`, `abort`, `answer`, `say`, and `status` follow that order. `status --all` skips the sandbox step, because it covers all projects. `up`, `down`, and `restart` keep their own target resolution with `--port`.
+- `run`, `ping`, and the real cost work with a sandboxed server. The sandbox reports the placeholder key `proxy-managed`; `oc-sub` then reads the project key file on the host and checks that key at OpenRouter. The shared-key check of `run` and the real-cost line use it too. `ping` prints the source as `sbx proxy with the project key file <path>`. It prints only fingerprints, never a key.
 
 ## Security
 

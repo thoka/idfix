@@ -1,13 +1,14 @@
 /** `oc-sub log`: final assistant text plus the cost and token summary. */
 import path from "node:path";
-import { resolveServerUrl, type Env } from "./config";
+import type { Env } from "./config";
+import { resolveCommandUrl } from "./sandbox";
 import { makeClient, requireServer } from "./client";
 import { realCostOutput } from "./realcost";
 import { finalAssistantText, formatTotals } from "./summary";
 import { loadSessionTree, treeUsage } from "./tree";
 
 export async function log(args: { url?: string; session: string; dir?: string }, env: Env = process.env): Promise<number> {
-  const baseUrl = resolveServerUrl(args.url, env);
+  const baseUrl = resolveCommandUrl(args.url, env, args.dir);
   await requireServer(baseUrl, env);
   const directory = path.resolve(args.dir ?? process.cwd());
   const client = makeClient(baseUrl, env);

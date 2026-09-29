@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { fetchKeyUsage, keyFingerprint, sharedKeyRefusal, type KeyOwner } from "../src/keys";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import type { OpencodeClient } from "@opencode-ai/sdk";
+import { fetchKeyUsage, PLACEHOLDER_KEY, keyFingerprint, resolveDirectoryKey, sharedKeyRefusal, type KeyOwner } from "../src/keys";
 
 const ENV = { XDG_CONFIG_HOME: "/tmp/opencode/keys-test/config" };
 const PROJECT_A = "proj-a";
 const PROJECT_B = "proj-b";
+const FILE_KEY = "sk-or-file-00000000000000000000000000000000000000000000000001";
 
 function owner(project: string, fingerprint: string | null, isProjectKey: boolean): KeyOwner {
   return { project, fingerprint, isProjectKey };
@@ -56,5 +61,61 @@ describe("fetchKeyUsage", () => {
   test("returns null when OpenRouter does not answer", async () => {
     const usage = await fetchKeyUsage("k", async () => new Response("", { status: 500 }));
     expect(usage).toBeNull();
+  });
+});
+
+/** A client stub whose /config/providers answers one openrouter provider. */
+function fakeClient(key: string | undefined): OpencodeClient {
+  return {
+    config: {
+      providers: async () => ({
+        data: { providers: key === undefined ? [] : [{ id: "openrouter", options: { apiKey: key } }] },
+      }),
+    },
+  } as unknown as OpencodeClient;
+}
+
+describe("resolveDirectoryKey with the sandbox placeholder", () => {
+  // A fresh temp folder is not a git repository, so the project is its
+  // basename and projectNameOf needs no git spy.
+  const directory = mkdtempSync(path.join(tmpdir(), "oc-sub-keys-dir-"));
+  const project = path.basename(directory);
+  const keyPath = path.join(ENV.XDG_CONFIG_HOME as string, project, "openrouter.key");
+  const readText = (files: Record<string, string>) => async (file: string) => files[file] ?? null;
+
+  test("replaces the placeholder with the project key file", async () => {
+    const key = await resolveDirectoryKey(fakeClient(PLACEHOLDER_KEY), directory, ENV, {
+      readText: readText({ [keyPath]: `  ${FILE_KEY}\n` }),
+    });
+    expect(key).not.toBeNull();
+    expect(key?.key).toBe(FILE_KEY);
+    expect(key?.fingerprint).toBe(keyFingerprint(FILE_KEY));
+    expect(key?.isProjectKey).toBe(true);
+    expect(key?.source).toBe(`sbx proxy with the project key file ${keyPath}`);
+  });
+
+  test("keeps the placeholder when the project key file is missing", async () => {
+    const key = await resolveDirectoryKey(fakeClient(PLACEHOLDER_KEY), directory, ENV, { readText: readText({}) });
+    expect(key).not.toBeNull();
+    expect(key?.key).toBe(PLACEHOLDER_KEY);
+    expect(key?.isProjectKey).toBe(false);
+    expect(key?.source).toBe(`sbx proxy without a project key file (${keyPath} is missing)`);
+  });
+
+  test("keeps the placeholder when the project key file is empty", async () => {
+    const key = await resolveDirectoryKey(fakeClient(PLACEHOLDER_KEY), directory, ENV, {
+      readText: readText({ [keyPath]: "   \n" }),
+    });
+    expect(key?.key).toBe(PLACEHOLDER_KEY);
+    expect(key?.isProjectKey).toBe(false);
+  });
+
+  test("a normal key still comes from the candidates", async () => {
+    const key = await resolveDirectoryKey(fakeClient(FILE_KEY), directory, ENV, {
+      readText: readText({ [keyPath]: FILE_KEY }),
+    });
+    expect(key?.key).toBe(FILE_KEY);
+    expect(key?.isProjectKey).toBe(true);
+    expect(key?.source).toBe(`project key file ${keyPath}`);
   });
 });

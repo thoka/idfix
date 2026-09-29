@@ -350,6 +350,30 @@ describe("status", () => {
     }
   });
 
+  test("--all keeps the old URL resolution and does not read the sandbox state", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-state-"));
+    try {
+      // A sandbox state for the project of the test folder. --all must
+      // ignore it: the printed URL stays the default.
+      const projectName = path.basename(process.cwd());
+      const stateFile = path.join(stateHome, "oc-sub", `sandbox-${projectName}.json`);
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ name: `oc-sub-${projectName}`, root: "/repo", port: 18799 }));
+      const captured = captureLog();
+      try {
+        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome });
+        expect(code).toBe(0);
+        // A server on the default port may or may not answer. The sandbox
+        // URL of this project must never appear, whatever it prints.
+        expect(captured.lines.join("\n")).not.toContain("18799");
+      } finally {
+        captured.restore();
+      }
+    } finally {
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
   test("--all prints no running sessions when nothing runs", async () => {
     const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-state-"));
     const server = startFakeServer({

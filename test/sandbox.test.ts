@@ -13,7 +13,9 @@ import {
   projectRoot,
   readSandboxState,
   relativeMount,
+  resolveCommandUrl,
   sandboxName,
+  sandboxUrlFor,
   shellQuote,
   upSandbox,
   usedSandboxPorts,
@@ -80,6 +82,61 @@ describe("sandboxName", () => {
   test("lowercases and replaces every unsafe character", () => {
     expect(sandboxName("My Repo!")).toBe("oc-sub-my-repo-");
     expect(sandboxName("Wörk/Space")).toBe("oc-sub-w-rk-space");
+  });
+});
+
+describe("sandboxUrlFor and resolveCommandUrl", () => {
+  async function writeState(env: Record<string, string>, project: string, port: number): Promise<void> {
+    await writeSandboxState(sandboxStatePath(env, project), { name: `oc-sub-${project}`, root: "/repo", port });
+  }
+
+  test("returns the sandbox URL from the state file", async () => {
+    const env = makeEnv();
+    await writeState(env, "test", 18780);
+    expect(sandboxUrlFor("/somewhere/test", env, () => "test")).toBe("http://127.0.0.1:18780");
+  });
+
+  test("returns undefined without a state file", () => {
+    expect(sandboxUrlFor("/somewhere/test", makeEnv(), () => "test")).toBeUndefined();
+  });
+
+  test("a worktree directory finds the state file of the project", async () => {
+    const env = makeEnv();
+    await writeState(env, "proj", 18781);
+    // A worktree such as <repo>/.worktrees/x belongs to project proj. The
+    // test replaces the git call with the projectName parameter.
+    const projectName = (directory: string) => (directory.startsWith("/repo/") ? "proj" : path.basename(directory));
+    expect(sandboxUrlFor("/repo/.worktrees/x", env, projectName)).toBe("http://127.0.0.1:18781");
+  });
+
+  test("resolveCommandUrl: the flag wins over everything", async () => {
+    const env = makeEnv();
+    await writeState(env, "test", 18782);
+    expect(resolveCommandUrl("http://127.0.0.1:9000", env, "/d", () => "test")).toBe("http://127.0.0.1:9000");
+  });
+
+  test("resolveCommandUrl: OC_SUB_URL wins over the state file", async () => {
+    const env = makeEnv();
+    await writeState(env, "test", 18783);
+    expect(resolveCommandUrl(undefined, { ...env, OC_SUB_URL: "http://127.0.0.1:9001" }, "/d", () => "test")).toBe(
+      "http://127.0.0.1:9001",
+    );
+  });
+
+  test("resolveCommandUrl: the state file wins over the default", async () => {
+    const env = makeEnv();
+    await writeState(env, "test", 18784);
+    expect(resolveCommandUrl(undefined, env, "/d", () => "test")).toBe("http://127.0.0.1:18784");
+  });
+
+  test("resolveCommandUrl: no state file gives the default", () => {
+    expect(resolveCommandUrl(undefined, makeEnv(), "/d", () => "test")).toBe("http://127.0.0.1:8767");
+  });
+
+  test("resolveCommandUrl: without a directory it uses the current folder", async () => {
+    const env = makeEnv();
+    await writeState(env, "cwd-test", 18785);
+    expect(resolveCommandUrl(undefined, env, undefined, () => "cwd-test")).toBe("http://127.0.0.1:18785");
   });
 });
 
@@ -332,7 +389,8 @@ describe("upSandbox", () => {
       console.log = log;
     }
     expect(subcommands(calls)).toEqual(["ls", "secret", "exec", "ports"]);
-    expect(output).toContain("export OC_SUB_URL=http://127.0.0.1:18799");
+    expect(output).toContain("http://127.0.0.1:18799 version 1.18.32");
+    expect(output.join("\n")).not.toContain("OC_SUB_URL");
     expect(output.join("\n")).toContain("sandbox: oc-sub-test");
     expect(output.join("\n")).toContain("log: ");
   });
@@ -381,7 +439,7 @@ describe("upSandbox", () => {
     } finally {
       console.log = log;
     }
-    expect(output).toContain("export OC_SUB_URL=http://127.0.0.1:18768");
+    expect(output).toContain("http://127.0.0.1:18768 version 1.18.32");
   });
 });
 

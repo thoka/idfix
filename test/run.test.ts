@@ -150,6 +150,33 @@ describe("oc-sub run and the shared OpenRouter key", () => {
     }
   });
 
+  test("starts the run when the server reports the sandbox placeholder", async () => {
+    reset();
+    // The sandbox reports the placeholder `proxy-managed`; the real key of
+    // the project lives in the project key file on the host.
+    projectKey("alpha", KEY_A);
+    projectKey("beta", KEY_B);
+    const server = startFakeServer(() => "proxy-managed");
+    writeDirsFile(server.url, [DIR_B]);
+    const captured = capture();
+    try {
+      const code = await run(
+        { agent: "coder", dir: DIR_A, text: "brief", url: server.url },
+        ENV,
+        makeDeps(openrouterFetch({ usage: 1 })),
+      );
+      expect(code).toBe(0);
+      expect(server.sessionsCreated).toBe(1);
+      expect(captured.errors.join("\n")).not.toContain("does not use its project key");
+      const record = JSON.parse(readFileSync(path.join(CWD, ".opencode", "runs", "ses_new.json"), "utf8"));
+      expect(record.keyFingerprint).toBe(fingerprint(KEY_A));
+      expect(record.usageAtStart).toBe(1);
+    } finally {
+      captured.restore();
+      server.stop();
+    }
+  });
+
   test("starts the run and records the fingerprint and the usage at the start", async () => {
     reset();
     projectKey("alpha", KEY_A);

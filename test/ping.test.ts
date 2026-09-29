@@ -411,6 +411,37 @@ describe("ping", () => {
     expect(lines).toEqual([`openrouter: not configured for ${path.resolve("somewhere/else")}`]);
   });
 
+  test("checks the project key file when the server reports the sandbox placeholder", async () => {
+    const { code, lines, headers } = await runPing({
+      providers: openrouterProvider({ options: { apiKey: "proxy-managed" } }),
+      answer: { status: 200, body: { data: { limit: 2, limit_remaining: 1.5, usage: 0.5 } } },
+      files: { [PROJECT_KEY]: `  ${FILE_KEY}\n` },
+    });
+    expect(code).toBe(0);
+    expect(lines).toEqual([
+      `directory: ${DIR}`,
+      "project: proj",
+      `key: sha256 ${fingerprint(FILE_KEY)}`,
+      `source: sbx proxy with the project key file ${PROJECT_KEY}`,
+      "openrouter: ok, limit $2.00, used $0.50, remaining $1.50",
+    ]);
+    expect(headers).toEqual([`Bearer ${FILE_KEY}`]);
+    expect(lines.join("\n")).not.toContain("proxy-managed");
+    expect(lines.join("\n")).not.toContain(FILE_KEY);
+  });
+
+  test("reports a missing project key file behind the sandbox placeholder", async () => {
+    const { code, lines, headers } = await runPing({
+      providers: openrouterProvider({ key: "proxy-managed" }),
+      answer: { status: 200, body: { data: { limit: null, limit_remaining: null, usage: 0 } } },
+      files: {},
+    });
+    expect(code).toBe(0);
+    expect(lines[3]).toBe(`source: sbx proxy without a project key file (${PROJECT_KEY} is missing)`);
+    expect(headers).toEqual(["Bearer proxy-managed"]);
+    expect(lines[5]?.startsWith("warning: not the project key.")).toBe(true);
+  });
+
   test("never prints a key, in any line", async () => {
     const { lines, headers } = await runPing({
       providers: openrouterProvider({ options: { apiKey: CONFIG_KEY } }),

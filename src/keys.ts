@@ -18,6 +18,9 @@ const OPENROUTER_TIMEOUT_MS = 10_000;
 /** The label of the project key file candidate, without the path. */
 export const PROJECT_KEY_SOURCE_PREFIX = "project key file ";
 
+/** The key value that `sbx` puts into the sandbox instead of the real key. */
+export const PLACEHOLDER_KEY = "proxy-managed";
+
 /** The first 8 hex digits of the SHA-256 of the key. The key itself is never printed. */
 export function keyFingerprint(key: string): string {
   return createHash("sha256").update(key).digest("hex").slice(0, 8);
@@ -230,6 +233,56 @@ export type ResolvedKey = {
 };
 
 /**
+ * The source label of the sandbox proxy rule. With the file, the proxy of
+ * `sbx` adds the real key from the project key file on the host. Without
+ * it, the placeholder stays and no real key exists.
+ */
+export function sbxProxySource(withFile: boolean, keyPath: string): string {
+  return withFile
+    ? `sbx proxy with the project key file ${keyPath}`
+    : `sbx proxy without a project key file (${keyPath} is missing)`;
+}
+
+/**
+ * The key and its origin for the key that the server reports. This is the
+ * one place with the sandbox rule: the placeholder `proxy-managed` means
+ * that the proxy of `sbx` adds the real key from the project key file of
+ * the project on the host. `resolveDirectoryKey` and `ping` both use it.
+ */
+export async function resolvedKeyOf(
+  resolved: { key: string; fromConfigFile: boolean },
+  project: string,
+  env: Env,
+  deps: Pick<KeyDeps, "readText"> = defaultKeyDeps,
+): Promise<ResolvedKey> {
+  if (resolved.key === PLACEHOLDER_KEY) {
+    const keyPath = projectKeyPath(project, env);
+    const fileKey = (await deps.readText(keyPath))?.trim();
+    if (fileKey !== undefined && fileKey.length > 0) {
+      return {
+        key: fileKey,
+        fingerprint: keyFingerprint(fileKey),
+        isProjectKey: true,
+        source: sbxProxySource(true, keyPath),
+      };
+    }
+    return {
+      key: resolved.key,
+      fingerprint: keyFingerprint(resolved.key),
+      isProjectKey: false,
+      source: sbxProxySource(false, keyPath),
+    };
+  }
+  const source = identifyKeySource(resolved.key, resolved.fromConfigFile, await keyCandidates(project, env, deps));
+  return {
+    key: resolved.key,
+    fingerprint: keyFingerprint(resolved.key),
+    isProjectKey: source.startsWith(PROJECT_KEY_SOURCE_PREFIX),
+    source,
+  };
+}
+
+/**
  * The OpenRouter key that the server uses for one directory. Returns null
  * when openrouter is not configured there or has no key. Throws when the
  * configuration cannot be loaded, like the SDK client does.
@@ -245,14 +298,7 @@ export async function resolveDirectoryKey(
   if (provider === undefined) return null;
   const resolved = resolvedProviderKey(provider);
   if (resolved === undefined) return null;
-  const project = projectNameOf(directory);
-  const source = identifyKeySource(resolved.key, resolved.fromConfigFile, await keyCandidates(project, env, deps));
-  return {
-    key: resolved.key,
-    fingerprint: keyFingerprint(resolved.key),
-    isProjectKey: source.startsWith(PROJECT_KEY_SOURCE_PREFIX),
-    source,
-  };
+  return resolvedKeyOf(resolved, projectNameOf(directory), env, deps);
 }
 
 /** The key owner that the shared-key check compares. */

@@ -1,13 +1,14 @@
 /** `oc-sub say`: send a follow-up message into a session without waiting. */
 import path from "node:path";
-import { resolveServerUrl, type Env } from "./config";
+import type { Env } from "./config";
+import { resolveCommandUrl } from "./sandbox";
 import { assertOk, makeClient, requireServer, unwrap } from "./client";
 
 export async function say(
   args: { url?: string; session: string; dir?: string; agent?: string; text: string },
   env: Env = process.env,
 ): Promise<number> {
-  const baseUrl = resolveServerUrl(args.url, env);
+  const baseUrl = resolveCommandUrl(args.url, env, args.dir);
   await requireServer(baseUrl, env);
   const directory = path.resolve(args.dir ?? process.cwd());
   const client = makeClient(baseUrl, env);

@@ -1,6 +1,7 @@
 /** `oc-sub answer`: reply to a pending question or permission request. */
 import path from "node:path";
-import { resolveServerUrl, type Env } from "./config";
+import type { Env } from "./config";
+import { resolveCommandUrl } from "./sandbox";
 import { requireServer } from "./client";
 import { listPendingRequests, rejectQuestion, replyPermission, replyQuestion } from "./requests";
 import type { Reply } from "./args";
@@ -9,7 +10,7 @@ export async function answer(
   args: { url?: string; request: string; dir?: string; reply?: Reply; reject: boolean; message?: string; answers: string[] },
   env: Env = process.env,
 ): Promise<number> {
-  const baseUrl = resolveServerUrl(args.url, env);
+  const baseUrl = resolveCommandUrl(args.url, env, args.dir);
   await requireServer(baseUrl, env);
   const directory = path.resolve(args.dir ?? process.cwd());
 

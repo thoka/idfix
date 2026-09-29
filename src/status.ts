@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { resolvePort, resolveServerUrl, type Env } from "./config";
+import { resolveCommandUrl } from "./sandbox";
 import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "./client";
 import { listPendingRequests } from "./requests";
 import { readDirs, serveDirsPath } from "./state";
@@ -132,7 +133,10 @@ export async function status(
   env: Env = process.env,
   deps: StatusDeps = defaultDeps,
 ): Promise<number> {
-  const baseUrl = resolveServerUrl(args.url, env);
+  // With --all, the listing covers every project and does not look at the
+  // state file of one sandbox. Otherwise, the sandbox URL of the project
+  // can step in before the default.
+  const baseUrl = args.all ? resolveServerUrl(args.url, env) : resolveCommandUrl(args.url, env, args.dir);
   // No server means no sessions. That is a normal state, not an error.
   const server = await probeServer(baseUrl, env, 2000);
   if (server.state === "down") {

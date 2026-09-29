@@ -91,3 +91,12 @@ The task: find three types in a file of 11,656 lines, at lines 4,868, 5,047, and
 | B | 4 of 4 | 11 | 0 | 30,506 | 0.0062 USD |
 
 Every run found the types with `grep` and then read with `offset`. The test did not bring back the loop, so it neither confirms nor refutes that the missing default prompt causes loops. The loops came in long runs after many steps. The token difference comes mostly from one run (A2) and needs more runs to count. The eight runs cost an estimated 0.067 USD. One run paused on a permission request for a chained git command, and `oc-sub answer` resumed it.
+
+## A run that derailed
+
+On 2026-09-29, the first step 5 run went through a stalled model call, an abort, and two follow-up messages. After 11 steps, the model claimed that every file read came back "scrambled". In fact, every tool call had returned normal file content. The last step used 26,210 reasoning tokens and ended in a long string of unrelated words, symbols, and Greek letters. The run changed no code and cost an estimated 0.03 USD. A fresh session with the same brief replaced it.
+
+Lessons:
+
+1. A session whose model claims broken tools is poisoned. Do not send follow-up messages into it. Start a fresh session.
+2. Very many reasoning tokens in one step are a warning sign. The live view of step 8 shows them.

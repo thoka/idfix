@@ -100,3 +100,16 @@ Lessons:
 
 1. A session whose model claims broken tools is poisoned. Do not send follow-up messages into it. Start a fresh session.
 2. Very many reasoning tokens in one step are a warning sign. The live view of step 8 shows them.
+
+## Broken output from the provider, and routing that works
+
+From the afternoon of 2026-09-28, GLM runs failed in five different ways: a loop, a stalled call, a session that claimed broken tools, a stop with invented file paths, and runs that spent 32,000 tokens on thinking or wrote 84,000 characters of meaningless text. None of our settings explains meaningless text, so the model output itself was broken. The provider behind OpenRouter is the likely cause. About a third of the providers of GLM 5.3 Flash serve it in fp4.
+
+A test proved that opencode passes routing options to OpenRouter. With `"order": ["no-such-provider-xyz"]` and `"allow_fallbacks": false` in `provider.openrouter.models["z-ai/glm-5.3-flash"].options.provider`, OpenRouter refused the request with "No endpoints found for z-ai/glm-5.3-flash. Every candidate endpoint was removed during routing". The earlier price tests could not show this, because the reported cost comes from the models.dev catalog.
+
+The plugin now sets `"order": ["z-ai"]` and `"quantizations": ["fp8", "bf16", "fp16"]` in `opencode/opencode.json`, so every project gets it through `OPENCODE_CONFIG_DIR`.
+
+Lessons:
+
+1. Pin the provider of a cheap model. A router picks by price and availability, not by quality.
+2. To prove that a routing option arrives, force a provider that does not exist. The refusal proves it.

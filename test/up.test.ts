@@ -55,3 +55,12 @@ describe("plugin config directory", () => {
     expect(reader).toMatch(/^steps: \d+$/m);
   });
 });
+
+describe("plugin routing", () => {
+  test("pins GLM to fp8 or better, with Z.AI first", () => {
+    const config = JSON.parse(readFileSync(path.join(PLUGIN_DIR, "opencode", "opencode.json"), "utf8"));
+    const routing = config.provider.openrouter.models["z-ai/glm-5.3-flash"].options.provider;
+    expect(routing.order[0]).toBe("z-ai");
+    expect(routing.quantizations).not.toContain("fp4");
+  });
+});

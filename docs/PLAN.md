@@ -149,6 +149,13 @@ Design of step 9a, decided on 2026-09-29:
   2. `sbx create` mounts `~/.local/share/mise/installs` read-only under the same path (relative path with `:ro`, like the plugin folder). No download happens twice, the versions are the same as on the host, and the network policy needs no new hosts. The agent cannot change the tools.
   3. `up` reads the tool paths of the project with `mise env -C ROOT` on the host, and passes them to the holder command as the start of `PATH`. mise itself is not needed inside.
   4. A mount can only be set at `sbx create`. An existing sandbox without the mount must be removed and created again. `up` detects this in the output of `sbx ls` and says so.
+- Step 9e, together with 9d: the network rules of a sandbox. The kit allowlist blocks the web fetches of `reader`, so research in the sandbox fails. Decided with the user on 2026-09-29, and tested by hand on the sandbox `oc-sub-opencode-subagents`: GET and HEAD to every host, POST only to the hosts of the kit (openrouter.ai and others), and deny rules for the host and the private networks. `up --sandbox` sets these rules for each new sandbox:
+  1. `sbx policy allow network --sandbox NAME "**" --method GET,HEAD`
+  2. `sbx policy deny network --sandbox NAME "host.docker.internal,localhost,127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"`
+
+  The rule for `localhost` is necessary. The proxy of `sbx` rewrites `host.docker.internal` to `localhost` on the host, so a deny rule for `host.docker.internal` alone let GET requests reach the host server on port 8767. A test with a real sandbox must show 403 for `http://host.docker.internal:8767/global/health`. Data can still leave through the URL of a GET request, so the code of a private project is not fully protected. A research run in the sandbox worked with these rules: `reader` fetched bun.sh.
+- The sandbox of the `opencode` kit adds an MCP gateway (`mcp-gateway` in `~/.config/opencode/opencode.json` inside the sandbox). An agent called its tool `mcp-find`. Following the smallest blast radius, `up --sandbox` turns it off through `OPENCODE_CONFIG_CONTENT` (`"mcp":{"mcp-gateway":{"enabled":false}}`), in step 9d.
+- The researcher reported that it has no `websearch` tool, on the sandbox server. Both servers list the tool. Research whether opencode offers `websearch` to a model from OpenRouter at all (for example only with `OPENCODE_ENABLE_EXA`), and whether it ever worked on the host.
 - In step 9a, the tests of the GLM coder were green, but three bugs stayed hidden, because its fake of `sbx` used an invented output format. For code that parses the output of a tool, test with real output.
 
 ## Step 10: A probe picks the approved providers

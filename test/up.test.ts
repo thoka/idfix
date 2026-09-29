@@ -39,6 +39,21 @@ describe("serveEnv", () => {
     expect(input.HOME).toBe("/home/u");
     expect(Object.keys(input)).toHaveLength(2);
   });
+
+  test("sets OPENCODE_ENABLE_EXA to 1 for the websearch of the researcher", () => {
+    const { env } = serveEnv({ HOME: "/home/u" }, `${PLUGIN_DIR}/opencode`);
+    expect(env.OPENCODE_ENABLE_EXA).toBe("1");
+  });
+
+  test("keeps an existing OPENCODE_ENABLE_EXA, with and without a config dir", () => {
+    expect(serveEnv({ OPENCODE_ENABLE_EXA: "0" }, `${PLUGIN_DIR}/opencode`).env.OPENCODE_ENABLE_EXA).toBe("0");
+    const { env, warning } = serveEnv(
+      { OPENCODE_CONFIG_DIR: "/my/own/agents", OPENCODE_ENABLE_EXA: "0" },
+      `${PLUGIN_DIR}/opencode`,
+    );
+    expect(env.OPENCODE_ENABLE_EXA).toBe("0");
+    expect(warning).toBeDefined();
+  });
 });
 
 describe("plugin config directory", () => {

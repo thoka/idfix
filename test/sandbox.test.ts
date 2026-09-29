@@ -6,11 +6,18 @@ import {
   placeholderKeyScript,
   listsOpenRouterSecret,
   listsPublishedPort,
+  deniesNetwork,
   downSandbox,
+  EXA_HOST,
+  listsMounts,
   listsName,
+  miseBin,
+  miseInstallsDir,
+  NETWORK_DENY_HOSTS,
   parseSandboxState,
   pickPort,
   projectRoot,
+  projectToolPath,
   readSandboxState,
   relativeMount,
   resolveCommandUrl,
@@ -18,6 +25,7 @@ import {
   sandboxName,
   sandboxUrlFor,
   SANDBOX_BASH_AGENTS,
+  SANDBOX_PATH,
   shellQuote,
   upSandbox,
   usedSandboxPorts,
@@ -38,6 +46,21 @@ function makeEnv(): Record<string, string> {
 
 type Call = { cmd: string[]; cwd?: string };
 
+/** The mounts of a sandbox of the tests, as the WORKSPACE column shows them. */
+const PLUGIN_MOUNT = `${PLUGIN_CONFIG_DIR}:ro`;
+
+function installsMount(env: Record<string, string>): string {
+  return `${miseInstallsDir(env)}:ro`;
+}
+
+/** The `sbx ls` output with both mounts, in the real column format. */
+function lsWorkspace(name: string, env: Record<string, string>): string {
+  return `NAME     STATUS     WORKSPACE\n${name}   running   /repo, ${PLUGIN_MOUNT}, ${installsMount(env)}\n`;
+}
+
+/** What `sbx policy check network` prints for a denied target. */
+const DENIED = { stdout: "Denied: host.docker.internal:8767\n" };
+
 /** A fake runner whose answers come from a per-subcommand script. */
 function fakeRunner(answer: (cmd: readonly string[]) => { stdout?: string; exitCode?: number }): {
   calls: Call[];
@@ -57,7 +80,9 @@ function isSubcommand(cmd: readonly string[], name: string): boolean {
 }
 
 function subcommands(calls: Call[]): string[] {
-  return calls.map((call) => (call.cmd[1] as string) ?? "");
+  // The fake runner also carries the `mise` calls. The key names the binary,
+  // the value the subcommand of `sbx` (mise has none).
+  return calls.map((call) => (call.cmd[0] === "sbx" ? (call.cmd[1] as string) : (call.cmd[0] as string)));
 }
 
 function makeDeps(overrides: Partial<SandboxDeps> = {}): SandboxDeps {
@@ -252,6 +277,55 @@ describe("shellQuote and relativeMount", () => {
   });
 });
 
+describe("mise helpers", () => {
+  test("miseBin comes from MISE_BIN, else mise", () => {
+    expect(miseBin({})).toBe("mise");
+    expect(miseBin({ MISE_BIN: "/opt/mise" })).toBe("/opt/mise");
+  });
+
+  test("miseInstallsDir honors MISE_DATA_DIR", () => {
+    expect(miseInstallsDir({ MISE_DATA_DIR: "/data/mise" })).toBe("/data/mise/installs");
+  });
+
+  test("miseInstallsDir falls back to XDG_DATA_HOME/mise", () => {
+    expect(miseInstallsDir({ XDG_DATA_HOME: "/home/u/.local/data" })).toBe("/home/u/.local/data/mise/installs");
+  });
+
+  test("miseInstallsDir falls back to ~/.local/share/mise", () => {
+    expect(miseInstallsDir({ HOME: "/home/u" })).toBe("/home/u/.local/share/mise/installs");
+  });
+
+  test("projectToolPath keeps only the entries inside the installs folder, in order", () => {
+    const json = JSON.stringify({
+      PATH: "/home/u/.local/bin:/home/u/.local/share/mise/installs/bun/1.4.2/bin:/usr/local/bin:/home/u/.local/share/mise/installs/node/22/bin:/home/u/.local/share/mise/installs2/x/bin:/usr/bin",
+    });
+    expect(projectToolPath(json, "/home/u/.local/share/mise/installs")).toBe(
+      "/home/u/.local/share/mise/installs/bun/1.4.2/bin:/home/u/.local/share/mise/installs/node/22/bin",
+    );
+  });
+
+  test("projectToolPath returns the empty string for no JSON and no PATH string", () => {
+    expect(projectToolPath("not json", "/installs")).toBe("");
+    expect(projectToolPath("{}", "/installs")).toBe("");
+    expect(projectToolPath('{"PATH":"x"}', "/installs")).toBe("");
+    expect(projectToolPath('{"PATH":["/installs/a"]}', "/installs")).toBe("");
+  });
+
+  test("deniesNetwork reads the first line of the policy check", () => {
+    expect(deniesNetwork("Denied: host.docker.internal:8767\n")).toBe(true);
+    expect(deniesNetwork("Allowed: host.docker.internal:8767\n")).toBe(false);
+    expect(deniesNetwork("")).toBe(false);
+  });
+
+  test("listsMounts needs the sandbox name and every mount on one line", () => {
+    const out = "NAME   STATUS   WORKSPACE\noc-sub-t   running   /repo, /home/u/p/opencode:ro, /home/u/.local/share/mise/installs:ro\n";
+    expect(listsMounts(out, "oc-sub-t", ["/home/u/p/opencode:ro", "/home/u/.local/share/mise/installs:ro"])).toBe(true);
+    expect(listsMounts(out, "oc-sub-t", ["/home/u/p/opencode:ro"])).toBe(true);
+    expect(listsMounts(out, "oc-sub-t", ["/home/u/p/opencode:ro", "/other:ro"])).toBe(false);
+    expect(listsMounts(out, "other", ["/home/u/p/opencode:ro"])).toBe(false);
+  });
+});
+
 describe("placeholderKeyScript", () => {
   test("writes proxy-managed into the key file of the project in the sandbox home", () => {
     expect(placeholderKeyScript("my proj")).toBe(
@@ -271,13 +345,19 @@ describe("sandboxConfigContent", () => {
     }
   });
 
+  test("turns the MCP gateway of the sbx kit off", () => {
+    const parsed = JSON.parse(sandboxConfigContent()) as { mcp: Record<string, { enabled: boolean }> };
+    expect(parsed.mcp["mcp-gateway"]).toEqual({ enabled: false });
+  });
+
   test("the holder command names both -e options before the sandbox name", async () => {
     const env = makeEnv();
     const { runner } = fakeRunner((cmd) => {
-      if (isSubcommand(cmd, "ls")) return { stdout: "oc-sub-test\n" };
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
-      return { stdout: "" };
+      if (isSubcommand(cmd, "policy") && cmd[2] === "check") return DENIED;
+      return DENIED;
     });
     const holderCommands: string[][] = [];
     // The first probe finds no server, so up starts the holder.
@@ -304,10 +384,10 @@ describe("sandboxConfigContent", () => {
   test("a set host OPENCODE_CONFIG_CONTENT gives a warning on stderr", async () => {
     const env = { ...makeEnv(), OPENCODE_CONFIG_CONTENT: '{"agent":{}}' };
     const { runner } = fakeRunner((cmd) => {
-      if (isSubcommand(cmd, "ls")) return { stdout: "oc-sub-test\n" };
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
-      return { stdout: "" };
+      return DENIED;
     });
     const errors: string[] = [];
     const err = console.error;
@@ -332,41 +412,43 @@ describe("upSandbox", () => {
     const env = makeEnv();
     let lists = 0;
     const { calls, runner } = fakeRunner((cmd) => {
-      if (isSubcommand(cmd, "ls")) return { stdout: "oc-sub-test\n" };
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret")) return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "ports") && cmd.includes("--publish")) return { stdout: "", exitCode: 1 };
       if (isSubcommand(cmd, "ports")) {
         lists += 1;
         return { stdout: lists === 1 ? PORTS_HEADER : `${PORTS_HEADER}127.0.0.1   18768       4096           tcp4\n` };
       }
-      return { stdout: "" };
+      return DENIED;
     });
     const result = await upSandbox({}, env, makeDeps({ runner, probe: async () => ({ state: "up", version: "1.18.32" }) }));
     expect(result).toBe(0);
-    expect(subcommands(calls)).toEqual(["ls", "secret", "exec", "ports", "ports", "ports"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec", "ports", "ports", "ports", "policy", "policy"]);
   });
 
   test("a publish that fails without the port in a second list is an error", async () => {
+    const env = makeEnv();
     const { runner } = fakeRunner((cmd) => {
-      if (isSubcommand(cmd, "ls")) return { stdout: "oc-sub-test\n" };
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret")) return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "ports") && cmd.includes("--publish")) return { stdout: "", exitCode: 1 };
       return { stdout: PORTS_HEADER };
     });
-    const result = await upSandbox({}, makeEnv(), makeDeps({ runner, probe: async () => ({ state: "up", version: "1.18.32" }) }));
+    const result = await upSandbox({}, env, makeDeps({ runner, probe: async () => ({ state: "up", version: "1.18.32" }) }));
     expect(result).toBe(1);
   });
 
   test("a failed placeholder write stops up before the port", async () => {
+    const env = makeEnv();
     const { calls, runner } = fakeRunner((cmd) => {
-      if (isSubcommand(cmd, "ls")) return { stdout: "oc-sub-test\n" };
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret")) return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "exec")) return { stdout: "", exitCode: 1 };
-      return { stdout: "" };
+      return DENIED;
     });
-    const result = await upSandbox({}, makeEnv(), makeDeps({ runner }));
+    const result = await upSandbox({}, env, makeDeps({ runner }));
     expect(result).toBe(1);
-    expect(subcommands(calls)).toEqual(["ls", "secret", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec"]);
   });
 
   test("refuses without the project key file and calls no sbx", async () => {
@@ -376,12 +458,18 @@ describe("upSandbox", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("a first up creates the sandbox, sets the secret, publishes the port, and execs", async () => {
+  test("a first up creates the sandbox, sets the rules, the secret, the port, and execs", async () => {
     const env = makeEnv();
+    const toolBin = `${miseInstallsDir(env)}/bun/1.4.2/bin`;
     const { calls, runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) return { stdout: "other-sb\n" };
       if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "github\n" };
       if (isSubcommand(cmd, "ports")) return { stdout: "" };
+      // `mise env -C ROOT --json`: the real format is one JSON object.
+      if (cmd[0] === "mise" && cmd[1] === "env") {
+        return { stdout: JSON.stringify({ PATH: `${toolBin}:/usr/local/bin` }) };
+      }
+      if (isSubcommand(cmd, "policy") && cmd[2] === "check") return DENIED;
       return { stdout: "", exitCode: 0 };
     });
     const execCommands: string[][] = [];
@@ -395,11 +483,38 @@ describe("upSandbox", () => {
     // The fake holder exits immediately, so up reports the failure.
     expect(result).toBe(1);
 
-    expect(subcommands(calls)).toEqual(["ls", "create", "secret", "secret", "exec", "ports", "ports"]);
-    expect(calls[0]?.cmd.slice(0, 2)).toEqual(["sbx", "ls"]);
-    expect(calls[1]?.cmd).toEqual(["sbx", "create", "--name", "oc-sub-test", "opencode", "/repo", "./opencode:ro"]);
-    expect(calls[1]?.cwd).toBe(path.dirname(PLUGIN_CONFIG_DIR));
+    expect(subcommands(calls)).toEqual([
+      "mise", "mise", "ls", "create", "policy", "policy", "policy",
+      "secret", "secret", "exec", "ports", "ports", "policy", "policy",
+    ]);
+    // `mise install` and `mise env` run in the project root.
+    expect(calls[0]?.cmd).toEqual([miseBin(env), "install"]);
+    expect(calls[0]?.cwd).toBe("/repo");
+    expect(calls[1]?.cmd).toEqual([miseBin(env), "env", "-C", "/repo", "--json"]);
+    expect(calls[1]?.cwd).toBe("/repo");
+    // The create runs with the working directory `/` and mounts the plugin
+    // folder and the mise installs folder read-only, both relative from `/`.
     expect(calls[3]?.cmd).toEqual([
+      "sbx",
+      "create",
+      "--name",
+      "oc-sub-test",
+      "opencode",
+      "/repo",
+      `${relativeMount("/", PLUGIN_CONFIG_DIR)}:ro`,
+      `${relativeMount("/", miseInstallsDir(env))}:ro`,
+    ]);
+    expect(calls[3]?.cwd).toBe("/");
+    expect(calls[4]?.cmd).toEqual([
+      "sbx", "policy", "allow", "network", "--sandbox", "oc-sub-test", "**", "--method", "GET,HEAD",
+    ]);
+    expect(calls[5]?.cmd).toEqual([
+      "sbx", "policy", "allow", "network", "--sandbox", "oc-sub-test", EXA_HOST,
+    ]);
+    expect(calls[6]?.cmd).toEqual([
+      "sbx", "policy", "deny", "network", "--sandbox", "oc-sub-test", NETWORK_DENY_HOSTS.join(","),
+    ]);
+    expect(calls[8]?.cmd).toEqual([
       "sbx",
       "secret",
       "set",
@@ -409,8 +524,11 @@ describe("upSandbox", () => {
       "--command",
       `cat ${shellQuote(path.join(env.XDG_CONFIG_HOME as string, "test", "openrouter.key"))}`,
     ]);
-    expect(calls[4]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "sh", "-c", placeholderKeyScript("test")]);
-    expect(calls[6]?.cmd).toEqual(["sbx", "ports", "oc-sub-test", "--publish", "18768:4096"]);
+    expect(calls[9]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "sh", "-c", placeholderKeyScript("test")]);
+    expect(calls[11]?.cmd).toEqual(["sbx", "ports", "oc-sub-test", "--publish", "18768:4096"]);
+    // The checks of the network rules, before the server starts.
+    expect(calls[12]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "host.docker.internal:8767"]);
+    expect(calls[13]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "localhost:8767"]);
     expect(execCommands).toEqual([[
       "sbx",
       "exec",
@@ -420,6 +538,10 @@ describe("upSandbox", () => {
       `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent()}`,
       "-e",
       "SSH_AUTH_SOCK=",
+      "-e",
+      "OPENCODE_ENABLE_EXA=1",
+      "-e",
+      `PATH=${toolBin}:${SANDBOX_PATH}`,
       "oc-sub-test",
       "opencode",
       "serve",
@@ -433,6 +555,71 @@ describe("upSandbox", () => {
     expect(state).toEqual({ name: "oc-sub-test", root: "/repo", port: 18768 });
   });
 
+  test("an existing sandbox without the installs mount stops up with a hint", async () => {
+    const env = makeEnv();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) {
+        return { stdout: `NAME     STATUS     WORKSPACE\noc-sub-test   running   /repo, ${PLUGIN_MOUNT}\n` };
+      }
+      return DENIED;
+    });
+    const spawnServe = () => {
+      throw new Error("no server may start");
+    };
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, env, makeDeps({ runner, spawnServe }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    expect(errors.join("\n")).toContain(`sbx rm oc-sub-test`);
+    expect(errors.join("\n")).toContain("oc-sub up --sandbox");
+    // No secret, no exec, no server.
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls"]);
+  });
+
+  test("an allowed policy check stops up before the server starts", async () => {
+    const env = makeEnv();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
+      if (isSubcommand(cmd, "policy") && cmd[2] === "check") {
+        return { stdout: "Allowed: host.docker.internal:8767\n" };
+      }
+      return DENIED;
+    });
+    const spawnServe = () => {
+      throw new Error("no server may start");
+    };
+    const result = await upSandbox({}, env, makeDeps({ runner, spawnServe }));
+    expect(result).toBe(1);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec", "ports", "policy"]);
+  });
+
+  test("a failed mise install stops up before any sbx call", async () => {
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (cmd[0] === "mise" && cmd[1] === "install") return { stdout: "", exitCode: 1 };
+      return DENIED;
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, makeEnv(), makeDeps({ runner }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    expect(errors.join("\n")).toContain("mise install failed");
+    expect(calls).toHaveLength(1);
+  });
+
   test("a second up keeps the port and creates no sandbox, secret, or publish", async () => {
     const env = makeEnv();
     mkdirSync(env.XDG_STATE_HOME as string, { recursive: true });
@@ -442,10 +629,10 @@ describe("upSandbox", () => {
       port: 18799,
     });
     const { calls, runner } = fakeRunner((cmd) => {
-      if (isSubcommand(cmd, "ls")) return { stdout: "oc-sub-test\n" };
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18799       4096           tcp4\n" };
-      return { stdout: "" };
+      return DENIED;
     });
     const output: string[] = [];
     const log = console.log;
@@ -459,7 +646,7 @@ describe("upSandbox", () => {
     } finally {
       console.log = log;
     }
-    expect(subcommands(calls)).toEqual(["ls", "secret", "exec", "ports"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec", "ports", "policy", "policy"]);
     expect(output).toContain("http://127.0.0.1:18799 version 1.18.32");
     expect(output.join("\n")).not.toContain("OC_SUB_URL");
     expect(output.join("\n")).toContain("sandbox: oc-sub-test");
@@ -475,9 +662,9 @@ describe("upSandbox", () => {
       port: 18768,
     });
     const { calls, runner } = fakeRunner((cmd) => {
-      if (isSubcommand(cmd, "ls")) return { stdout: "oc-sub-test\n" };
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18769       4096           tcp4\n" };
-      return { stdout: "" };
+      return DENIED;
     });
     const result = await upSandbox({}, env, makeDeps({
       runner,
@@ -493,7 +680,9 @@ describe("upSandbox", () => {
 
   test("waits for health and reports the URL and log on success", async () => {
     const env = makeEnv();
-    const { runner } = fakeRunner((cmd) => (isSubcommand(cmd, "ls") ? { stdout: "oc-sub-test\n" } : { stdout: "" }));
+    const { runner } = fakeRunner((cmd) =>
+      isSubcommand(cmd, "ls") ? { stdout: lsWorkspace("oc-sub-test", env) } : DENIED,
+    );
     const output: string[] = [];
     const log = console.log;
     console.log = (line: string) => output.push(line);

@@ -21,6 +21,33 @@ import { PLUGIN_CONFIG_DIR } from "./up";
 /** The first port that a sandbox may take. */
 export const SANDBOX_PORT_BASE = 18768;
 
+/**
+ * The PATH that the `opencode` kit sets inside a sandbox. The holder command
+ * puts the project tool paths of the host in front of it.
+ */
+export const SANDBOX_PATH =
+  "/home/agent/.local/bin:/usr/local/share/npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
+/**
+ * The hosts and networks that a project sandbox may not reach. The proxy of
+ * `sbx` rewrites `host.docker.internal` to `localhost`, so a deny rule for
+ * `host.docker.internal` alone is not enough.
+ */
+export const NETWORK_DENY_HOSTS = [
+  "host.docker.internal",
+  "localhost",
+  "127.0.0.0/8",
+  "10.0.0.0/8",
+  "172.16.0.0/12",
+  "192.168.0.0/16",
+];
+
+/**
+ * The host of the Exa websearch that opencode calls with POST when
+ * `OPENCODE_ENABLE_EXA` is truthy. The websearch needs no key and no cost.
+ */
+export const EXA_HOST = "mcp.exa.ai:443";
+
 const HEALTH_TIMEOUT_MS = 60_000;
 const HEALTH_INTERVAL_MS = 300;
 
@@ -46,7 +73,9 @@ export const SANDBOX_BASH_AGENTS = ["coder", "researcher"] as const;
 export function sandboxConfigContent(): string {
   const agents: Record<string, { permission: { bash: string } }> = {};
   for (const agent of SANDBOX_BASH_AGENTS) agents[agent] = { permission: { bash: "allow" } };
-  return JSON.stringify({ agent: agents });
+  // The kit of `sbx` adds an MCP gateway to the opencode configuration of
+  // the sandbox. An agent could call its tools, so the sandbox turns it off.
+  return JSON.stringify({ agent: agents, mcp: { "mcp-gateway": { enabled: false } } });
 }
 
 /** The name of the sandbox of a project: `oc-sub-<project>`, sanitized. */
@@ -196,6 +225,42 @@ export function sbxBin(env: Env): string {
   return bin !== undefined && bin.length > 0 ? bin : "sbx";
 }
 
+/** The `mise` binary: from `MISE_BIN`, else from `PATH`. */
+export function miseBin(env: Env): string {
+  const bin = env.MISE_BIN;
+  return bin !== undefined && bin.length > 0 ? bin : "mise";
+}
+
+/**
+ * The folder in which mise installs the tools of a project. The default of
+ * `MISE_DATA_DIR` is `$XDG_DATA_HOME/mise`, else `~/.local/share/mise`.
+ */
+export function miseInstallsDir(env: Env): string {
+  const dataDir = env.MISE_DATA_DIR ?? (env.XDG_DATA_HOME !== undefined ? path.join(env.XDG_DATA_HOME, "mise") : path.join(env.HOME ?? "~", ".local/share/mise"));
+  return path.join(dataDir, "installs");
+}
+
+/**
+ * The PATH entries of the JSON from `mise env --json` that live inside the
+ * installs folder, in their order, joined with `:`. Pure: no mise call.
+ */
+export function projectToolPath(miseJson: string, installsDir: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(miseJson);
+  } catch {
+    return "";
+  }
+  // mise prints PATH as one string with `:` between the entries.
+  const envPath = (parsed as { PATH?: unknown })?.PATH;
+  if (typeof envPath !== "string") return "";
+  const prefix = installsDir.endsWith("/") ? installsDir : `${installsDir}/`;
+  return envPath
+    .split(":")
+    .filter((entry) => entry.startsWith(prefix))
+    .join(":");
+}
+
 /** Quote one path for use inside a shell command string. */
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
@@ -294,6 +359,27 @@ export function listsOpenRouterSecret(stdout: string, name: string): boolean {
 }
 
 /**
+ * Whether the line of `sbx ls` for the sandbox lists all the mounts. The
+ * WORKSPACE column lists the mounts separated by `, `, each with its
+ * read-only suffix such as `/home/u/plugin/opencode:ro`.
+ */
+export function listsMounts(stdout: string, name: string, mounts: readonly string[]): boolean {
+  return stdout.split("\n").some((line) => {
+    if (!line.trim().split(/\s+/).includes(name)) return false;
+    return mounts.every((mount) => line.includes(mount));
+  });
+}
+
+/**
+ * Whether the first line of `sbx policy check network` denies the target,
+ * as in `Denied: host.docker.internal:8767`.
+ */
+export function deniesNetwork(stdout: string): boolean {
+  const first = stdout.split("\n")[0] ?? "";
+  return first.startsWith("Denied");
+}
+
+/**
  * Whether the output of `sbx ports NAME` already publishes the host port.
  * The columns are `HOST IP  HOST PORT  SANDBOX PORT  PROTOCOL`.
  */
@@ -356,19 +442,63 @@ export async function upSandbox(
   const statePath = sandboxStatePath(env, project);
   const existing = readSandboxState(statePath);
 
-  if (!listsName(deps.runner([bin, "ls"]).stdout, name)) {
-    // The plugin folder is mounted read-only under its host path, so that
-    // `OPENCODE_CONFIG_DIR` keeps the same value as on the host. The mount
-    // path is relative and the working directory is the plugin folder.
-    const pluginParent = path.dirname(PLUGIN_CONFIG_DIR);
+  // The tools of the project come from the mise of the host. The install
+  // runs first, so that every tool of `mise.toml` exists. Then `mise env`
+  // gives the tool folders of the project, and the holder command puts them
+  // at the start of the sandbox PATH. mise itself is not needed inside.
+  const mise = miseBin(env);
+  const install = deps.runner([mise, "install"], { cwd: root });
+  if (install.exitCode !== 0) {
+    console.error(`error: mise install failed in ${root}`);
+    return 1;
+  }
+  const installsDir = miseInstallsDir(env);
+  const toolPath = projectToolPath(deps.runner([mise, "env", "-C", root, "--json"], { cwd: root }).stdout, installsDir);
+
+  // `sbx create` accepts read-only mounts only with relative paths, so the
+  // working directory is `/` and both mounts are relative from there. The
+  // plugin folder keeps its host path, and the mise installs folder makes
+  // the host tools of the project available unchanged inside the sandbox.
+  const pluginMount = `${relativeMount("/", PLUGIN_CONFIG_DIR)}:ro`;
+  const installsMount = `${relativeMount("/", installsDir)}:ro`;
+
+  const lsStdout = deps.runner([bin, "ls"]).stdout;
+  if (!listsName(lsStdout, name)) {
     const create = deps.runner(
-      [bin, "create", "--name", name, "opencode", root, `${relativeMount(pluginParent, PLUGIN_CONFIG_DIR)}:ro`],
-      { cwd: pluginParent },
+      [bin, "create", "--name", name, "opencode", root, pluginMount, installsMount],
+      { cwd: "/" },
     );
     if (create.exitCode !== 0) {
       console.error(`error: sbx create failed for ${name}`);
       return 1;
     }
+    // The network rules go onto a new sandbox: GET and HEAD to every host,
+    // but never to the host server or the private networks. Research needs
+    // to read any page; data can still leave in a GET URL. The proxy of
+    // `sbx` rewrites `host.docker.internal` to `localhost`, so a deny rule
+    // for `host.docker.internal` alone is not enough. The websearch of
+    // opencode calls Exa with POST, so Exa gets every method.
+    const allow = deps.runner([bin, "policy", "allow", "network", "--sandbox", name, "**", "--method", "GET,HEAD"]);
+    if (allow.exitCode !== 0) {
+      console.error(`error: sbx policy allow network failed for ${name}`);
+      return 1;
+    }
+    const allowExa = deps.runner([bin, "policy", "allow", "network", "--sandbox", name, EXA_HOST]);
+    if (allowExa.exitCode !== 0) {
+      console.error(`error: sbx policy allow network for ${EXA_HOST} failed for ${name}`);
+      return 1;
+    }
+    const deny = deps.runner([bin, "policy", "deny", "network", "--sandbox", name, NETWORK_DENY_HOSTS.join(",")]);
+    if (deny.exitCode !== 0) {
+      console.error(`error: sbx policy deny network failed for ${name}`);
+      return 1;
+    }
+  } else if (!listsMounts(lsStdout, name, [`${PLUGIN_CONFIG_DIR}:ro`, `${installsDir}:ro`])) {
+    // The sandbox holds the sessions, so oc-sub does not remove it itself.
+    console.error(`error: the sandbox ${name} lacks the plugin or the mise installs mount`);
+    console.error(`Remove it with: sbx rm ${name}`);
+    console.error("Then run oc-sub up --sandbox; it creates the sandbox again with both mounts.");
+    return 1;
   }
 
   if (!listsOpenRouterSecret(deps.runner([bin, "secret", "ls", "--sandbox", name]).stdout, name)) {
@@ -414,6 +544,19 @@ export async function upSandbox(
     }
   }
 
+  // An old sandbox without the deny rules may still reach the host server
+  // and the LAN. The check runs on every up, before a server starts.
+  for (const target of ["host.docker.internal:8767", "localhost:8767"]) {
+    const check = deps.runner([bin, "policy", "check", "network", "--sandbox", name, target]);
+    if (!deniesNetwork(check.stdout)) {
+      console.error(`error: the sandbox ${name} may reach ${target}`);
+      console.error(
+        `Deny it with: sbx policy deny network --sandbox ${name} "${NETWORK_DENY_HOSTS.join(",")}"`,
+      );
+      return 1;
+    }
+  }
+
   const serveUrl = `http://127.0.0.1:${port}`;
   const healthy = await deps.probe(serveUrl);
   if (healthy.state === "up") {
@@ -441,6 +584,14 @@ export async function upSandbox(
       `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent()}`,
       "-e",
       "SSH_AUTH_SOCK=",
+      "-e",
+      // opencode offers the websearch tool only when this is truthy. The
+      // researcher reads pages with it; Exa needs no key and no cost.
+      "OPENCODE_ENABLE_EXA=1",
+      "-e",
+      // The tool folders of the project come first, so that the versions of
+      // `mise.toml` win over the tools of the sandbox image.
+      `PATH=${toolPath ? `${toolPath}:` : ""}${SANDBOX_PATH}`,
       name,
       "opencode",
       "serve",

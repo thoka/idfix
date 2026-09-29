@@ -26,20 +26,26 @@ export const PLUGIN_CONFIG_DIR = path.resolve(import.meta.dir, "..", "opencode")
  * with the same name. An existing `OPENCODE_CONFIG_DIR` stays, because it may
  * point to other agent files, and gives a warning. Pure: the input env object
  * is not changed.
+ *
+ * opencode offers the websearch tool to an OpenRouter model only when
+ * `OPENCODE_ENABLE_EXA` is truthy. The researcher needs it to read web pages.
+ * So the serve environment sets it to `1`, unless the environment already
+ * sets it.
  */
 export function serveEnv(env: Env, pluginConfigDir: string = PLUGIN_CONFIG_DIR): { env: Env; warning?: string } {
+  const exa = { OPENCODE_ENABLE_EXA: env.OPENCODE_ENABLE_EXA ?? "1" };
   const current = env.OPENCODE_CONFIG_DIR;
   if (current !== undefined && current.trim().length > 0) {
     // A relative path or a trailing slash still names the same folder.
     const same = path.resolve(current) === path.resolve(pluginConfigDir);
     return {
-      env: { ...env },
+      env: { ...env, ...exa },
       warning: same
         ? undefined
         : `OPENCODE_CONFIG_DIR is already set to ${current}. The research agents of the plugin are not loaded.`,
     };
   }
-  return { env: { ...env, OPENCODE_CONFIG_DIR: pluginConfigDir } };
+  return { env: { ...env, OPENCODE_CONFIG_DIR: pluginConfigDir, ...exa } };
 }
 
 export async function up(args: { url?: string; port?: number }, env: Env = process.env): Promise<number> {

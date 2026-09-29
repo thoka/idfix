@@ -118,13 +118,27 @@ State of the test on 2026-09-29: the test is done. The details are in [SANDBOX.m
 - The global policy of `sbx` allows every host. A deny rule beats every allow rule, so a per-sandbox allowlist needs the global rule `default-allow-all` removed.
 - The sandbox reaches the unsandboxed host server at `host.docker.internal:8767`. An agent can run commands on the host through it.
 
-Next: decide the design with the user. Open decisions: remove the global allow-all rule of `sbx` (it affects every sandbox), and stop the host server for projects that move into a sandbox. Then `oc-sub up` starts and holds the sandbox server, and the key check of `oc-sub run` learns the `sbx` secret scope.
+Decided with the user on 2026-09-29: the global rule `default-allow-all` of `sbx` is removed, so each sandbox may reach only the hosts of its agent kit. A test confirmed it: openrouter.ai and models.opencode.ai answer, while example.com and `host.docker.internal:8767` get 403. A project that moves into a sandbox no longer uses the host server.
 
 Root cause: the agent files imitate a sandbox with long bash allowlists. The allowlist stops no deliberate harm (a test command can run any code), but every command outside it pauses the run until the orchestrator answers. In the step 5 and step 8 runs, most pauses were for read-only commands such as `cat`, `sed -n`, `rg`, and `ls`.
 
 1. Research, with a report in `docs/research/`: how do other tools run a coding agent in a real sandbox? Cover a Docker or Podman container per run, bubblewrap (the sandbox of Claude Code on Linux), microVMs such as Firecracker, and container-use from Dagger. For each: how opencode runs inside, and how `oc-sub` and `opencode attach` reach it. How the OpenRouter key gets in without being readable from the worktree. How the network is limited, and the start time on WSL2. Also: does the Agent Client Protocol (ACP) fit, and do these tools speak it?
-2. Decide the design with the user.
-3. Inside the sandbox, the agent files allow all commands. Only a few actions outside the worktree still ask, for example `git push`.
+2. Decide the design with the user. Done, see above.
+3. Step 9a: `oc-sub up --sandbox [--dir DIR]` and `oc-sub down --sandbox [--dir DIR]`, in a new module `src/sandbox.ts`. Details below.
+4. Step 9b: every command finds the server of a sandboxed project by itself. The server URL comes from `--url`, then `OC_SUB_URL`, then the sandbox state of the project of `--dir` (or of the current folder), then the default. `oc-sub run` accepts the key `proxy-managed` of the sandbox of the project, and uses the project key file on the host for the key checks and the real cost.
+5. Step 9c: inside the sandbox, the agent files allow all commands. Only a few actions outside the worktree still ask, for example `git push`.
+
+Design of step 9a, decided on 2026-09-29:
+
+- The project root is the folder of the main repository (`dirname` of `git rev-parse --git-common-dir`), so that all worktrees in `.worktrees/` are visible inside. The sandbox name is `oc-sub-<project>`.
+- If the sandbox does not exist, `up` creates it: `sbx create --name NAME opencode ROOT ./opencode:ro`, with the plugin folder as the working directory. `sbx` 0.45.1 rejects an absolute path with `:ro`, but accepts a relative one. The plugin folder then appears read-only under its host path, and `OPENCODE_CONFIG_DIR` keeps the same value as on the host.
+- `up` refuses to start without the project key file `~/.config/<project>/openrouter.key`. It sets the secret once: `sbx secret set openrouter --sandbox NAME --command 'cat KEYFILE'`.
+- Each project gets a fixed host port, stored in `$XDG_STATE_HOME/oc-sub/sandbox-<project>.json` with the name, the root, and the port. The first free port from 18768 upward is the default. `up` publishes it with `sbx ports NAME --publish PORT:4096`.
+- `up` starts a detached host process `sbx exec -e OPENCODE_CONFIG_DIR=... NAME opencode serve --hostname 0.0.0.0 --port 4096`. This process holds the sandbox, because `sbx` stops a sandbox 30 seconds after the last `sbx` session. The PID file and the log use the same state folder as the host server.
+- `down --sandbox` keeps the busy check of `down`, then runs `sbx stop NAME`, and removes the PID file.
+- `sbx` comes from `SBX_BIN`, else from `sbx` on `PATH`. The tests replace every call of `sbx` with a fake.
+
+
 
 ## Step 10: A probe picks the approved providers
 

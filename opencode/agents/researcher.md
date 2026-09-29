@@ -32,6 +32,12 @@ permission:
     "sed -n *": allow
     "rg *": allow
     "grep *": allow
+    "sort*": allow
+    "uniq*": allow
+    "cut *": allow
+    "echo *": allow
+    "pwd": allow
+    "git branch --show-current": allow
     "git status*": allow
     "git diff*": allow
     "git log*": allow

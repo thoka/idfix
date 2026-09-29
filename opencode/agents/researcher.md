@@ -27,6 +27,8 @@ permission:
     "head*": allow
     "tail*": allow
     "sed -n *": allow
+    "rg *": allow
+    "grep *": allow
     "git status*": allow
     "git diff*": allow
     "git log*": allow

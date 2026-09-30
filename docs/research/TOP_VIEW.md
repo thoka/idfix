@@ -16,6 +16,15 @@ No release note from v4.2.0 to v7.1.1 mentions bun. So: bun is not officially su
 
 Update 2026-09-30: v7.1.1 is still the latest release (GitHub releases API: newest tag v7.1.1, published 2026-07-16; the repo is active, last push 2026-09-29, ~40k stars). No new issue with "bun" in the title since then — the only bun-titled issues remain the three closed ones above; the three issues opened on 2026-09-29 (#1034 cursor lost on sibling re-render, #1035/#1036 incremental rendering) are not bun-specific.
 
+### Ink under bun (2026-09-30, step 8b)
+
+Smoke test done (`src/top/smoke.tsx`, `test/top-smoke.test.tsx`): an Ink 7.1.1 + React 19.3.0 counter app with `useInput` (`j`/`k`/`q`, `useApp().exit()`), `useWindowSize()`, and `render(<Smoke/>, {alternateScreen: true})`.
+
+- **Bun test:** `bun test` with `ink-testing-library` 4.0.0 renders the counter, feeds `j j k` through stdin, sees count 1, and exits on `q`. Passes.
+- **Real pseudo terminal:** `(sleep 1; printf j; sleep 0.5; printf q) | script -qec "bun src/top/smoke.tsx" /dev/null` — exit code 0. Raw mode, `useInput`, and the alternate screen worked: the frame updated from 0 to 1, and the previous terminal content was restored on exit. **No error appeared** — in particular no `stdin.ref is not a function` (issue #696).
+
+Result: Ink 7.1.1 works under bun 1.4.2 for rendering, key input, alternate screen, and clean exit. Building `top` on Ink is safe.
+
 **Packages for table + selected row + detail pane.**
 
 - `ink-table` 3.1.0, last published 2023-12-06 (npm registry packument). Stale, peers `ink >=3`, and it has no row selection. Not suitable for the main view.
@@ -125,7 +134,7 @@ The key `o` prints `opencode attach http://127.0.0.1:<published-host-port> --ses
 
 Revisited 2026-09-30:
 
-1. OPEN. Does Ink 7.1.1 + React 19.3 run cleanly under bun 1.4.2 (raw mode, `useInput`, alternate screen)? Needs a smoke test; still the latest release as of 2026-09-30, no new bun issue since July 2026 (section 1).
+1. ANSWERED by smoke test (2026-09-30, "Ink under bun" in section 1): Ink 7.1.1 + React 19.3.0 runs cleanly under bun 1.4.2 — rendering, `useInput`, alternate screen, clean exit, in `bun test` and in a real pty.
 2. ANSWERED by source: `question.asked`/`permission.asked` are published through the EventV2Bridge, which forwards every event to the GlobalBus, so they arrive on `/global/event` (section 6.2). A first live run should still confirm it end to end.
 3. OPEN. Does `ink-select-input` work with Ink 7 in practice (peer range says yes)?
 4. OPEN. Should `top` import `@opencode-ai/sdk/v2` in parallel for the typed `Session.cost`/`tokens` and `session.next.*` events, or stay v1-only and accumulate? Decide during implementation.

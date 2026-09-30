@@ -176,3 +176,25 @@ The main thread accepts sections 1 to 4 and changes the recommendation of sectio
 - So option B wins on realism with no loss on attribution, and it needs no own agent loop. The failures of 2026-09-28 happened inside the opencode loop, so the probe must use that loop. Decision: option B. The cost is about 0.01 USD per run, so 30 runs cost about 0.30 USD.
 - StreamLake is both a candidate and excluded in section 5. Its uptime over one day is 97.8 percent, so it is excluded.
 - Open for the coder step: how one opencode server serves a run with another `only` list. Candidates are one model entry per provider in the configuration of the probe, or one server per provider with its own `OPENCODE_CONFIG_CONTENT`.
+
+## Probe result (2026-09-30)
+
+The main thread ran the probe with `bun probe/run.ts`: one control run, then three runs each for eight providers, one run at a time, through the cost proxy of step 11. The raw lines are in `probe/results/2026-09-30.jsonl`. The first two Z.AI batches of that file measured two bugs of the setup (a proxy path bug and a worktree race, PLAN.md 10d and 10e), not the provider. The table uses the batch `193831`. The cost and the first-byte time come from the proxy log, which names the serving provider of every request. The tokens per second come from the evaluator.
+
+| Provider | Passed | First byte (median of the model requests) | Tokens/s (median of the runs) | Cost per run (proxy) |
+| --- | --- | --- | --- | --- |
+| Z.AI | 3/3 | 2.3 s | 19 | 0.0041 USD |
+| Parasail (fp8) | 3/3 | 0.9 s | 29 | 0.0059 USD |
+| Together (quantization unknown) | 3/3 | 0.8 s | 40 | 0.0054 USD |
+| Fireworks (quantization unknown) | 3/3 | 1.2 s | 14 | 0.0042 USD, 6 of 27 requests failed |
+| SiliconFlow (fp8) | 3/3 | 2.1 s | 16 | 0.0084 USD |
+| Novita (fp8) | 3/3 | 5.6 s | 11 | 0.0046 USD |
+| Sail Research (fp8) | 3/3 | 4.9 s | 9 | 0.0044 USD |
+| BaseTen (fp8) | 0/3 | - | - | every request: "temporarily rate-limited upstream" |
+
+- The control run with `no-such-provider` got "No allowed providers are available for the selected model", so the pin reaches OpenRouter.
+- Every request of a pinned run went to the pinned provider. The title requests of opencode went to Google, through the small model of opencode.
+- The key usage delta per run is not usable: OpenRouter counts late, so the delta of one run lands in the next one. The proxy log is the source of the real cost.
+- Three runs per provider catch only gross breakage. The broken output of 2026-09-28 came in long runs, so this probe does not prove that a provider is safe in long runs.
+
+Decision of the main thread, from the goal of step 10 (fallbacks after Z.AI): `order` and `only` are `["z-ai", "parasail", "together"]`, with `allow_fallbacks: false`. Parasail is second because it serves fp8, passed, and is fast. Together is third because it is the fastest, but its quantization is not published. Open for the user: whether a faster provider goes first.

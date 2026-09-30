@@ -6,7 +6,16 @@
         "z-ai/glm-5.3-flash": {
           "options": {
             "provider": {
-              "only": ["z-ai"],
+              "order": [
+                "z-ai",
+                "parasail",
+                "together"
+              ],
+              "only": [
+                "z-ai",
+                "parasail",
+                "together"
+              ],
               "allow_fallbacks": false
             }
           }

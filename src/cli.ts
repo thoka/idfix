@@ -27,7 +27,7 @@ Usage:
   oc-sub down --no-sandbox [--port N] [--force]
   oc-sub restart [--dir DIR] [--force]
   oc-sub restart --no-sandbox [--port N] [--force]
-  oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T]
+  oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T] [--model PROVIDER/MODEL]
   oc-sub attach CODE [--url URL]
   oc-sub status [--dir DIR | --all]
   oc-sub top [--dir DIR | --all]

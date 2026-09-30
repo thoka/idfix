@@ -10,7 +10,7 @@ export class UsageError extends Error {
 export type ParsedArgs =
   | { command: "up"; url?: string; port?: number; sandbox: boolean; dir?: string }
   | { command: "down" | "restart"; url?: string; port?: number; force: boolean; sandbox: boolean; dir?: string }
-  | { command: "run"; url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string }
+  | { command: "run"; url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string; model?: string }
   | { command: "status"; url?: string; dir?: string; all: boolean }
   | { command: "top"; url?: string; dir?: string; all: boolean; once: boolean; json: boolean }
   | { command: "attach"; url?: string; code: string }
@@ -191,7 +191,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "run": {
       const { flags, positionals, globals } = collectFlags(
         rest,
-        new Set(["agent", "dir", "brief", "title", "url"]),
+        new Set(["agent", "dir", "brief", "title", "model", "url"]),
         new Set<string>(),
       );
       const agent = requireString(flags, "agent", "run");
@@ -204,6 +204,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (briefFile === undefined && text === undefined) {
         throw new UsageError("give the brief as --brief FILE or as TEXT");
       }
+      const model = optionalString(flags, "model");
+      if (model !== undefined && model.split("/").length < 2) {
+        throw new UsageError(`--model must be PROVIDER/MODEL, got "${model}"`);
+      }
       return {
         command: "run",
         url: globals.url,
@@ -212,6 +216,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         briefFile,
         text,
         title: optionalString(flags, "title"),
+        model,
       };
     }
     case "status": {

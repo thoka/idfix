@@ -61,8 +61,20 @@ async function knownDirectories(
   );
 }
 
+/**
+ * Split a `--model PROVIDER/MODEL` value at the first `/` into the model
+ * reference of the prompt request. Pure.
+ */
+export function splitModel(model: string): { providerID: string; modelID: string } {
+  const index = model.indexOf("/");
+  if (index === -1 || index === 0 || index === model.length - 1) {
+    throw new Error(`--model must be PROVIDER/MODEL, got "${model}"`);
+  }
+  return { providerID: model.slice(0, index), modelID: model.slice(index + 1) };
+}
+
 export async function run(
-  args: { url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string },
+  args: { url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string; model?: string },
   env: Env = process.env,
   deps: RunDeps = defaultDeps,
 ): Promise<number> {
@@ -129,6 +141,7 @@ export async function run(
       body: {
         agent: args.agent,
         parts: [{ type: "text", text: brief }],
+        ...(args.model === undefined ? {} : { model: splitModel(args.model) }),
       },
     }),
     "send brief",

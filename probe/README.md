@@ -65,3 +65,67 @@ generation time).
 `test/probe-evaluate.test.ts` covers a passing run, every failed rule, the
 speed metrics, the loop check, and the fixture line numbers, with messages in
 the real `@opencode-ai/sdk` shapes. Run with `bun test`.
+
+## Probe runner (`src/probe/runner.ts`, `probe/run.ts`)
+
+The runner (PLAN.md step 10d) executes the probe task once per provider and
+run number, strictly one run at a time, so the real-cost delta of the project
+key belongs to exactly one run. One run does, in order:
+
+1. Create the run worktree `probe-<provider>-<n>` inside the sandbox clone
+   with the same code as `oc-sub worktree` (branch `feature/probe-...` from
+   `host/alpha`, no setup command).
+2. Write `.opencode/opencode.json` into the worktree, through `sbx exec`,
+   **before** the first server request to the folder (a fresh directory
+   loads its config on first use, see `docs/research/PROBE_ROUTING.md`
+   section 4). The file defines one model alias `glm-probe-<provider>` whose
+   `id` is `z-ai/glm-5.3-flash` and whose `options.provider` pins the
+   OpenRouter provider: `{ "only": ["<provider>"], "allow_fallbacks": false }`.
+3. Note the key usage of the project key (`fetchKeyUsage`, the function that
+   `realcost.ts` uses), create the session in the worktree, and send the
+   text of `probe/task.md` to the agent `coder` with the model alias
+   (`model: { providerID: "openrouter", modelID: "glm-probe-<provider>" }`).
+4. Wait until the session tree is settled (the logic of `oc-sub watch` as a
+   poll loop, with the guards: status map, descendant sessions, pending
+   question and permission requests, and the missing-session grace). The
+   time limit is 15 minutes; after it, the run is aborted and counts as
+   failed with rule `timeout`.
+5. Read the messages, `answer.md` (through `sbx exec cat`), and whether a
+   commit exists over `host/alpha` (through `sbx exec git`), and call
+   `evaluateRun` and `speedMetrics`.
+6. Read the key usage again and write one JSON line to
+   `probe/results/<date>.jsonl`: provider, run number, session id, pass,
+   failures, the speed metrics, the estimated cost (models.dev catalog of
+   the session), the real cost delta, and the wall time. The alias
+   inherits the catalog cost of the API id, so the estimate stays correct
+   (PROBE_ROUTING.md section 2). The real cost delta can be low by a
+   request or two, because OpenRouter counts a request a minute or two
+   late.
+7. Remove the run worktree (`oc-sub worktree rm` code).
+
+A run that fails at any step writes a result line with the error and the
+loop goes on with the next run.
+
+**Control mode** (`--control`): one run with the provider
+`no-such-provider`. The pin must make OpenRouter refuse the request, so the
+control counts as passed when the run fails without answering, and as
+failed when the run answers. If it answers, the provider pin does not
+reach OpenRouter and the whole oc-sub-based probe is invalid.
+
+**CLI**:
+
+```
+bun probe/run.ts --providers z-ai,baseten --runs 3 [--dir ROOT] [--control] [--yes]
+```
+
+It prints the number of runs and a cost estimate of 0.01 USD per run and
+needs `--yes` to start paid runs. Without it, nothing runs. It prints one
+line per run and a table at the end: provider, passes, the median time to
+the first token, the median tokens per second, and the median real cost.
+
+**Tests**: `test/probe-runner.test.ts` covers every dependency with fakes
+(the `sbx` runner, the server client, the OpenRouter fetch, the key source,
+the pending requests, the results writer, the clock): a passing run, a
+failed rule, a run that throws in the middle, the timeout, the control
+mode, the order of the steps (config before run), and the JSONL line. No
+paid call and no real `sbx` call runs in the tests.

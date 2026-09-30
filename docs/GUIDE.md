@@ -137,6 +137,8 @@ It prints one short line per tool call. When the run ends, it prints a summary l
 
 Keys: `j`/`k` or the arrow keys select a run. `o` shows the attach command of the selected run. `a` switches between this project and all projects. `q` or Ctrl-C quit. The view only shows. Claude still answers, aborts, and follows up.
 
+The project column shows the full project name. A project can set a short name for it in the file `.opencode/oc-sub.json` of the project root: `{ "shortName": "opsub" }`. Without the file, the full name shows. The column is as wide as its longest name, like the other columns.
+
 ## Follow up, abort, and read the cost
 
 - **Follow up**: tell Claude what to change. Claude sends the message into the same session with `oc-sub say <session-id> --dir <worktree> "<message>"`. The command returns at once and does not block. You can also type into the attached opencode interface yourself.

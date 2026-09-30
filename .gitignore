@@ -1,4 +1,5 @@
 .opencode/*
 !.opencode/agents/
+!.opencode/oc-sub.json
 node_modules/
 .worktrees/

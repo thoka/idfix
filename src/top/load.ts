@@ -24,6 +24,7 @@ import {
 } from "../status";
 import { createTopModel, type SessionDetail, type TopModel } from "./model";
 import { DEFAULT_WIDTH, formatTopTable, type TopTableOptions, type TopTableRow } from "./format";
+import { makeProjectNameResolver } from "../project-config";
 
 /** A session counts as recent when its last update is at most this old. */
 const RECENT_MS = 60 * 60 * 1000;
@@ -276,7 +277,7 @@ async function snapshot(args: TopArgs, env: Env, deps: StatusDeps): Promise<numb
   // Without a terminal, `stdout.columns` is undefined; use a fixed width.
   const width = process.stdout.columns ?? DEFAULT_WIDTH;
   // Without --all, every row belongs to one project, so its column is hidden.
-  const options: TopTableOptions = { showProject: args.all, width };
+  const options: TopTableOptions = { showProject: args.all, projectName: makeProjectNameResolver(), width };
   for (const line of formatTopTable(rows, nowMs, options)) console.log(line);
   return 0;
 }

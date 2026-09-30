@@ -13,6 +13,8 @@ export type TopTableRow = SessionRow & { pending: readonly PendingRequest[] };
 export type TopTableOptions = {
   /** Show the project column. `top --all` sets it. Default: false. */
   showProject?: boolean;
+  /** The shown project name of a run folder. Default: the computed folder name. */
+  projectName?: (directory: string) => string;
   /** The line width that the title is cut to. Default: `DEFAULT_WIDTH`. */
   width?: number;
 };
@@ -30,7 +32,11 @@ export function formatTopTable(
   nowMs: number,
   options: TopTableOptions = {},
 ): string[] {
-  const table = padTable(rows, { showProject: options.showProject ?? false, width: options.width ?? DEFAULT_WIDTH });
+  const table = padTable(rows, {
+    showProject: options.showProject ?? false,
+    projectName: options.projectName,
+    width: options.width ?? DEFAULT_WIDTH,
+  });
   const lines: string[] = [table.header.join(GAP).trimEnd()];
   rows.forEach((row, index) => {
     const cells = table.rows[index];

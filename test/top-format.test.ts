@@ -86,9 +86,14 @@ describe("formatTopTable", () => {
     expect(hidden[1]?.startsWith("123456   8d        coder")).toBe(true);
     expect(hidden[2]?.startsWith("654321   -         coder")).toBe(true);
     expect(hidden.join("\n")).not.toContain("opsub");
+    // Without a configured name, the full project name shows.
     const shown = formatTopTable(rows, NOW, { showProject: true });
-    expect(shown[0]?.startsWith("session  project  worktree  agent")).toBe(true);
-    expect(shown[1]?.startsWith("123456   opsub    8d        coder")).toBe(true);
+    expect(shown[0]?.startsWith("session  project             worktree  agent")).toBe(true);
+    expect(shown[1]?.startsWith("123456   opencode-subagents  8d        coder")).toBe(true);
+    // With a configured name, the shortName shows.
+    const short = formatTopTable(rows, NOW, { showProject: true, projectName: () => "opsub" });
+    expect(short[0]?.startsWith("session  project  worktree  agent")).toBe(true);
+    expect(short[1]?.startsWith("123456   opsub    8d        coder")).toBe(true);
   });
 
   test("keeps a minimum title with a long worktree name", () => {

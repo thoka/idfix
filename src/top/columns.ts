@@ -9,8 +9,10 @@
  *   A folder `<root>/.worktrees/<name>/...` belongs to the project
  *   `basename(<root>)` and the worktree `<name>`. Every other folder is the
  *   main folder of the project `basename(folder)`, with the worktree `-`.
- * - The project column shows a short name (see `shortProjectName`). Without
- *   `--all` it is hidden, because all rows belong to one project.
+ * - The project column shows the configured `shortName` of the project
+ *   (`.opencode/oc-sub.json`), else the full project name; the caller
+ *   injects the name resolver (see `makeProjectNameResolver`). Without
+ *   `--all` the column is hidden, because all rows belong to one project.
  */
 import path from "node:path";
 import { formatCost, formatDuration } from "../summary";
@@ -18,9 +20,6 @@ import type { SessionRow } from "./model";
 
 /** How many characters of the session ID the session column shows. */
 export const CODE_LENGTH = 6;
-
-/** A project name up to this length stays as it is. */
-export const SHORT_NAME_MAX = 8;
 
 /** The attach CODE of a session: the last 6 characters of its ID. */
 export function sessionCode(sessionId: string): string {
@@ -43,39 +42,6 @@ export function splitFolder(directory: string): FolderParts {
     return { project: parts[index - 1] ?? "-", worktree: parts[index + 1] ?? "-" };
   }
   return { project: parts[parts.length - 1] ?? "/", worktree: "-" };
-}
-
-/**
- * The short form of one project name. A name of at most 8 characters stays.
- * A longer name keeps the first 2 characters of its first part and the
- * first 3 characters of each later part; the parts split at `-`, `_`, and
- * `.`. For example `opencode-subagents` gives `opsub`.
- */
-export function shortProjectName(name: string): string {
-  if (name.length <= SHORT_NAME_MAX) return name;
-  const parts = name.split(/[-_.]/).filter((part) => part.length > 0);
-  if (parts.length === 0) return name;
-  return parts.map((part, index) => part.slice(0, index === 0 ? 2 : 3)).join("");
-}
-
-/**
- * The shown name of every project. Two projects with the same short name
- * both keep their full name, so the column never mixes up two projects.
- */
-export function shortProjectNames(names: Iterable<string>): Map<string, string> {
-  const unique = [...new Set(names)];
-  const byShort = new Map<string, string[]>();
-  for (const name of unique) {
-    const short = shortProjectName(name);
-    const owners = byShort.get(short);
-    if (owners === undefined) byShort.set(short, [name]);
-    else owners.push(name);
-  }
-  const shown = new Map<string, string>();
-  for (const [short, owners] of byShort) {
-    for (const name of owners) shown.set(name, owners.length > 1 ? name : short);
-  }
-  return shown;
 }
 
 /** The header of every column, in order. The title comes last. */
@@ -101,6 +67,12 @@ export type ColumnHeader = (typeof ALL_HEADERS)[number];
 export type ColumnOptions = {
   /** Show the project column. `top --all` sets it; without `--all` it is hidden. */
   showProject: boolean;
+  /**
+   * The shown project name of a run folder. Default: the computed name of
+   * `splitFolder`. Callers pass `makeProjectNameResolver()`, which shows
+   * the configured `shortName` of the project root when it has one.
+   */
+  projectName?: (directory: string) => string;
 };
 
 /** The headers of the shown columns. */
@@ -110,16 +82,15 @@ export function columnHeaders(options: ColumnOptions): ColumnHeader[] {
 
 /**
  * The cells of every row, in the order of `columnHeaders(options)`. The
- * short project names are computed over all given rows.
+ * shown project name comes from `options.projectName`, or from the folder.
  */
 export function rowCells(rows: readonly SessionRow[], options: ColumnOptions): string[][] {
-  const folders = rows.map((row) => splitFolder(row.directory));
-  const names = shortProjectNames(folders.map((folder) => folder.project));
-  return rows.map((row, index) => {
-    const folder = folders[index] ?? { project: "-", worktree: "-" };
+  const nameOf = options.projectName ?? ((directory: string) => splitFolder(directory).project);
+  return rows.map((row) => {
+    const folder = splitFolder(row.directory);
     const cells: Record<ColumnHeader, string> = {
       session: sessionCode(row.sessionId),
-      project: names.get(folder.project) ?? folder.project,
+      project: nameOf(row.directory),
       worktree: folder.worktree,
       agent: row.agent.length > 0 ? row.agent : "-",
       state: row.state,

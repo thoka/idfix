@@ -1,0 +1,96 @@
+/** Tests for the project config of `oc-sub top` (step 8i). */
+import { describe, expect, test } from "bun:test";
+import {
+  makeProjectNameResolver,
+  projectConfigFile,
+  projectShortName,
+  shortNameFromConfigText,
+  type ProjectConfigDeps,
+} from "../src/project-config";
+
+/** Fake file system: the config file of a project root, or null. */
+function depsWith(files: Record<string, string>, existing: string[] = []): ProjectConfigDeps & { reads: () => number } {
+  let reads = 0;
+  return {
+    readTextSync: (file) => {
+      reads += 1;
+      return Object.hasOwn(files, file) ? files[file] ?? null : null;
+    },
+    exists: (file) => existing.includes(file),
+    reads: () => reads,
+  };
+}
+
+describe("shortNameFromConfigText", () => {
+  test("a missing file gives undefined", () => {
+    expect(shortNameFromConfigText(null)).toBeUndefined();
+  });
+
+  test("invalid JSON gives undefined", () => {
+    expect(shortNameFromConfigText("{ not json")).toBeUndefined();
+  });
+
+  test("a non-object or a missing or empty shortName gives undefined", () => {
+    expect(shortNameFromConfigText("[]")).toBeUndefined();
+    expect(shortNameFromConfigText('"text"')).toBeUndefined();
+    expect(shortNameFromConfigText("{}")).toBeUndefined();
+    expect(shortNameFromConfigText('{"shortName": 3}')).toBeUndefined();
+    expect(shortNameFromConfigText('{"shortName": ""}')).toBeUndefined();
+    expect(shortNameFromConfigText('{"shortName": null}')).toBeUndefined();
+  });
+
+  test("a valid shortName comes through", () => {
+    expect(shortNameFromConfigText('{"shortName": "opsub"}')).toBe("opsub");
+  });
+});
+
+describe("projectShortName", () => {
+  test("no file gives undefined", () => {
+    const deps = depsWith({});
+    expect(projectShortName("/p", deps, new Map())).toBeUndefined();
+  });
+
+  test("a valid file gives the shortName", () => {
+    const deps = depsWith({ [projectConfigFile("/p")]: '{"shortName": "opsub"}' });
+    expect(projectShortName("/p", deps, new Map())).toBe("opsub");
+  });
+
+  test("each root is read at most once per cache", () => {
+    const deps = depsWith({ [projectConfigFile("/p")]: '{"shortName": "opsub"}' });
+    const cache = new Map<string, string | undefined>();
+    projectShortName("/p", deps, cache);
+    projectShortName("/p", deps, cache);
+    projectShortName("/p", deps, cache);
+    expect(deps.reads()).toBe(1);
+  });
+});
+
+describe("makeProjectNameResolver", () => {
+  test("without config it shows the full project name", () => {
+    const deps = depsWith({});
+    const resolve = makeProjectNameResolver(deps, new Map());
+    expect(resolve("/d/terminator")).toBe("terminator");
+    expect(resolve("/d/terminator/.worktrees/8i")).toBe("terminator");
+  });
+
+  test("a row uses the configured shortName of its project root", () => {
+    const deps = depsWith(
+      { [projectConfigFile("/d/opencode-subagents")]: '{"shortName": "opsub"}' },
+      ["/d/opencode-subagents"],
+    );
+    const resolve = makeProjectNameResolver(deps, new Map());
+    expect(resolve("/d/opencode-subagents")).toBe("opsub");
+    expect(resolve("/d/opencode-subagents/.worktrees/8i")).toBe("opsub");
+  });
+
+  test("a folder that exists only in the sandbox maps to its host root", () => {
+    // The worktree folder does not exist on the host; the root does. The
+    // config of the root decides.
+    const deps = depsWith(
+      { [projectConfigFile("/d/opencode-subagents")]: '{"shortName": "opsub"}' },
+      ["/d/opencode-subagents"],
+    );
+    const resolve = makeProjectNameResolver(deps, new Map());
+    expect(resolve("/d/opencode-subagents/.worktrees/8i")).toBe("opsub");
+  });
+});

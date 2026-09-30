@@ -135,7 +135,7 @@ describe("TopView", () => {
     expect(scopes).toEqual([false, true]);
     expect(sources[0]?.stopped).toBe(true);
     expect(lastFrame()).toMatch(/session +project +worktree/);
-    expect(lastFrame()).toContain("opsub");
+    expect(lastFrame()).toContain("opencode-subagents");
     expect(lastFrame()).toContain("scope: all projects");
     stdin.write("a");
     await tick();

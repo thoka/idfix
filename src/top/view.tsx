@@ -15,6 +15,7 @@
  */
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import React, { useEffect, useRef, useState } from "react";
+import { makeProjectNameResolver } from "../project-config";
 import { GAP, padTable } from "./columns";
 import type { LiveHandle } from "./live";
 import type { SessionRow } from "./model";
@@ -74,6 +75,9 @@ function TableRow(props: { cells: string[]; stateIndex: number; state: SessionRo
     </Text>
   );
 }
+
+/** The shown project names, with the configured `shortName` when set. */
+const projectName = makeProjectNameResolver();
 
 export function TopView(props: TopViewProps) {
   const nowMs = props.nowMs ?? Date.now;
@@ -147,7 +151,7 @@ export function TopView(props: TopViewProps) {
 
   const layout = screenLayout(height);
   const width = Math.max(20, columns);
-  const table = padTable(rows, { showProject: all, width });
+  const table = padTable(rows, { showProject: all, projectName, width });
   const stateIndex = table.headers.indexOf("state");
   const first = firstVisibleRow(rows.length, selected.index, layout.tableRows);
   const visible = rows.slice(first, first + layout.tableRows);

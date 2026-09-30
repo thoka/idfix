@@ -5,8 +5,6 @@ import {
   padTable,
   rowCells,
   sessionCode,
-  shortProjectName,
-  shortProjectNames,
   splitFolder,
 } from "../src/top/columns";
 import type { SessionRow } from "../src/top/model";
@@ -63,56 +61,20 @@ describe("splitFolder", () => {
   });
 });
 
-describe("shortProjectName", () => {
-  test("a name of at most 8 characters stays", () => {
-    expect(shortProjectName("meta")).toBe("meta");
-    expect(shortProjectName("abcdefgh")).toBe("abcdefgh");
-    expect(shortProjectName("a-b-c-de")).toBe("a-b-c-de");
-  });
-
-  test("a longer name keeps 2 characters of the first part and 3 of each later part", () => {
-    expect(shortProjectName("opencode-subagents")).toBe("opsub");
-    expect(shortProjectName("arch_helper.tools")).toBe("arheltoo");
-    expect(shortProjectName("my-big--project")).toBe("mybigpro");
-  });
-
-  test("a long name without separators keeps its first 2 characters", () => {
-    expect(shortProjectName("terminator")).toBe("te");
-  });
-
-  test("a long name of only separators stays", () => {
-    expect(shortProjectName("---------")).toBe("---------");
-  });
-});
-
-describe("shortProjectNames", () => {
-  test("two projects with the same short name keep their full names", () => {
-    const names = shortProjectNames(["opencode-subagents", "open-subway", "meta", "opencode-subagents"]);
-    expect(names.get("opencode-subagents")).toBe("opencode-subagents");
-    expect(names.get("open-subway")).toBe("open-subway");
-    expect(names.get("meta")).toBe("meta");
-    expect(names.size).toBe(3);
-  });
-
-  test("a unique short name is used", () => {
-    expect(shortProjectNames(["opencode-subagents"]).get("opencode-subagents")).toBe("opsub");
-  });
-});
-
 describe("columnHeaders and rowCells", () => {
   test("the project column shows only with showProject", () => {
     expect(columnHeaders({ showProject: false })).not.toContain("project");
     expect(columnHeaders({ showProject: true }).slice(0, 3)).toEqual(["session", "project", "worktree"]);
   });
 
-  test("the cells follow the headers", () => {
+  test("the cells follow the headers, and the project keeps its full name without a resolver", () => {
     const [cells] = rowCells(
       [row({ sessionId: "ses_xxxxABCDEF", directory: "/d/opencode-subagents/.worktrees/8f", agent: "" })],
       { showProject: true },
     );
     expect(cells).toEqual([
       "ABCDEF",
-      "opsub",
+      "opencode-subagents",
       "8f",
       "-",
       "busy",
@@ -125,6 +87,17 @@ describe("columnHeaders and rowCells", () => {
       "10%",
       "a title",
     ]);
+  });
+
+  test("a row uses the configured project name when the resolver gives one", () => {
+    const [cells] = rowCells(
+      [row({ sessionId: "ses_xxxxABCDEF", directory: "/d/opencode-subagents/.worktrees/8i" })],
+      {
+        showProject: true,
+        projectName: (directory) => (directory === "/d/opencode-subagents/.worktrees/8i" ? "opsub" : directory),
+      },
+    );
+    expect(cells?.[1]).toBe("opsub");
   });
 });
 

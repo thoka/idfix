@@ -65,7 +65,7 @@ bun run typecheck   # tsc --noEmit
 
 `oc-sub` drives an opencode server: start it, launch subagent runs, watch them live, and read the results. Entry point: `src/cli.ts`. Run it with `bin/oc-sub`, `bun run src/cli.ts`, or `bun src/cli.ts`. With the plugin enabled, Claude runs it as `oc-sub`.
 
-The server URL comes from `--url` or the environment variable `OC_SUB_URL`, default `http://127.0.0.1:8767`. `up`, `down`, and `restart` run the server in sandbox mode by default (one Docker Sandbox per project, see `docs/GUIDE.md`). `--no-sandbox` selects the host server, which the sections below describe. `--port N` and `--url URL` name a host server, so they imply `--no-sandbox`. With `--port N`, they target port N and keep the host of the URL; a `--url` flag whose port differs from `--port` is a usage error. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: oc-sub up` and exit with code 1. If a server answers with HTTP 401 or 403, every command exits with code 1 and says that the server rejected the password in `OPENCODE_SERVER_PASSWORD`, or that it needs one. `up` then does not start a second server. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `ping`, `watch`, `log`, `abort`, and `answer` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
+The server URL comes from `--url` or the environment variable `OC_SUB_URL`, default `http://127.0.0.1:8767`. `up`, `down`, and `restart` run the server in sandbox mode by default (one Docker Sandbox per project, in clone mode: the agent works in a private clone of the repository; see `docs/GUIDE.md`). `--no-sandbox` selects the host server, which the sections below describe. `--port N` and `--url URL` name a host server, so they imply `--no-sandbox`. With `--port N`, they target port N and keep the host of the URL; a `--url` flag whose port differs from `--port` is a usage error. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: oc-sub up` and exit with code 1. If a server answers with HTTP 401 or 403, every command exits with code 1 and says that the server rejected the password in `OPENCODE_SERVER_PASSWORD`, or that it needs one. `up` then does not start a second server. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `ping`, `watch`, `log`, `abort`, and `answer` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
 
 ### oc-sub up
 
@@ -259,9 +259,26 @@ The checks:
 | `skill-links` | Every symlink in `~/.claude/skills/` and `~/.agents/skills/` resolves to an existing folder. | A skill is gone. Remove the broken link or point it back. |
 | `agent-copies` | `.opencode/agents/coder.md`, `researcher.md`, and `reader.md` are permission-only files or absent (see `docs/research/AGENT_MERGE.md`). | A project copy overrides the plugin agent. Delete it, or keep only a permission block. |
 | `plugin-fresh` | The installed plugin commit matches `origin/alpha` of the plugin repository. | Warn. Run the plugin update commands that the fix names. |
-| `sandbox-mounts` | When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires. | Run `sbx rm NAME` and then `oc-sub up`. |
+| `sandbox-mounts` | When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires, and the project has the `sandbox-<name>` git remote of clone mode. | Run `sbx rm NAME` and then `oc-sub up`, which creates the sandbox again in clone mode. |
 
 The fast checks `env-files` to `agent-copies` also run on every `oc-sub up` and `oc-sub run`. A fail stops the command with exit code 1 before anything changes state and before any paid call, and names the fixes plus the hint `run oc-sub doctor for details`. A warn prints one line and the command continues. The checks take about 1 ms. When they take over 50 ms, the command prints a warning with the time.
+
+### oc-sub worktree
+
+```
+bun run src/cli.ts worktree STEP [--dir ROOT] [--base BRANCH]
+bun run src/cli.ts worktree rm STEP [--dir ROOT]
+```
+
+Sandbox clone mode only. `worktree STEP` creates the worktree of a run inside the sandbox clone at `<root>/.worktrees/STEP`. It fetches from `origin`, copies the git identity of the host repository into the clone, and creates `feature/STEP` from `origin/alpha` (`--base` names another branch). When the worktree exists, it says so and exits 0. `worktree rm STEP` removes the worktree and deletes `feature/STEP` inside the clone. Work that was not fetched is lost. Both commands exit 1 without a sandbox state file for the project.
+
+### oc-sub fetch
+
+```
+bun run src/cli.ts fetch [--dir ROOT]
+```
+
+Sandbox clone mode only. Runs `git fetch sandbox-<name>` on the host and prints every fetched `feature/*` branch with its commit count over `alpha`, plus the review and merge commands. Exit 1 without a sandbox state file.
 
 ### Typical flow
 

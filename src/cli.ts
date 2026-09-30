@@ -16,6 +16,7 @@ import { abort } from "./abort";
 import { answer } from "./answer";
 import { say } from "./say";
 import { doctor, gateForCommand } from "./doctor";
+import { fetch, worktree, worktreeRm } from "./clone";
 
 const HELP = `oc-sub - drive an opencode server for subagent runs
 
@@ -37,6 +38,9 @@ Usage:
   oc-sub abort SESSION [--dir DIR]
   oc-sub answer REQUEST_ID [--dir DIR] (--reply once|always|reject | --reject | ANSWER...)
   oc-sub say SESSION [--dir DIR] [--agent NAME] TEXT
+  oc-sub worktree STEP [--dir ROOT] [--base BRANCH]
+  oc-sub worktree rm STEP [--dir ROOT]
+  oc-sub fetch [--dir ROOT]
   oc-sub doctor [--dir DIR] [--json]
 
 Every command accepts:
@@ -54,6 +58,9 @@ Sandbox mode:
   --dir DIR       the project directory (only in sandbox mode; default: the
                   current folder). Not allowed with --no-sandbox, --url, or
                   --port.
+
+  worktree and fetch run only in sandbox mode: in clone mode, the worktree
+  of a run lives inside the sandbox clone, not on the host.
 
 Environment:
   OC_SUB_URL                 default server URL
@@ -110,6 +117,10 @@ export async function main(argv: readonly string[]): Promise<number> {
       return answer(args);
     case "say":
       return say(args);
+    case "worktree":
+      return args.remove ? worktreeRm(args, process.env) : worktree(args, process.env);
+    case "fetch":
+      return fetch(args, process.env);
     case "doctor":
       return doctor(args);
   }

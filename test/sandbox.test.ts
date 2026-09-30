@@ -9,6 +9,7 @@ import {
   deniesNetwork,
   downSandbox,
   EXA_HOST,
+  listsCloneRemote,
   listsMounts,
   listsName,
   miseBin,
@@ -23,6 +24,7 @@ import {
   resolveCommandUrl,
   sandboxConfigContent,
   sandboxName,
+  sandboxRecreateFix,
   sandboxUrlFor,
   SANDBOX_BASH_AGENTS,
   SANDBOX_PATH,
@@ -65,6 +67,9 @@ function lsWorkspace(name: string, env: Record<string, string>): string {
 
 /** What `sbx policy check network` prints for a denied target. */
 const DENIED = { stdout: "Denied: host.docker.internal:8767\n" };
+
+/** What `git remote` prints in a project whose sandbox is in clone mode. */
+const GIT_REMOTE = { stdout: "origin\nsandbox-oc-sub-test\n" };
 
 /** A fake runner whose answers come from a per-subcommand script. */
 function fakeRunner(answer: (cmd: readonly string[]) => { stdout?: string; exitCode?: number }): {
@@ -331,6 +336,19 @@ describe("mise helpers", () => {
     expect(listsMounts(out, "oc-sub-t", ["/home/u/p/opencode:ro", "/other:ro"])).toBe(false);
     expect(listsMounts(out, "other", ["/home/u/p/opencode:ro"])).toBe(false);
   });
+
+  test("listsCloneRemote matches the sandbox-<name> remote as a whole line", () => {
+    expect(listsCloneRemote("origin\nsandbox-oc-sub-t\n", "oc-sub-t")).toBe(true);
+    expect(listsCloneRemote("sandbox-oc-sub-t-2\n", "oc-sub-t")).toBe(false);
+    expect(listsCloneRemote("", "oc-sub-t")).toBe(false);
+  });
+
+  test("sandboxRecreateFix names sbx rm and the clone-mode recreate", () => {
+    const fix = sandboxRecreateFix("oc-sub-t");
+    expect(fix).toContain("sbx rm oc-sub-t");
+    expect(fix).toContain("oc-sub up");
+    expect(fix).toContain("clone mode");
+  });
 });
 
 describe("placeholderKeyScript", () => {
@@ -374,7 +392,7 @@ describe("sandboxConfigContent", () => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
-      if (isSubcommand(cmd, "policy") && cmd[2] === "check") return DENIED;
+      if (cmd[0] === "git") return GIT_REMOTE;
       return DENIED;
     });
     const holderCommands: string[][] = [];
@@ -405,6 +423,7 @@ describe("sandboxConfigContent", () => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
       return DENIED;
     });
     const errors: string[] = [];
@@ -477,6 +496,7 @@ describe("upSandbox", () => {
     const { calls, runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret")) return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
       if (isSubcommand(cmd, "exec")) {
         execs += 1;
         // The first exec writes the placeholder key file and succeeds.
@@ -509,6 +529,7 @@ describe("upSandbox", () => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret")) return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "ports") && cmd.includes("--publish")) return { stdout: "", exitCode: 1 };
+      if (cmd[0] === "git") return GIT_REMOTE;
       if (isSubcommand(cmd, "ports")) {
         lists += 1;
         return { stdout: lists === 1 ? PORTS_HEADER : `${PORTS_HEADER}127.0.0.1   18768       4096           tcp4\n` };
@@ -517,7 +538,7 @@ describe("upSandbox", () => {
     });
     const result = await upSandbox({}, env, makeDeps({ runner, probe: async () => ({ state: "up", version: "1.18.32" }) }));
     expect(result).toBe(0);
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec", "ports", "ports", "ports", "policy", "policy", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "git", "secret", "exec", "ports", "ports", "ports", "policy", "policy", "exec"]);
   });
 
   test("a publish that fails without the port in a second list is an error", async () => {
@@ -526,6 +547,7 @@ describe("upSandbox", () => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret")) return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "ports") && cmd.includes("--publish")) return { stdout: "", exitCode: 1 };
+      if (cmd[0] === "git") return GIT_REMOTE;
       return { stdout: PORTS_HEADER };
     });
     const result = await upSandbox({}, env, makeDeps({ runner, probe: async () => ({ state: "up", version: "1.18.32" }) }));
@@ -537,12 +559,13 @@ describe("upSandbox", () => {
     const { calls, runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret")) return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
       if (isSubcommand(cmd, "exec")) return { stdout: "", exitCode: 1 };
       return DENIED;
     });
     const result = await upSandbox({}, env, makeDeps({ runner }));
     expect(result).toBe(1);
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "git", "secret", "exec"]);
   });
 
   test("refuses without the project key file and calls no sbx", async () => {
@@ -610,6 +633,7 @@ describe("upSandbox", () => {
     expect(calls[3]?.cmd).toEqual([
       "sbx",
       "create",
+      "--clone",
       "--name",
       "oc-sub-test",
       "opencode",
@@ -699,12 +723,42 @@ describe("upSandbox", () => {
     expect(subcommands(calls)).toEqual(["mise", "mise", "ls"]);
   });
 
+  test("an existing direct-mount sandbox without the clone remote stops up with a hint", async () => {
+    const env = makeEnv();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      // `git remote` does not list `sandbox-<name>`: an old direct-mount sandbox.
+      if (cmd[0] === "git") return { stdout: "origin\n" };
+      return DENIED;
+    });
+    const spawnServe = () => {
+      throw new Error("no server may start");
+    };
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, env, makeDeps({ runner, spawnServe }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    const text = errors.join("\n");
+    expect(text).toContain("not in clone mode");
+    expect(text).toContain("sbx rm oc-sub-test");
+    expect(text).toContain("oc-sub up");
+    // No secret, no exec, no server.
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "git"]);
+  });
+
   test("an allowed policy check stops up before the server starts", async () => {
     const env = makeEnv();
     const { calls, runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
       if (isSubcommand(cmd, "policy") && cmd[2] === "check") {
         return { stdout: "Allowed: host.docker.internal:8767\n" };
       }
@@ -715,7 +769,7 @@ describe("upSandbox", () => {
     };
     const result = await upSandbox({}, env, makeDeps({ runner, spawnServe }));
     expect(result).toBe(1);
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec", "ports", "policy"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "git", "secret", "exec", "ports", "policy"]);
   });
 
   test("a failed mise install stops up before any sbx call", async () => {
@@ -749,6 +803,7 @@ describe("upSandbox", () => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
       if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18799       4096           tcp4\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
       return DENIED;
     });
     const output: string[] = [];
@@ -763,7 +818,7 @@ describe("upSandbox", () => {
     } finally {
       console.log = log;
     }
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec", "ports", "policy", "policy", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "git", "secret", "exec", "ports", "policy", "policy", "exec"]);
     expect(output).toContain("http://127.0.0.1:18799 version 1.18.32");
     expect(output.join("\n")).not.toContain("OC_SUB_URL");
     expect(output.join("\n")).toContain("sandbox: oc-sub-test");
@@ -781,6 +836,7 @@ describe("upSandbox", () => {
     const { calls, runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18769       4096           tcp4\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
       return DENIED;
     });
     const result = await upSandbox({}, env, makeDeps({
@@ -798,7 +854,7 @@ describe("upSandbox", () => {
   test("waits for health and reports the URL and log on success", async () => {
     const env = makeEnv();
     const { runner } = fakeRunner((cmd) =>
-      isSubcommand(cmd, "ls") ? { stdout: lsWorkspace("oc-sub-test", env) } : DENIED,
+      isSubcommand(cmd, "ls") ? { stdout: lsWorkspace("oc-sub-test", env) } : cmd[0] === "git" ? GIT_REMOTE : DENIED,
     );
     const output: string[] = [];
     const log = console.log;

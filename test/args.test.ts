@@ -285,4 +285,38 @@ describe("parseArgs", () => {
     expect(() => parseArgs([])).toThrow(UsageError);
     expect(usage(() => parseArgs(["nope"])).message).toContain("nope");
   });
+
+  test("worktree takes a STEP with --dir and --base, and rm", () => {
+    expect(parseArgs(["worktree", "14b"])).toEqual({ command: "worktree", step: "14b", remove: false });
+    expect(parseArgs(["worktree", "14b", "--dir", "/repo"])).toEqual({
+      command: "worktree",
+      step: "14b",
+      dir: "/repo",
+      remove: false,
+    });
+    expect(parseArgs(["worktree", "14b", "--dir=/repo", "--base=main"])).toEqual({
+      command: "worktree",
+      step: "14b",
+      dir: "/repo",
+      base: "main",
+      remove: false,
+    });
+    expect(parseArgs(["worktree", "rm", "14b", "--dir", "/repo"])).toEqual({
+      command: "worktree",
+      step: "14b",
+      dir: "/repo",
+      remove: true,
+    });
+    expect(() => parseArgs(["worktree"])).toThrow(/STEP/);
+    expect(() => parseArgs(["worktree", "rm"])).toThrow(/STEP/);
+    expect(() => parseArgs(["worktree", "a", "b"])).toThrow(/one STEP/);
+    expect(() => parseArgs(["worktree", "a", "--no-sandbox"])).toThrow(/unknown option/);
+  });
+
+  test("fetch takes only --dir", () => {
+    expect(parseArgs(["fetch"])).toEqual({ command: "fetch" });
+    expect(parseArgs(["fetch", "--dir", "/repo"])).toEqual({ command: "fetch", dir: "/repo" });
+    expect(() => parseArgs(["fetch", "extra"])).toThrow(/no positional/);
+    expect(() => parseArgs(["fetch", "--url", "http://h:1"])).toThrow(/unknown option/);
+  });
 });

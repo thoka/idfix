@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { OpencodeClient } from "@opencode-ai/sdk";
-import { fetchKeyUsage, PLACEHOLDER_KEY, keyFingerprint, resolveDirectoryKey, sharedKeyRefusal, type KeyOwner } from "../src/keys";
+import { fetchKeyUsage, PLACEHOLDER_KEY, keyFingerprint, projectNameOfRun, resolveDirectoryKey, sharedKeyRefusal, type KeyOwner } from "../src/keys";
 
 const ENV = { XDG_CONFIG_HOME: "/tmp/opencode/keys-test/config" };
 const PROJECT_A = "proj-a";
@@ -117,5 +117,20 @@ describe("resolveDirectoryKey with the sandbox placeholder", () => {
     expect(key?.key).toBe(FILE_KEY);
     expect(key?.isProjectKey).toBe(true);
     expect(key?.source).toBe(`project key file ${keyPath}`);
+  });
+});
+
+describe("projectNameOfRun", () => {
+  test("a run folder of clone mode maps to the project root", () => {
+    // The run folder exists only inside the sandbox clone, not on the host.
+    const root = mkdtempSync(path.join(tmpdir(), "oc-sub-keys-"));
+    Bun.spawnSync(["git", "init", "-q", root]);
+    try {
+      const runFolder = path.join(root, ".worktrees", "14b");
+      expect(projectNameOfRun(runFolder)).toBe(path.basename(root));
+      expect(projectNameOfRun(root)).toBe(path.basename(root));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

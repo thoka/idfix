@@ -11,7 +11,8 @@ import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpat
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
-import { miseInstallsDir, readSandboxState, requiredSandboxMounts, sandboxName, sandboxStatePath, listsMounts, listsName, defaultRunner, type Runner, type SandboxState } from "./sandbox";
+import { listsCloneRemote, miseInstallsDir, readSandboxState, requiredSandboxMounts, sandboxName, sandboxRecreateFix, sandboxStatePath, listsMounts, listsName, defaultRunner, type Runner, type SandboxState } from "./sandbox";
+import { projectRootOfRun } from "./keys";
 import { sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
 
@@ -364,15 +365,26 @@ function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
     return result("sandbox-mounts", "skip", `no sandbox ${name} in sbx ls (it is stopped or removed)`);
   }
   const mounts = requiredSandboxMounts(PLUGIN_CONFIG_DIR, deps.installsDir, deps.sharedDir);
-  if (listsMounts(ls, name, mounts)) {
-    return result("sandbox-mounts", "pass", `the sandbox ${name} has all required mounts`);
+  if (!listsMounts(ls, name, mounts)) {
+    return result(
+      "sandbox-mounts",
+      "fail",
+      `the sandbox ${name} lacks the plugin, the mise installs, or the shared agents mount`,
+      sandboxRecreateFix(name),
+    );
   }
-  return result(
-    "sandbox-mounts",
-    "fail",
-    `the sandbox ${name} lacks the plugin, the mise installs, or the shared agents mount`,
-    `Remove it with: sbx rm ${name}, then run oc-sub up. It creates the sandbox again with all three mounts.`,
-  );
+  // Clone mode is a create-time flag, so an old direct-mount sandbox needs
+  // the same recreate: `sbx` adds the `sandbox-<name>` git remote only for a
+  // sandbox created with `--clone`.
+  if (!listsCloneRemote(deps.runner(["git", "-C", deps.root, "remote"]).stdout, name)) {
+    return result(
+      "sandbox-mounts",
+      "fail",
+      `the sandbox ${name} is not in clone mode (the project has no sandbox-<name> git remote)`,
+      sandboxRecreateFix(name),
+    );
+  }
+  return result("sandbox-mounts", "pass", `the sandbox ${name} has all required mounts and clone mode`);
 }
 
 /** The fast checks: `up` and `run` run them on every invocation. */
@@ -471,7 +483,11 @@ export function gateForCommand(
   env: Env = process.env,
   overrides: Partial<DoctorDeps> = {},
 ): boolean {
-  const fast = runFastChecksFor(env, args.dir ?? process.cwd(), overrides);
+  // A run folder of sandbox clone mode exists only inside the sandbox, so
+  // the checks examine the project root of the folder instead (keys.ts,
+  // `projectRootOfRun`). For a folder on the host, the mapping is identity.
+  const target = projectRootOfRun(args.dir ?? process.cwd());
+  const fast = runFastChecksFor(env, target, overrides);
   return gateFastChecks(fast.results, fast.ms);
 }
 

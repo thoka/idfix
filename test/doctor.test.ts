@@ -304,15 +304,19 @@ describe("sandbox-mounts", () => {
   const lsWithMounts = `NAME STATUS WORKSPACE\noc-sub-repo running /repo, ${mounts}\n`;
   const lsWithout = `NAME STATUS WORKSPACE\noc-sub-repo running /repo\n`;
 
+  /** A runner that answers the git remote call for a clone-mode sandbox. */
+  const cloneRunner = (ls: string) => (cmd: readonly string[]) =>
+    cmd[0] === "git" ? { stdout: "sandbox-oc-sub-repo\n", exitCode: 0 } : { stdout: ls, exitCode: 0 };
+
   test("skips without a sandbox state", () => {
     expect(byName(results(makeDeps(), SLOW_CHECKS), "sandbox-mounts")?.status).toBe("skip");
   });
 
-  test("passes when sbx ls lists all required mounts", () => {
+  test("passes when sbx ls lists all required mounts and the clone remote exists", () => {
     const deps = makeDeps(
       {},
       {
-        runner: () => ({ stdout: lsWithMounts, exitCode: 0 }),
+        runner: cloneRunner(lsWithMounts),
         sandboxState: () => ({ name: "oc-sub-repo", root: "/repo", port: 18768 }),
       },
     );
@@ -323,13 +327,29 @@ describe("sandbox-mounts", () => {
     const deps = makeDeps(
       {},
       {
-        runner: () => ({ stdout: lsWithout, exitCode: 0 }),
+        runner: cloneRunner(lsWithout),
         sandboxState: () => ({ name: "oc-sub-repo", root: "/repo", port: 18768 }),
       },
     );
     const check = byName(results(deps, SLOW_CHECKS), "sandbox-mounts");
     expect(check?.status).toBe("fail");
     expect(check?.fix).toContain("sbx rm oc-sub-repo");
+  });
+
+  test("fails with the sbx rm fix when the sandbox is not in clone mode", () => {
+    const deps = makeDeps(
+      {},
+      {
+        // `git remote` lists no `sandbox-<name>`: an old direct-mount sandbox.
+        runner: (cmd) => (cmd[0] === "git" ? { stdout: "origin\n", exitCode: 0 } : { stdout: lsWithMounts, exitCode: 0 }),
+        sandboxState: () => ({ name: "oc-sub-repo", root: "/repo", port: 18768 }),
+      },
+    );
+    const check = byName(results(deps, SLOW_CHECKS), "sandbox-mounts");
+    expect(check?.status).toBe("fail");
+    expect(check?.message).toContain("not in clone mode");
+    expect(check?.fix).toContain("sbx rm oc-sub-repo");
+    expect(check?.fix).toContain("clone mode");
   });
 });
 
@@ -403,6 +423,31 @@ describe("main stops up and run on a failed fast check", () => {
         expect(fetchSpy).not.toHaveBeenCalled();
       } finally {
         fetchSpy.mockRestore();
+        errorSpy.mockRestore();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("gateForCommand checks the project root for a clone-mode run folder", () => {
+    // The run folder of clone mode exists only inside the sandbox. The gate
+    // must map it to the project root and pass there, instead of failing on
+    // the missing folder.
+    const dir = tempDir();
+    try {
+      writeFileSync(path.join(dir, "AGENTS.md"), "# rules\n");
+      const runFolder = path.join(dir, ".worktrees", "14b");
+      const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const ok = gateForCommand({ dir: runFolder }, { HOME: "/home/u" }, {
+          home: "/home/u",
+          root: dir,
+          sharedDir: "/home/u/dv/meta/agents",
+        });
+        expect(ok).toBe(true);
+        expect(errorSpy.mock.calls.map(String).join("\n")).not.toContain("FAIL");
+      } finally {
         errorSpy.mockRestore();
       }
     } finally {

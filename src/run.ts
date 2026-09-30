@@ -6,7 +6,7 @@ import { resolvePort, type Env } from "./config";
 import {
   checkOpenRouterKey,
   keyFingerprint,
-  projectNameOf,
+  projectNameOfRun,
   readTextFile,
   resolveDirectoryKey,
   sharedKeyRefusal,
@@ -34,7 +34,7 @@ export type RunDeps = {
 
 const defaultDeps: RunDeps = {
   fetch,
-  projectName: projectNameOf,
+  projectName: projectNameOfRun,
   worktreesOf,
   exists: existsSync,
   cwd: process.cwd(),

@@ -29,6 +29,8 @@ export type ParsedArgs =
       answers: string[];
     }
   | { command: "say"; url?: string; session: string; dir?: string; agent?: string; text: string }
+  | { command: "worktree"; step: string; dir?: string; base?: string; remove: boolean }
+  | { command: "fetch"; dir?: string }
   | { command: "doctor"; dir?: string; json: boolean };
 
 /** The reply values of a permission request. */
@@ -345,6 +347,32 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         agent: optionalString(flags, "agent"),
         text,
       };
+    }
+    case "worktree": {
+      const { flags, positionals } = collectFlags(rest, new Set(["dir", "base"]), new Set<string>());
+      const remove = positionals[0] === "rm";
+      const step = remove ? positionals[1] : positionals[0];
+      if (step === undefined || step.trim().length === 0) {
+        throw new UsageError("worktree requires a STEP");
+      }
+      const extra = remove ? positionals.slice(2) : positionals.slice(1);
+      if (extra.length > 0) {
+        throw new UsageError(`worktree takes one STEP, got "${positionals.join(" ")}"`);
+      }
+      return {
+        command: "worktree",
+        step,
+        dir: optionalString(flags, "dir"),
+        base: optionalString(flags, "base"),
+        remove,
+      };
+    }
+    case "fetch": {
+      const { flags, positionals } = collectFlags(rest, new Set(["dir"]), new Set<string>());
+      if (positionals.length > 0) {
+        throw new UsageError(`fetch takes no positional arguments, got "${positionals.join(" ")}"`);
+      }
+      return { command: "fetch", dir: optionalString(flags, "dir") };
     }
     case "doctor": {
       const { flags, positionals } = collectFlags(rest, new Set(["dir", "json"]), new Set(["json"]));

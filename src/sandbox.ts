@@ -14,7 +14,7 @@ import type { ServerState } from "./client";
 import { busySessions, formatBusyLine, isAlive, waitUntilGone } from "./down";
 import { assertUsable, probeServer } from "./client";
 import { resolveServerUrl } from "./config";
-import { gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOf } from "./keys";
+import { gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOfRun } from "./keys";
 import { stateDir, serveDirsPath, serveLogPath, servePidPath, readPid, readDirs, removeFiles } from "./state";
 import { sharedAgentsDir, sharedConfigEntries } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
@@ -175,7 +175,7 @@ export async function writeSandboxState(file: string, state: SandboxState): Prom
 export function sandboxUrlFor(
   directory: string,
   env: Env,
-  projectName: (dir: string) => string = projectNameOf,
+  projectName: (dir: string) => string = projectNameOfRun,
 ): string | undefined {
   const state = readSandboxState(sandboxStatePath(env, projectName(directory)));
   return state === null ? undefined : `http://127.0.0.1:${state.port}`;
@@ -190,7 +190,7 @@ export function resolveCommandUrl(
   flag: string | undefined,
   env: Env,
   directory?: string,
-  projectName: (dir: string) => string = projectNameOf,
+  projectName: (dir: string) => string = projectNameOfRun,
 ): string {
   if (flag !== undefined || env.OC_SUB_URL !== undefined) return resolveServerUrl(flag, env);
   const sandboxUrl = sandboxUrlFor(directory ?? process.cwd(), env, projectName);
@@ -363,7 +363,7 @@ export const defaultSandboxDeps: SandboxDeps = {
   isPortFree: defaultIsPortFree,
   probe: (url) => probeServer(url, process.env, 2000),
   spawnServe: spawnDetached,
-  projectName: projectNameOf,
+  projectName: projectNameOfRun,
   rootOf: projectRoot,
   binExists: (bin) => Bun.which(bin) !== null,
   fileExists: existsSync,
@@ -401,6 +401,24 @@ export function listsMounts(stdout: string, name: string, mounts: readonly strin
     if (!line.trim().split(/\s+/).includes(name)) return false;
     return mounts.every((mount) => line.includes(mount));
   });
+}
+
+/**
+ * Whether the stdout of `git remote` in the project root lists the remote
+ * `sandbox-<name>` that `sbx` adds for a sandbox in clone mode. Pure, so the
+ * tests use it directly.
+ */
+export function listsCloneRemote(stdout: string, name: string): boolean {
+  return stdout.split("\n").some((line) => line.trim() === `sandbox-${name}`);
+}
+
+/**
+ * The fix text for a sandbox that must be recreated: missing mounts or a
+ * missing clone mode. `sbx rm` ends the sessions of the sandbox, so the text
+ * says so.
+ */
+export function sandboxRecreateFix(name: string): string {
+  return `Remove it with: sbx rm ${name}, then run oc-sub up. It creates the sandbox again in clone mode with all three mounts.`;
 }
 
 /**
@@ -524,8 +542,16 @@ export async function upSandbox(
 
   const lsStdout = deps.runner([bin, "ls"]).stdout;
   if (!listsName(lsStdout, name)) {
+    // `--clone` is a create-time flag: the sandbox gets a private
+    // in-container clone of the repository, the host repo stays read-only at
+    // `/run/sandbox/source`, and `sbx` adds a `sandbox-<name>` remote to the
+    // host repository for the review fetch (RUN_ISOLATION.md section 2.4).
+    // The create must run from the main checkout, because clone mode is
+    // rejected inside a worktree; `root` is `projectRoot`, so it already is.
+    // The create runs with the working directory `/`, because `sbx` accepts
+    // read-only mounts only with relative paths (see above).
     const create = deps.runner(
-      [bin, "create", "--name", name, "opencode", root, pluginMount, installsMount, sharedMount],
+      [bin, "create", "--clone", "--name", name, "opencode", root, pluginMount, installsMount, sharedMount],
       { cwd: "/" },
     );
     if (create.exitCode !== 0) {
@@ -556,8 +582,15 @@ export async function upSandbox(
   } else if (!listsMounts(lsStdout, name, requiredSandboxMounts(PLUGIN_CONFIG_DIR, installsDir, sharedDir))) {
     // The sandbox holds the sessions, so oc-sub does not remove it itself.
     console.error(`error: the sandbox ${name} lacks the plugin, the mise installs, or the shared agents mount`);
-    console.error(`Remove it with: sbx rm ${name}`);
-    console.error("Then run oc-sub up. It creates the sandbox again with all three mounts.");
+    console.error(sandboxRecreateFix(name));
+    return 1;
+  } else if (!listsCloneRemote(deps.runner(["git", "-C", root, "remote"]).stdout, name)) {
+    // Clone mode is also a create-time flag: an old direct-mount sandbox
+    // cannot be converted, so it must be recreated. Without the
+    // `sandbox-<name>` remote the review could not fetch the commits of the
+    // agent from the clone.
+    console.error(`error: the sandbox ${name} is not in clone mode (the project has no sandbox-<name> git remote)`);
+    console.error(sandboxRecreateFix(name));
     return 1;
   }
 
@@ -731,6 +764,10 @@ export async function downSandbox(
     }
   }
 
+  // `sbx stop` keeps the clone and the sandbox. After a restart, the git
+  // daemon of clone mode publishes a new ephemeral port; the `sbx` CLI
+  // updates the `sandbox-<name>` remote URL itself
+  // (docs/research/RUN_ISOLATION.md section 2.4).
   const stop = deps.runner([sbxBin(env), "stop", name]);
   if (stop.exitCode !== 0) {
     console.error(`error: sbx stop ${name} failed`);

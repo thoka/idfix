@@ -4,6 +4,7 @@
  * never printed, logged, or stored. Only its fingerprint appears in output.
  */
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -186,6 +187,30 @@ export function projectNameOf(directory: string): string {
   return commonDir === null ? path.basename(directory) : path.basename(path.dirname(commonDir));
 }
 
+/**
+ * The project root of a run folder. In sandbox clone mode, the worktree of a
+ * run exists only inside the sandbox, at `<root>/.worktrees/<name>`; on the
+ * host the folder is missing. When the folder itself exists on the host (the
+ * project root, or a host-mode worktree), the existing logic stays and the
+ * folder decides. When it does not, and the path has the form
+ * `<root>/.worktrees/<name>` with an existing `<root>` on the host, the
+ * root is `<root>`. Otherwise the folder itself.
+ */
+export function projectRootOfRun(directory: string, exists: (file: string) => boolean = existsSync): string {
+  if (exists(directory)) return directory;
+  const parent = path.dirname(directory);
+  if (path.basename(parent) === ".worktrees") {
+    const root = path.dirname(parent);
+    if (exists(root)) return root;
+  }
+  return directory;
+}
+
+/** The project name of a run folder, through `projectRootOfRun`. */
+export function projectNameOfRun(directory: string): string {
+  return projectNameOf(projectRootOfRun(directory));
+}
+
 /** The content of a text file, or null when it is missing or unreadable. */
 export async function readTextFile(file: string): Promise<string | null> {
   try {
@@ -298,7 +323,7 @@ export async function resolveDirectoryKey(
   if (provider === undefined) return null;
   const resolved = resolvedProviderKey(provider);
   if (resolved === undefined) return null;
-  return resolvedKeyOf(resolved, projectNameOf(directory), env, deps);
+  return resolvedKeyOf(resolved, projectNameOfRun(directory), env, deps);
 }
 
 /** The key owner that the shared-key check compares. */

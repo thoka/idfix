@@ -194,3 +194,19 @@ Root cause: the sandbox gets the tool folders of the host read-only, but no `mis
 3. `up` writes `trusted_config_paths` for the project root only (not `/home/**`) into the mise configuration of the sandbox.
 4. Open: the feature is experimental upstream. Make sure that it works without `MISE_EXPERIMENTAL=1`, or set it. Find out why `/home/toka/.local/share` belongs to root inside the sandbox, and whether `HOME` points to `/home/toka` there.
 5. Tests for the environment of the server, and one bullet each in `docs/GUIDE.md` and `skills/oc-sub/reference.md`.
+
+## Step 10b: The plugin is the one source of the oc-sub agents
+
+Status: done. 2026-09-30.
+
+No project copies `coder.md` or `researcher.md` any more. The plugin serves the `coder` agent too, next to `researcher` and `reader`, through `OPENCODE_CONFIG_DIR`. Same-name agent files merge field by field, and the plugin file wins every field that it defines (see [AGENT_MERGE.md](research/AGENT_MERGE.md)).
+
+1. `skills/oc-sub/templates/coder.md` moved to `opencode/agents/coder.md`, with a generic prompt body. A project adds its own bash rules with a permission-only `.opencode/agents/coder.md` whose bash map starts with `"*": allow`.
+2. The researcher prompt now requires criteria-based judging: a `Criteria` section first, every option judged by every criterion (production effort and failure modes, with sources), and the recommendation last.
+3. In sandbox mode, `sandboxConfigContent` also sets `external_directory: allow` for `coder` and `researcher`: inside the sandbox the host files are not visible, so the deny rule protected nothing, but it blocked a coder from creating a scratch folder in `/tmp`. The sandbox, not the rule, is the boundary.
+4. This repository deleted its own `.opencode/agents/coder.md`; the base coder covers it.
+
+Open follow-ups:
+
+- `oc-sub say` warns when the session waits for an answer to a `question`. Today the message is queued, and the agent does not see it until the question is answered.
+- A project allowlist in sandbox mode is not possible, because `bash: "allow"` replaces the whole bash map (AGENT_MERGE.md, case 4). The sandbox network and file boundaries bound the blast radius instead.

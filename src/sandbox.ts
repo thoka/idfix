@@ -67,13 +67,18 @@ export const SANDBOX_BASH_AGENTS = ["coder", "researcher"] as const;
 /**
  * The JSON that `upSandbox` passes as `OPENCODE_CONFIG_CONTENT` into the
  * sandbox. opencode merges it into its configuration, and its value wins
- * over the agent files. A whole rule object such as `"bash": "allow"`
- * replaces the bash rules of the agent file; an object value would only be
- * merged key by key, and the later `ask` rules of the file would win.
+ * over the agent files. A whole rule value such as `"bash": "allow"`
+ * replaces the bash rules of the agent file. The `external_directory`
+ * allow goes with it: inside the sandbox the host files are not visible,
+ * so the deny rule of the agent file protects nothing, but it blocked a
+ * coder from creating a scratch folder in /tmp. The sandbox, not the rule,
+ * is the boundary.
  */
 export function sandboxConfigContent(sharedDir: string): string {
-  const agents: Record<string, { permission: { bash: string } }> = {};
-  for (const agent of SANDBOX_BASH_AGENTS) agents[agent] = { permission: { bash: "allow" } };
+  const agents: Record<string, { permission: { bash: string; external_directory: string } }> = {};
+  for (const agent of SANDBOX_BASH_AGENTS) {
+    agents[agent] = { permission: { bash: "allow", external_directory: "allow" } };
+  }
   // The kit of `sbx` adds an MCP gateway to the opencode configuration of
   // the sandbox. An agent could call its tools, so the sandbox turns it off.
   // The shared rules and skills load through the absolute paths, because the
@@ -627,8 +632,9 @@ export async function upSandbox(
   await removeFiles(serveDirsPath(env, port));
   // The holder process keeps the sandbox alive: `sbx` stops a sandbox 30
   // seconds after the last `sbx` session ends. `OPENCODE_CONFIG_CONTENT`
-  // replaces the whole bash rule object of the sandbox agents with `allow`,
-  // and an empty `SSH_AUTH_SOCK` hides the SSH agent of the host from the
+  // replaces the bash rules of the sandbox agents with `allow` and allows
+  // paths outside the project (the sandbox has no host files anyway), and
+  // an empty `SSH_AUTH_SOCK` hides the SSH agent of the host from the
   // commands of the agent.
   const holder = deps.spawnServe(
     [

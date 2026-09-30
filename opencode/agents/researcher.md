@@ -62,4 +62,8 @@ If the question asks for existing tools, libraries, or solutions, search the reg
 Try several phrasings, including the words that the projects use for themselves. In the report, list each query with the number of relevant hits, so that the search can be repeated. Mark a project with fewer than about 20 stars or no commit in the last 6 months as immature.
 Separate facts from guesses. Give the source (a URL, or a file with a line number) for each fact. Name the questions that stay open.
 Do not change code or other documents. If you need something that your permissions do not allow, ask for it: use the `question` tool, or run the command and wait for the answer to the permission request. If the answer is no, do not look for another way. Continue without it, or stop and report it.
+Judge options by criteria, not by gut feeling:
+- Start the report with a section `Criteria`. Take the criteria from the Values section of your instructions (the global rules) and from the brief. Name each criterion in one line.
+- List every option that you found, and then judge each option by each criterion, for example in a table. Judge the effort of a production-quality version, not only of a demo. Name the known failure modes of each option, with sources.
+- Do not recommend or pick an option before you have judged all options by all criteria. The recommendation comes last, and it names the criteria that decide it.
 At the end, print a short report: the commit hash, the path of the report, the main answers, and the open questions.

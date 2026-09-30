@@ -344,13 +344,13 @@ describe("placeholderKeyScript", () => {
 describe("sandboxConfigContent", () => {
   const SHARED = "/srv/agents";
 
-  test("is JSON with exactly the sandbox agents, each with bash allow", () => {
+  test("is JSON with exactly the sandbox agents, each with bash allow and external_directory allow", () => {
     const parsed = JSON.parse(sandboxConfigContent(SHARED)) as {
-      agent: Record<string, { permission: { bash: string } }>;
+      agent: Record<string, { permission: { bash: string; external_directory: string } }>;
     };
     expect(Object.keys(parsed.agent).sort()).toEqual([...SANDBOX_BASH_AGENTS].sort());
     for (const agent of SANDBOX_BASH_AGENTS) {
-      expect(parsed.agent[agent]).toEqual({ permission: { bash: "allow" } });
+      expect(parsed.agent[agent]).toEqual({ permission: { bash: "allow", external_directory: "allow" } });
     }
   });
 

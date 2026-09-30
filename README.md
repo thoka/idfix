@@ -13,7 +13,7 @@ claude plugin marketplace add thoka/opencode-subagents
 claude plugin install opencode-subagents@opencode-subagents
 ```
 
-Then copy the coder agent template into the project and adapt the test command. Research needs no agent file in the project: `oc-sub up` serves the `researcher` agent and its hidden `reader` subagent from the plugin, through `OPENCODE_CONFIG_DIR`. [docs/GUIDE.md](docs/GUIDE.md) explains the setup, how to watch a run live, how to follow up and abort, how to read the cost, and the security notes.
+You need no agent file in the project: the plugin serves the `coder`, `researcher`, and `reader` agents itself, through `OPENCODE_CONFIG_DIR`. [docs/GUIDE.md](docs/GUIDE.md) explains the setup, how to watch a run live, how to follow up and abort, how to read the cost, and the security notes.
 
 ### Updates
 
@@ -32,8 +32,7 @@ To update at every start instead, open `/plugin`, select the marketplace, and en
 - `.claude-plugin/marketplace.json` — a marketplace `opencode-subagents` that lists this folder as the plugin
 - `skills/oc-sub/SKILL.md` — the skill: when to delegate, the workflow, and the rules
 - `skills/oc-sub/reference.md` — the full command reference and the details
-- `skills/oc-sub/templates/` — a generic `coder` agent file for `.opencode/agents/`
-- `opencode/agents/` — the research agents of the plugin: `researcher`, and its hidden subagent `reader`. `oc-sub up` serves them through `OPENCODE_CONFIG_DIR`.
+- `opencode/agents/` — the agents of the plugin: `coder`, `researcher`, and its hidden subagent `reader`. `oc-sub up` serves them through `OPENCODE_CONFIG_DIR`.
 - `bin/oc-sub` — the launcher. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), installs the locked dependencies on the first call, and runs `src/cli.ts`.
 
 Check the plugin with `claude plugin validate .` and `claude --plugin-dir . plugin details opencode-subagents`.

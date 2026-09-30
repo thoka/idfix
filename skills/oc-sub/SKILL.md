@@ -7,7 +7,7 @@ allowed-tools: Bash(oc-sub *)
 
 # Delegate work to an opencode subagent
 
-`oc-sub` drives an `opencode serve` server on 127.0.0.1. You write a brief, start a run, give the user a command to watch it live, and review the result yourself. The full command reference and the details are in [reference.md](reference.md). The coder agent template is in [templates/coder.md](templates/coder.md).
+`oc-sub` drives an `opencode serve` server on 127.0.0.1. You write a brief, start a run, give the user a command to watch it live, and review the result yourself. The full command reference and the details are in [reference.md](reference.md). The plugin serves the `coder`, `researcher`, and `reader` agents itself; the project needs no agent file (see [Agent files](reference.md#agent-files)).
 
 ## When to delegate
 
@@ -23,7 +23,7 @@ Do not delegate:
 
 ## Workflow
 
-1. Check that the project has `.opencode/agents/coder.md`. If not, copy it from [templates/coder.md](templates/coder.md). Research needs no agent file in the project: the plugin serves the `researcher` agent and its hidden `reader` subagent itself.
+1. The plugin serves the `coder`, `researcher`, and `reader` agents itself through `OPENCODE_CONFIG_DIR`. No project agent file is needed. If the project has an old copy of `.opencode/agents/coder.md` or `researcher.md`, delete it, so that the plugin stays the one source. If the project needs its own bash rules, it keeps a `.opencode/agents/coder.md` with only a `permission` block (see [Agent files](reference.md#agent-files)).
 2. Create a git worktree with its own branch, for example `git worktree add -b feature/x ../proj-x main`. The agent works only there.
 3. Write the brief into a file outside the worktree, for example in your scratch folder. `oc-sub run` sends its text, so the agent never needs the file, and it cannot commit it by mistake. The agent cannot read files outside its project folder. If it needs other files, copy them into `.opencode/context/` of the worktree, which git ignores, or paste their content into the brief.
 4. Start the server once: `oc-sub up`. Without mode flags, this runs the server in a Docker Sandbox per project (see the [sandbox section](reference.md#sandbox-mode) in the reference). It needs `sbx` and a project key. For a host server, use `oc-sub up --no-sandbox`. It sets `OPENCODE_CONFIG_DIR` to the plugin folder, so the server also loads the research agents of the plugin. It also loads your shared rules and skills from `OC_SUB_SHARED_DIR` (default `$HOME/dv/meta/agents`). After `up`, run `oc-sub ping --rules --dir <project>` once: it checks that the agent really sees your shared rules. To stop the server, use `oc-sub down` (in the same mode as `up`). After a change to the agent files or the opencode configuration, use `oc-sub restart`. After an update of the plugin, use `oc-sub restart` too, because the running server keeps the plugin folder that it got at start in `OPENCODE_CONFIG_DIR`. If `up` asks you to remove an old sandbox with `sbx rm NAME`, do it: the removal ends the sessions of that sandbox, so run `up` again and restart pending runs.
@@ -53,7 +53,7 @@ Then wait again with `oc-sub watch`. After a rejected permission request, the tu
 ## Rules
 
 - Send follow-up messages with `oc-sub say`. It returns at once. If you use `opencode run` directly instead, always give it the input `< /dev/null`. Without it, the command waits for input and hangs.
-- Do not use `opencode run --auto`. The Claude Code permission check blocks it, and it approves too much. Give each agent an agent file with permission rules instead.
+- Do not use `opencode run --auto`. The Claude Code permission check blocks it, and it approves too much. The agent files of the plugin and of the project give the permission rules instead.
 - The permission rules stop some mistakes, but they are not a sandbox. A test command such as `bun test` or `pytest` can run any code. The real protection is the worktree, no access to `.env`, and your review of every diff.
 - Never read or print `.env` files or keys. Keep the server on 127.0.0.1.
 - Each project needs its own OpenRouter key in `~/.config/<project>/openrouter.key`. A key that two projects share is not allowed: `oc-sub run` refuses to start and names the other project. Create a key for one of the projects and run `oc-sub restart`. The real cost of a run is only correct with a project key of its own.

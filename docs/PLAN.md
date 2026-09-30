@@ -268,6 +268,7 @@ The workflow in this project now (clone mode):
 
 Next steps of the plan, in this order:
 
+1. Step 10 first, decided with the user on 2026-09-30: fallback providers make every later run safer, and the probe also measures speed per provider. The research run 10a (`docs/research/PROVIDER_PROBE.md`, worktree `r-provider-probe`) started on 2026-09-30.
 1. Step 15: `oc-sub doctor --fix`, next is 15c (stable plugin folder, stale-server check, restart of an idle server), then 15d and 15e (`--renovate`). Start 15c from the 15c bullets of step 15 and from the review section of [DOCTOR_FIX.md](research/DOCTOR_FIX.md).
 2. 8h: `oc-sub status --json`.
 3. The known gaps of 8g: new worktrees appear in the live view only after `a` twice, the footer lacks the day totals and the key usage per project, and the title is cut below about 110 columns.

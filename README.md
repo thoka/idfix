@@ -259,7 +259,7 @@ The checks:
 | `skill-links` | Every symlink in `~/.claude/skills/` and `~/.agents/skills/` resolves to an existing folder. | A skill is gone. Remove the broken link or point it back. |
 | `agent-copies` | `.opencode/agents/coder.md`, `researcher.md`, and `reader.md` are permission-only files or absent (see `docs/research/AGENT_MERGE.md`). | A project copy overrides the plugin agent. Delete it, or keep only a permission block. |
 | `plugin-fresh` | The installed plugin commit matches `origin/alpha` of the plugin repository. | Warn. Run the plugin update commands that the fix names. |
-| `sandbox-mounts` | When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires, and the project has the `sandbox-<name>` git remote of clone mode. | Run `sbx rm NAME` and then `oc-sub up`, which creates the sandbox again in clone mode. |
+| `sandbox-mounts` | When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires (a folder inside the project root is not mounted, the clone holds it), the project has the `sandbox-<name>` git remote of clone mode, and the clone exists inside the sandbox (`git -C <root> rev-parse --git-dir`). | Run `sbx rm --force NAME` and then `oc-sub up`, which creates the sandbox again in clone mode. |
 
 The fast checks `env-files` to `agent-copies` also run on every `oc-sub up` and `oc-sub run`. A fail stops the command with exit code 1 before anything changes state and before any paid call, and names the fixes plus the hint `run oc-sub doctor for details`. A warn prints one line and the command continues. The checks take about 1 ms. When they take over 50 ms, the command prints a warning with the time.
 
@@ -270,7 +270,7 @@ bun run src/cli.ts worktree STEP [--dir ROOT] [--base BRANCH]
 bun run src/cli.ts worktree rm STEP [--dir ROOT]
 ```
 
-Sandbox clone mode only. `worktree STEP` creates the worktree of a run inside the sandbox clone at `<root>/.worktrees/STEP`. It fetches from `origin`, copies the git identity of the host repository into the clone, and creates `feature/STEP` from `origin/alpha` (`--base` names another branch). When the worktree exists, it says so and exits 0. `worktree rm STEP` removes the worktree and deletes `feature/STEP` inside the clone. Work that was not fetched is lost. Both commands exit 1 without a sandbox state file for the project.
+Sandbox clone mode only. `worktree STEP` creates the worktree of a run inside the sandbox clone at `<root>/.worktrees/STEP`. It points the clone remote `host` to the read-only host repository `/run/sandbox/source`, fetches `host` (never `origin`, which the sandbox may not reach), copies the git identity of the host repository into the clone, and creates `feature/STEP` from `host/alpha` (`--base` names another branch). When the worktree exists, it says so and exits 0. `worktree rm STEP` removes the worktree and deletes `feature/STEP` inside the clone. Work that was not fetched is lost. Both commands exit 1 without a sandbox state file for the project.
 
 ### oc-sub fetch
 

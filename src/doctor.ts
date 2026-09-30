@@ -2,7 +2,7 @@
  * `oc-sub doctor`: a registry of named health checks. The fast checks 1 to 6
  * only stat and list directories (except check 6, which reads the frontmatter
  * of a project agent file), so `up` and `run` run them on every invocation.
- * The slow checks 7 and 8 need a git call or an `sbx ls` call, so only
+ * The slow checks 7 and 8 need a git call or `sbx` calls, so only
  * `oc-sub doctor` runs them. The design is in `docs/research/DOCTOR.md`.
  * Every dependency is injected, so the tests use fakes like in
  * `test/sandbox.test.ts`.
@@ -11,7 +11,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpat
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
-import { listsCloneRemote, miseInstallsDir, readSandboxState, requiredSandboxMounts, sandboxName, sandboxRecreateFix, sandboxStatePath, listsMounts, listsName, defaultRunner, type Runner, type SandboxState } from "./sandbox";
+import { hasClone, listsCloneRemote, miseInstallsDir, missingCloneMessage, readSandboxState, requiredSandboxMounts, sandboxName, sandboxRecreateFix, sandboxStatePath, listsMounts, listsName, defaultRunner, type Runner, type SandboxState } from "./sandbox";
 import { projectRootOfRun } from "./keys";
 import { sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
@@ -364,7 +364,10 @@ function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
   if (!listsName(ls, name)) {
     return result("sandbox-mounts", "skip", `no sandbox ${name} in sbx ls (it is stopped or removed)`);
   }
-  const mounts = requiredSandboxMounts(PLUGIN_CONFIG_DIR, deps.installsDir, deps.sharedDir);
+  // The sandbox was created from the root in the state file. The mounts
+  // come from the same pure plan as in `up`: a folder inside the root has no
+  // mount, the clone holds it.
+  const mounts = requiredSandboxMounts(state.root, PLUGIN_CONFIG_DIR, deps.installsDir, deps.sharedDir);
   if (!listsMounts(ls, name, mounts)) {
     return result(
       "sandbox-mounts",
@@ -384,7 +387,11 @@ function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
       sandboxRecreateFix(name),
     );
   }
-  return result("sandbox-mounts", "pass", `the sandbox ${name} has all required mounts and clone mode`);
+  // The same clone check as in `up`: a create can exit 0 and leave no clone.
+  if (!hasClone(deps.runner, deps.sandboxBin, name, state.root)) {
+    return result("sandbox-mounts", "fail", missingCloneMessage(name, state.root), sandboxRecreateFix(name));
+  }
+  return result("sandbox-mounts", "pass", `the sandbox ${name} has all required mounts, clone mode, and a clone`);
 }
 
 /** The fast checks: `up` and `run` run them on every invocation. */

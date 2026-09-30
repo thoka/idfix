@@ -413,12 +413,36 @@ export function listsCloneRemote(stdout: string, name: string): boolean {
 }
 
 /**
- * The fix text for a sandbox that must be recreated: missing mounts or a
- * missing clone mode. `sbx rm` ends the sessions of the sandbox, so the text
- * says so.
+ * The fix text for a sandbox that must be recreated: missing mounts, a
+ * missing clone mode, or a missing clone. `sbx rm` asks for a confirmation
+ * and fails without a terminal, so the text names `--force`. The removal
+ * ends the sessions of the sandbox.
  */
 export function sandboxRecreateFix(name: string): string {
-  return `Remove it with: sbx rm ${name}, then run oc-sub up. It creates the sandbox again in clone mode with all three mounts.`;
+  return `Remove it with: sbx rm --force ${name}, then run oc-sub up. It creates the sandbox again in clone mode with all required mounts.`;
+}
+
+/**
+ * The command that proves the clone exists inside the sandbox:
+ * `git -C ROOT rev-parse --git-dir` must succeed there. A create with a
+ * mount inside the project root exits 0 but leaves no clone
+ * (RUN_ISOLATION.md section 9).
+ */
+export function cloneCheckCommand(bin: string, name: string, root: string): string[] {
+  return [bin, "exec", name, "git", "-C", root, "rev-parse", "--git-dir"];
+}
+
+/**
+ * Whether the sandbox holds a git clone at the project root. `up` and the
+ * `sandbox-mounts` check of `doctor` both call it, so the two never differ.
+ */
+export function hasClone(runner: Runner, bin: string, name: string, root: string): boolean {
+  return runner(cloneCheckCommand(bin, name, root)).exitCode === 0;
+}
+
+/** The error message for a sandbox without a clone at the project root. */
+export function missingCloneMessage(name: string, root: string): string {
+  return `the sandbox ${name} has no git clone at ${root} (git -C ${root} rev-parse --git-dir fails inside it)`;
 }
 
 /**
@@ -453,13 +477,54 @@ export function placeholderKeyScript(project: string): string {
   return `mkdir -p ${dir} && chmod 700 ${dir} && printf %s ${PLACEHOLDER_KEY} > ${dir}/openrouter.key`;
 }
 
+/** Whether `dir` is the folder `root` itself or lies inside it. */
+export function isInsideRoot(dir: string, root: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(dir));
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+/**
+ * Which of the extra folders of a project sandbox `sbx create --clone` gets
+ * as read-only mounts, and which it leaves out because they lie inside the
+ * project root (or are equal to it). Pure: `upSandbox`, the mount check of
+ * `up`, and the `sandbox-mounts` check of `doctor` all use it, so they
+ * never differ.
+ *
+ * A mount inside the project root stops the clone silently: `sbx create`
+ * exits 0, but the sandbox then holds only the mount point at the root and
+ * no clone (RUN_ISOLATION.md section 9). This hits the plugin repository
+ * itself (the plugin folder `<root>/opencode`) and the project `meta` (the
+ * shared agents folder `<root>/agents`). The clone holds the tracked files
+ * of such a folder at the same absolute path, so the paths in the
+ * configuration still work.
+ *
+ * Known gap: for a folder in `inClone`, the sandbox uses the committed copy
+ * in the clone, not the live host folder. A change on the host reaches the
+ * sandbox only after a commit and a new clone, and untracked files of that
+ * folder are missing.
+ */
+export function sandboxMountPlan(
+  root: string,
+  pluginDir: string,
+  installsDir: string,
+  sharedDir: string,
+): { mounted: string[]; inClone: string[] } {
+  const mounted: string[] = [];
+  const inClone: string[] = [];
+  for (const dir of [pluginDir, installsDir, sharedDir]) {
+    (isInsideRoot(dir, root) ? inClone : mounted).push(dir);
+  }
+  return { mounted, inClone };
+}
+
 /**
  * The mounts that a project sandbox must have, in the `WORKSPACE` column form
- * of `sbx ls`. `upSandbox` and the health check of step 13 use the same
- * list, so the two never differ.
+ * of `sbx ls`: the `mounted` folders of `sandboxMountPlan`, each with `:ro`.
+ * `upSandbox` and the health check of step 13 use the same list, so the two
+ * never differ.
  */
-export function requiredSandboxMounts(pluginDir: string, installsDir: string, sharedDir: string): string[] {
-  return [`${pluginDir}:ro`, `${installsDir}:ro`, `${sharedDir}:ro`];
+export function requiredSandboxMounts(root: string, pluginDir: string, installsDir: string, sharedDir: string): string[] {
+  return sandboxMountPlan(root, pluginDir, installsDir, sharedDir).mounted.map((dir) => `${dir}:ro`);
 }
 
 function printUp(serveUrl: string, name: string, logPath: string, version: string): void {
@@ -536,9 +601,11 @@ export async function upSandbox(
   // the host tools of the project available unchanged inside the sandbox,
   // and the shared agents folder keeps its host path, so the absolute
   // paths in `OPENCODE_CONFIG_CONTENT` reach the same files.
-  const pluginMount = `${relativeMount("/", PLUGIN_CONFIG_DIR)}:ro`;
-  const installsMount = `${relativeMount("/", installsDir)}:ro`;
-  const sharedMount = `${relativeMount("/", sharedDir)}:ro`;
+  // A folder inside the project root gets no mount, because such a mount
+  // stops the clone silently; the clone holds its tracked files at the same
+  // path instead (see `sandboxMountPlan` for the known gap).
+  const plan = sandboxMountPlan(root, PLUGIN_CONFIG_DIR, installsDir, sharedDir);
+  const createMounts = plan.mounted.map((dir) => `${relativeMount("/", dir)}:ro`);
 
   const lsStdout = deps.runner([bin, "ls"]).stdout;
   if (!listsName(lsStdout, name)) {
@@ -551,12 +618,15 @@ export async function upSandbox(
     // The create runs with the working directory `/`, because `sbx` accepts
     // read-only mounts only with relative paths (see above).
     const create = deps.runner(
-      [bin, "create", "--clone", "--name", name, "opencode", root, pluginMount, installsMount, sharedMount],
+      [bin, "create", "--clone", "--name", name, "opencode", root, ...createMounts],
       { cwd: "/" },
     );
     if (create.exitCode !== 0) {
       console.error(`error: sbx create failed for ${name}`);
       return 1;
+    }
+    for (const dir of plan.inClone) {
+      console.log(`note: ${dir} lies inside the project root, so the sandbox uses its committed copy in the clone`);
     }
     // The network rules go onto a new sandbox: GET and HEAD to every host,
     // but never to the host server or the private networks. Research needs
@@ -579,7 +649,7 @@ export async function upSandbox(
       console.error(`error: sbx policy deny network failed for ${name}`);
       return 1;
     }
-  } else if (!listsMounts(lsStdout, name, requiredSandboxMounts(PLUGIN_CONFIG_DIR, installsDir, sharedDir))) {
+  } else if (!listsMounts(lsStdout, name, requiredSandboxMounts(root, PLUGIN_CONFIG_DIR, installsDir, sharedDir))) {
     // The sandbox holds the sessions, so oc-sub does not remove it itself.
     console.error(`error: the sandbox ${name} lacks the plugin, the mise installs, or the shared agents mount`);
     console.error(sandboxRecreateFix(name));
@@ -590,6 +660,16 @@ export async function upSandbox(
     // `sandbox-<name>` remote the review could not fetch the commits of the
     // agent from the clone.
     console.error(`error: the sandbox ${name} is not in clone mode (the project has no sandbox-<name> git remote)`);
+    console.error(sandboxRecreateFix(name));
+    return 1;
+  }
+
+  // After the create, and on every up of an existing sandbox: the clone must
+  // exist at the project root. `sbx create --clone` can exit 0 and still
+  // leave no clone (RUN_ISOLATION.md section 9), and every run worktree
+  // lives in that clone.
+  if (!hasClone(deps.runner, bin, name, root)) {
+    console.error(`error: ${missingCloneMessage(name, root)}`);
     console.error(sandboxRecreateFix(name));
     return 1;
   }
@@ -655,7 +735,7 @@ export async function upSandbox(
   const readable = deps.runner([bin, "exec", name, "test", "-r", sharedFile]);
   if (readable.exitCode !== 0) {
     console.error(`error: the sandbox ${name} cannot read the shared agents file ${sharedFile}`);
-    console.error(`Remove it with: sbx rm ${name}`);
+    console.error(`Remove it with: sbx rm --force ${name}`);
     console.error("Then run oc-sub up. It creates the sandbox again with the shared mount.");
     return 1;
   }

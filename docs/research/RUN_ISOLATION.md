@@ -183,3 +183,18 @@ The main thread tested `sbx create --clone` on the host with a scratch repositor
 | `sbx rm` | removes the sandbox and the remote on the host |
 
 Open questions 1 and 2 of section 7 are answered for a scratch repository. The end-to-end test with the oc-sub kit remains for the implementation step.
+
+## 9. Live test of the main thread with the oc-sub kit (2026-09-30)
+
+The main thread ran `oc-sub up` for this project on the host. It found two faults of clone mode that the scratch test of section 8 did not show.
+
+**A mount inside the project root stops the clone silently.** `oc-sub up` ran `sbx create --clone --name oc-sub-opencode-subagents opencode <root> <root>/opencode:ro <installs>:ro <shared>:ro`. The plugin folder `<root>/opencode` lies inside the project root, because this project is the plugin itself. `sbx create` exited 0, but inside the sandbox `<root>` held only the mount point `opencode/` and no clone: `git -C <root> ...` gave "not a git repository". A scratch test repeated it: `sbx create --clone` with `<repo>/sub:ro` as an extra mount gave no clone, and the same create without the nested mount gave a working clone. The project `meta` has the same fault, because the shared agents folder `~/dv/meta/agents` lies inside its root.
+
+Consequence for oc-sub: a folder inside the project root (or equal to it) gets no mount. The clone holds its tracked files at the same absolute path, so the paths in the configuration still work. The gap: the sandbox uses the committed copy, not the live host folder, and untracked files of that folder are missing. Because the create exits 0, `up` also checks `sbx exec NAME git -C <root> rev-parse --git-dir` after the create and on every later `up`.
+
+**The clone copies the remotes of the host.** When the host repository has `origin` (for example `git@github.com:thoka/opencode-subagents.git`), `origin` in the clone is that same URL. `git fetch origin` inside the sandbox then fails, because the sandbox has no SSH access. Only for a host repository without a remote is `origin` in the clone `/run/sandbox/source` (the case of section 8). Consequence for oc-sub: the clone fetches new host commits from its own remote `host` that points to `/run/sandbox/source`, never from `origin`.
+
+Other facts of the same test:
+
+- The host fetch refspecs of the `sandbox-<name>` remote are `+refs/heads/*:refs/remotes/sandbox-<name>/*` and `+refs/heads/*:refs/sandboxes/<name>/*`, so `git fetch sandbox-<name>` on the host works as `oc-sub fetch` expects.
+- `sbx rm` without a terminal needs `--force`, so every fix text of oc-sub names `sbx rm --force NAME`.

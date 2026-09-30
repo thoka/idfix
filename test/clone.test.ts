@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fetch, runWorktreePath, worktree, worktreeRm, type CloneDeps } from "../src/clone";
+import { fetch, HOST_REMOTE, HOST_SOURCE, runWorktreePath, worktree, worktreeRm, type CloneDeps } from "../src/clone";
 import { projectRootOfRun } from "../src/keys";
 import { sandboxStatePath, writeSandboxState, type Runner, type SandboxState } from "../src/sandbox";
 
@@ -91,11 +91,13 @@ describe("projectRootOfRun", () => {
 });
 
 describe("worktree", () => {
-  test("fetches, sets the host identity, and adds the worktree from origin/alpha", async () => {
+  test("adds the host remote, fetches it, sets the host identity, and adds the worktree from host/alpha", async () => {
     const deps = await makeDeps();
     const { calls, runner } = fakeRunner((cmd) => {
       // The worktree does not exist yet.
       if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
+      // A fresh clone has no remote `host` yet.
+      if (isSbxGit(cmd, ["remote", "get-url", "host"])) return { exitCode: 2 };
       if (cmd[0] === "git" && cmd[3] === "config") {
         return { stdout: cmd[4] === "user.name" ? "Ada Lovelace\n" : "ada@example.com\n" };
       }
@@ -104,14 +106,27 @@ describe("worktree", () => {
     const code = worktree({ step: "14b" }, deps.env as never, { ...deps, runner });
     expect(code).toBe(0);
 
-    // The exact sbx commands, in order: the existence test, the fetch, the
-    // two identity configs, and the worktree add from origin/alpha.
-    expect(callsOf(calls, (c) => isSbxGit(c, ["fetch", "-q", "origin"])).length).toBe(1);
+    // The exact sbx commands, in order: the existence test, the host remote,
+    // the fetch, the two identity configs, and the worktree add from host/alpha.
+    expect(HOST_REMOTE).toBe("host");
+    expect(HOST_SOURCE).toBe("/run/sandbox/source");
+    const gitCalls = callsOf(calls, (c) => c[0] === "sbx" && c[3] === "git").map((c) => c.slice(6));
+    expect(gitCalls).toEqual([
+      ["remote", "get-url", "host"],
+      ["remote", "add", "host", "/run/sandbox/source"],
+      ["fetch", "-q", "host"],
+      ["config", "user.name", "Ada Lovelace"],
+      ["config", "user.email", "ada@example.com"],
+      ["worktree", "add", "-b", "feature/14b", runWorktreePath(ROOT, "14b"), "host/alpha"],
+    ]);
+    // It never fetches origin: the clone copies the remotes of the host, and
+    // an SSH origin is out of reach in the sandbox.
+    expect(callsOf(calls, (c) => c.includes("origin")).length).toBe(0);
     expect(callsOf(calls, (c) => isSbxGit(c, ["config", "user.name", "Ada Lovelace"])).length).toBe(1);
     expect(callsOf(calls, (c) => isSbxGit(c, ["config", "user.email", "ada@example.com"])).length).toBe(1);
     expect(
       callsOf(calls, (c) =>
-        isSbxGit(c, ["worktree", "add", "-b", "feature/14b", runWorktreePath(ROOT, "14b"), "origin/alpha"]),
+        isSbxGit(c, ["worktree", "add", "-b", "feature/14b", runWorktreePath(ROOT, "14b"), "host/alpha"]),
       ).length,
     ).toBe(1);
     // The existence test runs first.
@@ -138,7 +153,63 @@ describe("worktree", () => {
     const { calls, runner } = fakeRunner((cmd) => (cmd[0] === "sbx" && cmd[3] === "test" ? { exitCode: 1 } : {}));
     const code = worktree({ step: "x", base: "main" }, deps.env as never, { ...deps, runner });
     expect(code).toBe(0);
-    expect(callsOf(calls, (c) => c.includes("worktree") && c.includes("origin/main")).length).toBe(1);
+    expect(callsOf(calls, (c) => c.includes("worktree") && c.includes("host/main")).length).toBe(1);
+  });
+
+  test("sets the URL of an existing host remote instead of adding it", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
+      if (isSbxGit(cmd, ["remote", "get-url", "host"])) return { stdout: "/somewhere/else\n" };
+      return {};
+    });
+    const code = worktree({ step: "x" }, deps.env as never, { ...deps, runner });
+    expect(code).toBe(0);
+    expect(callsOf(calls, (c) => isSbxGit(c, ["remote", "set-url", "host", HOST_SOURCE])).length).toBe(1);
+    expect(callsOf(calls, (c) => isSbxGit(c, ["remote", "add", "host", HOST_SOURCE])).length).toBe(0);
+  });
+
+  test("stops when the host remote cannot be added", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
+      if (isSbxGit(cmd, ["remote", "get-url", "host"])) return { exitCode: 2 };
+      if (isSbxGit(cmd, ["remote", "add", "host", HOST_SOURCE])) return { exitCode: 1 };
+      return {};
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let code: number;
+    try {
+      code = worktree({ step: "x" }, deps.env as never, { ...deps, runner });
+    } finally {
+      console.error = err;
+    }
+    expect(code).toBe(1);
+    expect(errors).toEqual([`error: git remote add host failed in the clone of ${NAME}`]);
+    expect(callsOf(calls, (c) => c.includes("fetch")).length).toBe(0);
+  });
+
+  test("stops when the fetch of the host remote fails", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
+      if (isSbxGit(cmd, ["fetch", "-q", "host"])) return { exitCode: 1 };
+      return {};
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let code: number;
+    try {
+      code = worktree({ step: "x" }, deps.env as never, { ...deps, runner });
+    } finally {
+      console.error = err;
+    }
+    expect(code).toBe(1);
+    expect(errors).toEqual([`error: git fetch host failed in the clone of ${NAME}`]);
+    expect(callsOf(calls, (c) => c.includes("worktree")).length).toBe(0);
   });
 
   test("says so and exits 0 when the worktree exists", async () => {

@@ -18,7 +18,7 @@ import {
   type CheckResult,
   type DoctorDeps,
 } from "../src/doctor";
-import { requiredSandboxMounts } from "../src/sandbox";
+import { cloneCheckCommand, missingCloneMessage, requiredSandboxMounts, sandboxRecreateFix } from "../src/sandbox";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
 
 function tempDir(): string {
@@ -297,6 +297,7 @@ describe("plugin-fresh", () => {
 
 describe("sandbox-mounts", () => {
   const mounts = requiredSandboxMounts(
+    "/repo",
     PLUGIN_CONFIG_DIR,
     "/home/u/.local/share/mise/installs",
     "/home/u/dv/meta/agents",
@@ -333,7 +334,7 @@ describe("sandbox-mounts", () => {
     );
     const check = byName(results(deps, SLOW_CHECKS), "sandbox-mounts");
     expect(check?.status).toBe("fail");
-    expect(check?.fix).toContain("sbx rm oc-sub-repo");
+    expect(check?.fix).toContain("sbx rm --force oc-sub-repo");
   });
 
   test("fails with the sbx rm fix when the sandbox is not in clone mode", () => {
@@ -348,8 +349,45 @@ describe("sandbox-mounts", () => {
     const check = byName(results(deps, SLOW_CHECKS), "sandbox-mounts");
     expect(check?.status).toBe("fail");
     expect(check?.message).toContain("not in clone mode");
-    expect(check?.fix).toContain("sbx rm oc-sub-repo");
+    expect(check?.fix).toContain("sbx rm --force oc-sub-repo");
     expect(check?.fix).toContain("clone mode");
+  });
+
+  test("fails with the sbx rm --force fix when the sandbox has no clone", () => {
+    const calls: string[][] = [];
+    const deps = makeDeps(
+      {},
+      {
+        runner: (cmd) => {
+          calls.push([...cmd]);
+          if (cmd[0] === "git") return { stdout: "sandbox-oc-sub-repo\n", exitCode: 0 };
+          // `git rev-parse --git-dir` fails inside the sandbox: no clone.
+          if (cmd[1] === "exec") return { stdout: "", exitCode: 128 };
+          return { stdout: lsWithMounts, exitCode: 0 };
+        },
+        sandboxState: () => ({ name: "oc-sub-repo", root: "/repo", port: 18768 }),
+      },
+    );
+    const check = byName(results(deps, SLOW_CHECKS), "sandbox-mounts");
+    expect(check?.status).toBe("fail");
+    expect(check?.message).toBe(missingCloneMessage("oc-sub-repo", "/repo"));
+    expect(check?.fix).toBe(sandboxRecreateFix("oc-sub-repo"));
+    expect(calls).toContainEqual(cloneCheckCommand("sbx", "oc-sub-repo", "/repo"));
+  });
+
+  test("passes without the mount of a folder inside the project root", () => {
+    // The project meta: the shared agents folder lies inside the root, so
+    // `up` does not mount it and the check must not ask for it.
+    const root = "/home/u/dv/meta";
+    const ls = `NAME STATUS WORKSPACE\noc-sub-repo running ${root}, ${PLUGIN_CONFIG_DIR}:ro, /home/u/.local/share/mise/installs:ro\n`;
+    const deps = makeDeps(
+      {},
+      {
+        runner: cloneRunner(ls),
+        sandboxState: () => ({ name: "oc-sub-repo", root, port: 18768 }),
+      },
+    );
+    expect(byName(results(deps, SLOW_CHECKS), "sandbox-mounts")?.status).toBe("pass");
   });
 });
 

@@ -4,7 +4,9 @@
  * the sandbox, not on the host, so every git step goes through
  * `sbx exec NAME ...` with the runner (like `upSandbox`). The host only
  * fetches the finished branches from the `sandbox-<name>` remote that
- * `sbx` manages (RUN_ISOLATION.md section 2.4). Both commands work only in
+ * `sbx` manages (RUN_ISOLATION.md section 2.4). The clone itself fetches
+ * new host commits from the read-only host repository through its remote
+ * `host`, never through `origin`. Both commands work only in
  * sandbox mode: without a sandbox state file for the project they stop with
  * an error. All `sbx` calls go through a runner, so the tests replace it
  * with a fake and never call the real `sbx`.
@@ -63,11 +65,24 @@ export function runWorktreePath(root: string, step: string): string {
 }
 
 /**
+ * The read-only host repository inside a clone-mode sandbox. The clone
+ * fetches new host commits from here.
+ */
+export const HOST_SOURCE = "/run/sandbox/source";
+
+/** The remote of the clone that points to `HOST_SOURCE`. */
+export const HOST_REMOTE = "host";
+
+/**
  * `oc-sub worktree STEP [--dir ROOT] [--base BRANCH]`: create the worktree
- * of a run inside the sandbox clone. It fetches new host commits from
- * `origin` first, sets the git identity of the host repository in the clone
- * (a fresh clone has none), and creates `feature/STEP` from
- * `origin/BASE`. When the worktree already exists, it says so and exits 0.
+ * of a run inside the sandbox clone. It makes sure that the remote `host`
+ * of the clone points to the read-only host repository at
+ * `/run/sandbox/source`, fetches new host commits from it, sets the git
+ * identity of the host repository in the clone (a fresh clone has none),
+ * and creates `feature/STEP` from `host/BASE`. It does not fetch `origin`:
+ * the clone copies the remotes of the host, so `origin` can be an SSH URL
+ * that the sandbox cannot reach (RUN_ISOLATION.md section 9). When the
+ * worktree already exists, it says so and exits 0.
  */
 export function worktree(
   args: { step: string; dir?: string; base?: string },
@@ -89,8 +104,15 @@ export function worktree(
     return 0;
   }
 
-  const fetch = sbxGit("fetch", "-q", "origin");
-  if (fetch.exitCode !== 0) return fail(`git fetch origin failed in the clone of ${name}`);
+  // Add the remote `host`, or set its URL when it exists already.
+  const hasHost = sbxGit("remote", "get-url", HOST_REMOTE).exitCode === 0;
+  const remote = hasHost
+    ? sbxGit("remote", "set-url", HOST_REMOTE, HOST_SOURCE)
+    : sbxGit("remote", "add", HOST_REMOTE, HOST_SOURCE);
+  if (remote.exitCode !== 0) return fail(`git remote ${hasHost ? "set-url" : "add"} ${HOST_REMOTE} failed in the clone of ${name}`);
+
+  const fetch = sbxGit("fetch", "-q", HOST_REMOTE);
+  if (fetch.exitCode !== 0) return fail(`git fetch ${HOST_REMOTE} failed in the clone of ${name}`);
 
   // A fresh clone has no user.name and no user.email, so a commit inside
   // would fail or carry the sandbox identity. Copy the identity of the host
@@ -103,7 +125,7 @@ export function worktree(
   }
 
   const base = args.base ?? "alpha";
-  const add = sbxGit("worktree", "add", "-b", `feature/${args.step}`, worktreePath, `origin/${base}`);
+  const add = sbxGit("worktree", "add", "-b", `feature/${args.step}`, worktreePath, `${HOST_REMOTE}/${base}`);
   if (add.exitCode !== 0) return fail(`git worktree add failed in the clone of ${name}`);
 
   console.log(`worktree: ${worktreePath}`);

@@ -292,7 +292,8 @@ function fakeClock(): FakeClock {
 
 /** Wait until the condition holds, or fail after a bounded number of turns. */
 async function until(condition: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
+  // Up to about 5 seconds: a full parallel test run can be slow.
+  for (let i = 0; i < 1000; i++) {
     // Sleep first: the SSE fetch of the live view starts asynchronously, so
     // a check right after `startLive` would run too early.
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
@@ -407,11 +408,7 @@ describe("top live", () => {
       // The backoff resolves; the loop probes the server, seeds it again
       // (and finds the new session), and opens a new stream.
       clock.flushSleeps();
-      await until(() => {
-        const rows = live!.model.rows(clock.now()).map((row) => row.sessionId);
-        if (!rows.includes("ses_new")) console.log("DBG", JSON.stringify(live!.servers()), rows);
-        return rows.includes("ses_new");
-      });
+      await until(() => live!.model.rows(clock.now()).some((row) => row.sessionId === "ses_new"));
       expect(live.servers()[0]?.state).toBe("up");
     } finally {
       if (live) await stopLive(live, host);

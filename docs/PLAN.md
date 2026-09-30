@@ -93,7 +93,16 @@ Root cause: the body of an opencode agent file replaces the default system promp
 
 ## Step 8: `oc-sub top`, a live view
 
-Status: open. Decided with the user on 2026-09-29. It builds on the detection module of step 6. It is the next step. Since step 9, several servers can run: the host server on 8767 and one sandbox server per project. `top` finds the sandbox servers through the state files `~/.local/state/oc-sub/sandbox-<project>.json` (`sandboxUrlFor` in `src/sandbox.ts`). `status --all` still covers only one server. The research report [TOP_VIEW.md](research/TOP_VIEW.md) predates step 9, so check it against this change.
+Status: in progress. Decided with the user on 2026-09-29. It builds on the detection module of step 6. Since step 9, several servers can run: the host server on 8767 and one sandbox server per project. [TOP_VIEW.md](research/TOP_VIEW.md) covers Ink, the event stream, and the servers after step 9 (section 6).
+
+Progress on 2026-09-30:
+
+- 8a, done: `src/servers.ts` lists the host server and every sandbox server from the state files. `status --all` covers all of them.
+- 8b, done: Ink 7.1.1 and React 19.3 run under bun 1.4.2. A counter app worked in a pseudo terminal with keys, the alternate screen, and a clean exit.
+- 8c, done: `src/top/model.ts` is a pure model from server events to one row per session. The guard of step 6 gives the loop, stall, and reasoning states.
+- 8d, done: `oc-sub top --once [--dir DIR | --all] [--json]` loads every server and prints one snapshot. It shows the running sessions and the sessions updated in the last 60 minutes. The time of the last activity comes from the newest message, because `time.updated` of a session changes only with the session object.
+- 8e, next: the live event stream, one `GET /global/event` per server, with reconnect and a new seed after a reconnect.
+- 8f: the Ink view. 8g: `status --json`.
 
 `oc-sub status` stays short and line-based for agents, and gets `--json`. `oc-sub top` is a full-screen live view for the user, like `htop`. `oc-sub top --once` prints one text snapshot for agents.
 

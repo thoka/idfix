@@ -1,6 +1,6 @@
 # opencode-subagents
 
-Status: experimental alpha (0.1.0). The tool and the skill were built in September 2026 and have few real runs so far. The command line and the file formats can change.
+Status: experimental alpha. The tool and the skill were built in September 2026 and have few real runs so far. The command line and the file formats can change.
 
 This project makes cheap opencode subagents usable from Claude Code. It contains a small command line tool `oc-sub` and a Claude Code skill `oc-sub`, packaged as a Claude Code plugin. The research of the design is in [docs/research/PRIOR_ART.md](docs/research/PRIOR_ART.md). The lessons from the first use are in [docs/EXPERIENCE.md](docs/EXPERIENCE.md).
 
@@ -14,6 +14,17 @@ claude plugin install opencode-subagents@opencode-subagents
 ```
 
 Then copy the coder agent template into the project and adapt the test command. Research needs no agent file in the project: `oc-sub up` serves the `researcher` agent and its hidden `reader` subagent from the plugin, through `OPENCODE_CONFIG_DIR`. [docs/GUIDE.md](docs/GUIDE.md) explains the setup, how to watch a run live, how to follow up and abort, how to read the cost, and the security notes.
+
+### Updates
+
+The manifest has no `version` field, so Claude Code uses the git commit as the version, and every pushed commit counts as an update. Claude Code does not update a third-party marketplace by itself. To get the new commits, run these commands and then start a new Claude session:
+
+```
+claude plugin marketplace update opencode-subagents
+claude plugin update opencode-subagents@opencode-subagents
+```
+
+To update at every start instead, open `/plugin`, select the marketplace, and enable auto-update. On the machine where you develop the plugin, add the marketplace from the local folder (`claude plugin marketplace add ~/dv/opencode-subagents`). Claude Code then reads the files live, and `/reload-plugins` loads a change. [docs/research/PLUGIN_UPDATES.md](docs/research/PLUGIN_UPDATES.md) has the sources.
 
 ## Plugin layout
 

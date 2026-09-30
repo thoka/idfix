@@ -1,6 +1,5 @@
 {
   "name": "opencode-subagents",
-  "version": "0.1.0",
   "description": "Delegate research and small coding steps to cheap opencode subagents with the oc-sub tool, and watch and review each run.",
   "author": {
     "name": "Thomas Kalka"

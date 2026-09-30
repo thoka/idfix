@@ -119,11 +119,23 @@ Before it creates the session, `run` checks the OpenRouter key. Each project nee
 The command prints, one per line:
 
 1. the session ID (so `oc-sub run ... | head -1` gives it to a script),
-2. the exact `opencode attach ...` command for a person to watch the run live,
+2. the short `oc-sub attach CODE` hint for a person to watch the run live (CODE is the last 6 characters of the session ID),
 3. the path of the run record in the current directory,
 4. the path of the run record copy in the state folder.
 
 The run record is a JSON file `.opencode/runs/<session-id>.json` in the current directory, with the session ID, directory, agent, title (`null` when unset), and start time. It also holds the first 8 hex digits of the SHA-256 of the key (`keyFingerprint`, never the key) and the key usage at the start in USD (`usageAtStart`, `null` without an answer). A copy goes to `~/.local/state/oc-sub/runs/` (or `$XDG_STATE_HOME/oc-sub/runs/`), so `watch` and `log` find the record from any working directory.
+
+### oc-sub attach
+
+```
+bun run src/cli.ts attach CODE [--url URL]
+```
+
+Attaches the opencode TUI to a known run, like `opencode attach URL --dir DIR --session ID`. CODE is any part of the session ID that matches exactly one known run (case-sensitive substring). The known runs come from the run records of the state folder and of the current directory.
+
+- No match: `error: no run matches "CODE"`, exit code 1.
+- Two or more matches: it lists the session ID, the title, and the directory of each match, tells you to give a longer part, and exits with code 1.
+- One match: it starts `opencode attach URL --dir DIR --session ID` with the current terminal. The URL comes from `--url`, then `OC_SUB_URL`, then the sandbox state of the directory, then the default. The command returns the exit code of the opencode process.
 
 ### oc-sub status
 
@@ -248,6 +260,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 - `src/realcost.ts` — the real-cost output of `watch` and `log`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
 - `src/state.ts` — per-user state files of the server (PID, log, folders with runs)
+- `src/attach.ts` — the `attach` command
 - `src/up.ts`, `src/down.ts`, `src/run.ts`, `src/status.ts`, `src/ping.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts`, `src/answer.ts` — the commands
 
 ## License

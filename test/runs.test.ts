@@ -119,6 +119,20 @@ describe("loadAllRunRecords", () => {
     rmSync("/tmp/opencode/runs-test", { recursive: true, force: true });
   });
 
+  test("keeps a session that exists in both folders once, state folder first", async () => {
+    rmSync("/tmp/opencode/runs-test", { recursive: true, force: true });
+    mkdirSync(path.join(CWD, ".opencode", "runs"), { recursive: true });
+    const inState = makeRunRecord({ sessionId: "ses_a", directory: "/w", agent: "a", usageAtStart: 1 });
+    const inCwd = makeRunRecord({ sessionId: "ses_a", directory: "/w", agent: "a", usageAtStart: 2 });
+    await writeStateRunRecord(ENV, inState);
+    writeFileSync(runRecordPath(CWD, "ses_a"), `${JSON.stringify(inCwd, null, 2)}\n`);
+    const records = await loadAllRunRecords(CWD, ENV);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.sessionId).toBe("ses_a");
+    expect(records[0]?.usageAtStart).toBe(1);
+    rmSync("/tmp/opencode/runs-test", { recursive: true, force: true });
+  });
+
   test("is empty without any folder", async () => {
     rmSync("/tmp/opencode/runs-test", { recursive: true, force: true });
     expect(await loadAllRunRecords(CWD, ENV)).toEqual([]);

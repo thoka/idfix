@@ -118,6 +118,17 @@ describe("parseArgs", () => {
     expect(parseArgs(["abort", "ses_1", "--dir", "/w"])).toEqual({ command: "abort", session: "ses_1", dir: "/w" });
   });
 
+  test("attach takes one CODE and an optional --url", () => {
+    expect(parseArgs(["attach", "f0f5c7"])).toEqual({ command: "attach", code: "f0f5c7" });
+    expect(parseArgs(["attach", "f0f5c7", "--url", "http://h:1"])).toEqual({
+      command: "attach",
+      code: "f0f5c7",
+      url: "http://h:1",
+    });
+    expect(() => parseArgs(["attach"])).toThrow(/CODE is required/);
+    expect(() => parseArgs(["attach", "a", "b"])).toThrow(/takes one CODE/);
+  });
+
   test("status --all, and --all with --dir is an error", () => {
     expect(parseArgs(["status", "--all"])).toEqual({ command: "status", all: true });
     expect(parseArgs(["status", "--all", "--url=http://h:1"])).toEqual({ command: "status", all: true, url: "http://h:1" });

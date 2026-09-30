@@ -13,6 +13,7 @@ export type ParsedArgs =
   | { command: "run"; url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string }
   | { command: "status"; url?: string; dir?: string; all: boolean }
   | { command: "top"; url?: string; dir?: string; all: boolean; once: boolean; json: boolean }
+  | { command: "attach"; url?: string; code: string }
   | { command: "ping"; url?: string; dir?: string }
   | { command: "watch"; url?: string; session: string; dir?: string; json: boolean }
   | { command: "log"; url?: string; session: string; dir?: string }
@@ -242,6 +243,17 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         once: flags.get("once") === true,
         json: flags.get("json") === true,
       };
+    }
+    case "attach": {
+      const { flags, positionals, globals } = collectFlags(rest, new Set(["url"]), new Set<string>());
+      const code = positionals[0];
+      if (code === undefined || code.trim().length === 0) {
+        throw new UsageError("a CODE is required, a part of the session ID");
+      }
+      if (positionals.length > 1) {
+        throw new UsageError(`attach takes one CODE, got "${positionals.join(" ")}"`);
+      }
+      return { command: "attach", url: globals.url, code };
     }
     case "ping": {
       const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "url"]), new Set<string>());

@@ -5,6 +5,7 @@ import { up } from "./up";
 import { down } from "./down";
 import { upSandbox, downSandbox } from "./sandbox";
 import { run } from "./run";
+import { attach } from "./attach";
 import { status } from "./status";
 import { top } from "./top/load";
 import { ping } from "./ping";
@@ -24,6 +25,7 @@ Usage:
   oc-sub restart [--dir DIR] [--force]
   oc-sub restart --no-sandbox [--port N] [--force]
   oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T]
+  oc-sub attach CODE [--url URL]
   oc-sub status [--dir DIR | --all]
   oc-sub top --once [--dir DIR | --all] [--json]
   oc-sub ping [--dir DIR]
@@ -79,6 +81,8 @@ export async function main(argv: readonly string[]): Promise<number> {
     }
     case "run":
       return run(args);
+    case "attach":
+      return attach(args);
     case "status":
       return status(args);
     case "top":

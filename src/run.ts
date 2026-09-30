@@ -18,8 +18,9 @@ import { resolveCommandUrl } from "./sandbox";
 import { addDir, readDirs, serveDirsPath } from "./state";
 import { uniqueDirectories, worktreesOf } from "./status";
 
-export function attachCommand(url: string, directory: string, sessionId: string): string {
-  return `opencode attach ${url} --dir ${directory} --session ${sessionId}`;
+/** The CODE that identifies a session for `oc-sub attach`: the last 6 characters. Pure. */
+export function attachCode(sessionId: string): string {
+  return sessionId.slice(-6);
 }
 
 /** The parts of run that the tests replace: fetch, git, the file system, and the working directory. */
@@ -147,7 +148,7 @@ export async function run(
   await addDir(serveDirsPath(env, resolvePort(undefined, baseUrl)), directory);
 
   console.log(created.id);
-  console.log(attachCommand(baseUrl, directory, created.id));
+  console.log(`watch live: oc-sub attach ${attachCode(created.id)}`);
   console.log(`run record: ${recordPath}`);
   console.log(`run record (state): ${stateRecordPath}`);
   return 0;

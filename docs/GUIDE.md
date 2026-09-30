@@ -107,13 +107,13 @@ After an update of the plugin, run `oc-sub restart`. The running server keeps th
 When Claude starts a run, it gives you a command like this one:
 
 ```
-opencode attach http://127.0.0.1:8767 --dir /path/to/worktree --session ses_abc123
+oc-sub attach abc123
 ```
 
-You have three ways to watch:
+CODE is the last part of the session ID. The command finds the run in the run records and starts the opencode interface for it. You have three ways to watch:
 
-- **Terminal**: run the `opencode attach ...` command in a second terminal. You see the full opencode interface, with each tool call and each answer.
-- **tmux**: keep a tmux window for the runs. Start the server there (`opencode serve --port 8767 --hostname 127.0.0.1`), and open each run with `opencode attach ...` in a new pane.
+- **Terminal**: run the `oc-sub attach CODE` command in a second terminal. You see the full opencode interface, with each tool call and each answer.
+- **tmux**: keep a tmux window for the runs. Start the server there (`opencode serve --port 8767 --hostname 127.0.0.1`), and open each run with `oc-sub attach CODE` in a new pane.
 - **Browser**: start `opencode web --port 8767 --hostname 127.0.0.1` instead of `opencode serve`. Then open `http://127.0.0.1:8767` in a browser. The home page lists the sessions.
 
 A short live view is also available in the shell:

@@ -95,9 +95,14 @@ export async function loadRunRecord(sessionId: string, cwd: string, env: Env): P
   return null;
 }
 
-/** All run records in the state folder and in the `.opencode/runs/` folder of cwd. */
+/**
+ * All run records in the state folder and in the `.opencode/runs/` folder of
+ * cwd, each session ID once. A record usually exists in both folders, so the
+ * first copy wins: the state folder is read first.
+ */
 export async function loadAllRunRecords(cwd: string, env: Env): Promise<RunRecord[]> {
   const records: RunRecord[] = [];
+  const seen = new Set<string>();
   for (const dir of [stateRunsDir(env), path.join(cwd, ".opencode", "runs")]) {
     let names: string[];
     try {
@@ -108,7 +113,10 @@ export async function loadAllRunRecords(cwd: string, env: Env): Promise<RunRecor
     for (const name of names) {
       try {
         const record = parseRunRecord(await readFile(path.join(dir, name), "utf8"));
-        if (record !== null) records.push(record);
+        if (record !== null && !seen.has(record.sessionId)) {
+          seen.add(record.sessionId);
+          records.push(record);
+        }
       } catch {
         // Skip an unreadable record.
       }

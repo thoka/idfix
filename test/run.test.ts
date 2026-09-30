@@ -193,6 +193,7 @@ describe("oc-sub run and the shared OpenRouter key", () => {
       expect(code).toBe(0);
       expect(server.sessionsCreated).toBe(1);
       expect(captured.logs[0]).toBe("ses_new");
+      expect(captured.logs.join("\n")).toContain("watch live: oc-sub attach es_new");
       const record = JSON.parse(readFileSync(path.join(CWD, ".opencode", "runs", "ses_new.json"), "utf8"));
       expect(record.keyFingerprint).toBe(fingerprint(KEY_A));
       expect(record.usageAtStart).toBe(1.25);

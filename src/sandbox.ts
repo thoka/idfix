@@ -125,6 +125,30 @@ export function readSandboxState(file: string): SandboxState | null {
   return parseSandboxState(text);
 }
 
+/**
+ * Every valid sandbox state in the state folder, sorted by project name.
+ * A missing state folder, and a missing, unreadable, or invalid state file,
+ * contributes nothing.
+ */
+export function readSandboxStates(env: Env): Array<{ project: string; state: SandboxState }> {
+  const dir = stateDir(env);
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const found: Array<{ project: string; state: SandboxState }> = [];
+  for (const entry of entries) {
+    if (!entry.startsWith("sandbox-") || !entry.endsWith(".json")) continue;
+    const project = entry.slice("sandbox-".length, -".json".length);
+    if (project.length === 0) continue;
+    const state = readSandboxState(path.join(dir, entry));
+    if (state !== null) found.push({ project, state });
+  }
+  return found.sort((a, b) => (a.project < b.project ? -1 : a.project > b.project ? 1 : 0));
+}
+
 /** Write the state file, so that the port stays the same across restarts. */
 export async function writeSandboxState(file: string, state: SandboxState): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
@@ -166,18 +190,8 @@ export function resolveCommandUrl(
  */
 export function usedSandboxPorts(env: Env, project: string): Set<number> {
   const used = new Set<number>();
-  const dir = stateDir(env);
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return used;
-  }
-  const own = `sandbox-${project}.json`;
-  for (const entry of entries) {
-    if (!entry.startsWith("sandbox-") || !entry.endsWith(".json") || entry === own) continue;
-    const state = readSandboxState(path.join(dir, entry));
-    if (state !== null) used.add(state.port);
+  for (const { project: name, state } of readSandboxStates(env)) {
+    if (name !== project) used.add(state.port);
   }
   return used;
 }

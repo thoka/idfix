@@ -6,6 +6,7 @@ import { resolvePort, resolveServerUrl, type Env } from "./config";
 import { resolveCommandUrl } from "./sandbox";
 import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "./client";
 import { listPendingRequests } from "./requests";
+import { listServers } from "./servers";
 import { readDirs, serveDirsPath } from "./state";
 
 /**
@@ -127,16 +128,89 @@ async function listSessionsSafe(
   }
 }
 
+/**
+ * The running sessions of one server, one line each. The directories come
+ * from three sources: the folders of past runs on this port, the projects of
+ * the server, and the git worktrees of both. A session that another server
+ * already listed (same session ID) is skipped.
+ */
+async function allServerLines(
+  baseUrl: string,
+  env: Env,
+  deps: StatusDeps,
+  listed: Set<string>,
+): Promise<string[]> {
+  const client = makeClient(baseUrl, env);
+  const port = resolvePort(undefined, baseUrl);
+  const fromDirsFile = await readDirs(serveDirsPath(env, port));
+  const projects = unwrap(await client.project.list({}), "list projects");
+  const projectDirs = projects.map((project) => project.worktree).filter((dir) => dir !== "/");
+  const base = uniqueDirectories([...fromDirsFile, ...projectDirs]);
+  const directories = uniqueDirectories([...base, ...base.flatMap((dir) => deps.worktreesOf(dir))]).filter((dir) =>
+    deps.exists(dir),
+  );
+
+  const lines: string[] = [];
+  for (const directory of directories) {
+    for (const session of await listSessionsSafe(client, baseUrl, directory, env)) {
+      // Child sessions are internal subagent runs of a listed parent.
+      if (session.child || session.state === "idle") continue;
+      if (listed.has(session.id)) continue;
+      listed.add(session.id);
+      lines.push(formatStatusLine(session.id, session.state, session.title, directory));
+    }
+  }
+  return lines;
+}
+
 /** `oc-sub status [--dir DIR | --all]`: one line per session: ID, state, title. */
 export async function status(
   args: { url?: string; dir?: string; all: boolean },
   env: Env = process.env,
   deps: StatusDeps = defaultDeps,
 ): Promise<number> {
-  // With --all, the listing covers every project and does not look at the
-  // state file of one sandbox. Otherwise, the sandbox URL of the project
-  // can step in before the default.
-  const baseUrl = args.all ? resolveServerUrl(args.url, env) : resolveCommandUrl(args.url, env, args.dir);
+  // With --all, the listing covers every known server: the host server (or
+  // the server of --url) and each sandbox with a valid state file. Without
+  // it, the sandbox URL of the project can step in before the default.
+  if (args.all) {
+    const servers = listServers(env, args.url);
+    const hostUrl = servers[0]?.url ?? resolveServerUrl(args.url, env);
+    const lines: string[] = [];
+    const listed = new Set<string>();
+    let answered = false;
+    for (const server of servers) {
+      const probe = await probeServer(server.url, env, 2000);
+      if (probe.state === "down") continue;
+      try {
+        assertUsable(probe, server.url, env);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : errorMessage(error);
+        console.error(`warning: ${server.url}: ${message}`);
+        continue;
+      }
+      answered = true;
+      // One broken server must not stop the listing of the others.
+      try {
+        lines.push(...(await allServerLines(server.url, env, deps, listed)));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : errorMessage(error);
+        console.error(`warning: ${server.url}: ${message}`);
+      }
+    }
+    if (!answered) {
+      // No server means no sessions. That is a normal state, not an error.
+      console.log(`no server on ${hostUrl}`);
+      return 0;
+    }
+    if (lines.length === 0) {
+      console.log("no running sessions");
+      return 0;
+    }
+    for (const line of lines) console.log(line);
+    return 0;
+  }
+
+  const baseUrl = resolveCommandUrl(args.url, env, args.dir);
   // No server means no sessions. That is a normal state, not an error.
   const server = await probeServer(baseUrl, env, 2000);
   if (server.state === "down") {
@@ -145,34 +219,6 @@ export async function status(
   }
   assertUsable(server, baseUrl, env);
   const client = makeClient(baseUrl, env);
-
-  if (args.all) {
-    // The directories come from three sources: the folders of past runs, the
-    // projects of the server, and the git worktrees of both.
-    const port = resolvePort(undefined, baseUrl);
-    const fromDirsFile = await readDirs(serveDirsPath(env, port));
-    const projects = unwrap(await client.project.list({}), "list projects");
-    const projectDirs = projects.map((project) => project.worktree).filter((dir) => dir !== "/");
-    const base = uniqueDirectories([...fromDirsFile, ...projectDirs]);
-    const directories = uniqueDirectories([...base, ...base.flatMap((dir) => deps.worktreesOf(dir))]).filter((dir) =>
-      deps.exists(dir),
-    );
-
-    const running: string[] = [];
-    for (const directory of directories) {
-      for (const session of await listSessionsSafe(client, baseUrl, directory, env)) {
-        // Child sessions are internal subagent runs of a listed parent.
-        if (session.child || session.state === "idle") continue;
-        running.push(formatStatusLine(session.id, session.state, session.title, directory));
-      }
-    }
-    if (running.length === 0) {
-      console.log("no running sessions");
-      return 0;
-    }
-    for (const line of running) console.log(line);
-    return 0;
-  }
 
   const directory = path.resolve(args.dir ?? process.cwd());
   for (const dir of deps.worktreesOf(directory)) {

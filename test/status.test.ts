@@ -47,6 +47,8 @@ function startFakeServer(options: {
   permissions?: Array<Record<string, unknown>>;
   /** Directories whose session listing fails, as a broken project does. */
   brokenDirectories?: string[];
+  /** The project listing fails, as a broken server does. */
+  brokenProjects?: boolean;
 }): FakeServer {
   const server = Bun.serve({
     port: 0,
@@ -54,7 +56,10 @@ function startFakeServer(options: {
     fetch: (request) => {
       const url = new URL(request.url);
       if (url.pathname === "/global/health") return Response.json({ healthy: true, version: "1.0.0" });
-      if (url.pathname === "/project") return Response.json(options.projects ?? []);
+      if (url.pathname === "/project") {
+        if (options.brokenProjects === true) return Response.json({ message: "boom" }, { status: 500 });
+        return Response.json(options.projects ?? []);
+      }
       if (url.pathname === "/question") return Response.json(options.questions ?? []);
       if (url.pathname === "/permission") return Response.json(options.permissions ?? []);
       const directory = url.searchParams.get("directory") ?? "";
@@ -350,26 +355,120 @@ describe("status", () => {
     }
   });
 
-  test("--all keeps the old URL resolution and does not read the sandbox state", async () => {
+  test("--all lists the running sessions of the host server and a sandbox server", async () => {
     const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-state-"));
+    const host = startFakeServer({
+      sessions: [{ id: "ses_host", directory: "/hostproj", title: "Host run" }],
+      states: { ses_host: { type: "busy" } },
+      projects: [{ id: "p1", worktree: "/hostproj" }],
+    });
+    const sandbox = startFakeServer({
+      sessions: [{ id: "ses_sbx", directory: "/sbxproj", title: "Sandbox run" }],
+      states: { ses_sbx: { type: "busy" } },
+      projects: [{ id: "p2", worktree: "/sbxproj" }],
+    });
     try {
-      // A sandbox state for the project of the test folder. --all must
-      // ignore it: the printed URL stays the default.
-      const projectName = path.basename(process.cwd());
-      const stateFile = path.join(stateHome, "oc-sub", `sandbox-${projectName}.json`);
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-sbx.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
-      writeFileSync(stateFile, JSON.stringify({ name: `oc-sub-${projectName}`, root: "/repo", port: 18799 }));
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-sbx", root: "/sbxproj", port: sandbox.port }));
       const captured = captureLog();
       try {
-        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome });
+        // No --url: the host server comes from OC_SUB_URL, the sandbox from
+        // its state file.
+        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url }, testDeps);
         expect(code).toBe(0);
-        // A server on the default port may or may not answer. The sandbox
-        // URL of this project must never appear, whatever it prints.
-        expect(captured.lines.join("\n")).not.toContain("18799");
+        expect(captured.lines).toEqual(["ses_host busy Host run (/hostproj)", "ses_sbx busy Sandbox run (/sbxproj)"]);
       } finally {
         captured.restore();
       }
     } finally {
+      host.stop();
+      sandbox.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("--all warns about a server whose listing fails and lists the others", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-state-"));
+    const host = startFakeServer({
+      sessions: [{ id: "ses_host", directory: "/hostproj", title: "Host run" }],
+      states: { ses_host: { type: "busy" } },
+      projects: [{ id: "p1", worktree: "/hostproj" }],
+    });
+    const broken = startFakeServer({ brokenProjects: true });
+    try {
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-broken.json");
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-broken", root: "/broken", port: broken.port }));
+      const captured = captureLog();
+      try {
+        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url }, testDeps);
+        expect(code).toBe(0);
+        expect(captured.lines).toEqual(["ses_host busy Host run (/hostproj)"]);
+        expect(captured.errors.join("\n")).toContain(`warning: ${broken.url}:`);
+      } finally {
+        captured.restore();
+      }
+    } finally {
+      host.stop();
+      broken.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("--all skips a sandbox state file whose port has no server", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-state-"));
+    const host = startFakeServer({
+      sessions: [{ id: "ses_host", directory: "/hostproj", title: "Host run" }],
+      states: { ses_host: { type: "busy" } },
+      projects: [{ id: "p1", worktree: "/hostproj" }],
+    });
+    try {
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-gone.json");
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-gone", root: "/gone", port: 18799 }));
+      const captured = captureLog();
+      try {
+        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url }, testDeps);
+        expect(code).toBe(0);
+        expect(captured.lines).toEqual(["ses_host busy Host run (/hostproj)"]);
+        expect(captured.errors).toEqual([]);
+      } finally {
+        captured.restore();
+      }
+    } finally {
+      host.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("--all lists a session that two servers share once", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-state-"));
+    const host = startFakeServer({
+      sessions: [{ id: "ses_shared", directory: "/proj", title: "Shared run" }],
+      states: { ses_shared: { type: "busy" } },
+      projects: [{ id: "p1", worktree: "/proj" }],
+    });
+    const sandbox = startFakeServer({
+      sessions: [{ id: "ses_shared", directory: "/proj", title: "Shared run" }],
+      states: { ses_shared: { type: "busy" } },
+      projects: [{ id: "p2", worktree: "/proj" }],
+    });
+    try {
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-dup.json");
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-dup", root: "/proj", port: sandbox.port }));
+      const captured = captureLog();
+      try {
+        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url }, testDeps);
+        expect(code).toBe(0);
+        expect(captured.lines).toEqual(["ses_shared busy Shared run (/proj)"]);
+      } finally {
+        captured.restore();
+      }
+    } finally {
+      host.stop();
+      sandbox.stop();
       rmSync(stateHome, { recursive: true, force: true });
     }
   });

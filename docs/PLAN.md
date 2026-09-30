@@ -193,6 +193,13 @@ Root cause: opencode stores neither the provider nor the real cost of a step. Th
 2. The detectors of step 6 flag a run with a loop, a stall, unreadable text, or runaway reasoning. Then the provider of the flagged steps gets a strike.
 3. After two or three strikes, the provider goes onto the OpenRouter `ignore` list for some days. After that, it gets a new chance.
 
+Sub-steps, decided on 2026-09-30:
+
+- 11a, done on 2026-09-30. The report is [COST_PROXY.md](research/COST_PROXY.md). A small Bun pass-through proxy runs inside the sandbox next to the server, and `provider.openrouter.options.baseURL` points opencode to it. The `sbx` gateway still injects the key, so the proxy never sees it. The last chunk of the stream carries `usage.cost`, and each chunk carries `provider`. opencode sends `X-Session-Id` and `x-parent-session-id`, so each request maps to its session. No established tool fits: LiteLLM and the gateways are too heavy, `openrouter-usage-proxy` buffers the stream. An opencode plugin cannot see the response. The review adds a `start` line per request, so `watch` knows when a model request is open (fixes the false stall of step 6).
+- 11b, open: a live test of `NO_PROXY` inside the sandbox by the main thread, then the proxy with tests.
+
+[OPENCODE_ROADMAP.md](research/OPENCODE_ROADMAP.md), 2026-09-30: the latest release is 1.18.33 and fixes none of our issues. 2.0 is a beta channel (v2.0.20) with no date and a new server API. oc-sub stays on 1.18.32.
+
 ## Step 12: A working mise inside the sandbox
 
 Status: open. Decided with the user on 2026-09-30. The research is in [SANDBOX_MISE.md](research/SANDBOX_MISE.md).

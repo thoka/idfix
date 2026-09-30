@@ -376,9 +376,15 @@ function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
       sandboxRecreateFix(name),
     );
   }
+  // The same clone check as in `up`: a create can exit 0 and leave no clone.
+  // Its `sbx exec` also starts a stopped sandbox.
+  if (!hasClone(deps.runner, deps.sandboxBin, name, state.root)) {
+    return result("sandbox-mounts", "fail", missingCloneMessage(name, state.root), sandboxRecreateFix(name));
+  }
   // Clone mode is a create-time flag, so an old direct-mount sandbox needs
   // the same recreate: `sbx` adds the `sandbox-<name>` git remote only for a
-  // sandbox created with `--clone`.
+  // sandbox created with `--clone`. `sbx stop` removes the remote and the
+  // next start adds it again, so this check comes after the start above.
   if (!listsCloneRemote(deps.runner(["git", "-C", deps.root, "remote"]).stdout, name)) {
     return result(
       "sandbox-mounts",
@@ -386,10 +392,6 @@ function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
       `the sandbox ${name} is not in clone mode (the project has no sandbox-<name> git remote)`,
       sandboxRecreateFix(name),
     );
-  }
-  // The same clone check as in `up`: a create can exit 0 and leave no clone.
-  if (!hasClone(deps.runner, deps.sandboxBin, name, state.root)) {
-    return result("sandbox-mounts", "fail", missingCloneMessage(name, state.root), sandboxRecreateFix(name));
   }
   return result("sandbox-mounts", "pass", `the sandbox ${name} has all required mounts, clone mode, and a clone`);
 }

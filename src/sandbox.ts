@@ -663,14 +663,6 @@ export async function upSandbox(
     console.error(`error: the sandbox ${name} lacks the plugin, the mise installs, or the shared agents mount`);
     console.error(sandboxRecreateFix(name));
     return 1;
-  } else if (!listsCloneRemote(deps.runner(["git", "-C", root, "remote"]).stdout, name)) {
-    // Clone mode is also a create-time flag: an old direct-mount sandbox
-    // cannot be converted, so it must be recreated. Without the
-    // `sandbox-<name>` remote the review could not fetch the commits of the
-    // agent from the clone.
-    console.error(`error: the sandbox ${name} is not in clone mode (the project has no sandbox-<name> git remote)`);
-    console.error(sandboxRecreateFix(name));
-    return 1;
   }
 
   // After the create, and on every up of an existing sandbox: the clone must
@@ -679,6 +671,18 @@ export async function upSandbox(
   // lives in that clone.
   if (!hasClone(deps.runner, bin, name, root)) {
     console.error(`error: ${missingCloneMessage(name, root)}`);
+    console.error(sandboxRecreateFix(name));
+    return 1;
+  }
+
+  // Clone mode is also a create-time flag: an old direct-mount sandbox
+  // cannot be converted, so it must be recreated. Without the
+  // `sandbox-<name>` remote the review could not fetch the commits of the
+  // agent from the clone. `sbx stop` removes the remote, and the next start
+  // of the sandbox adds it again. The `sbx exec` of the clone check above
+  // starts a stopped sandbox, so this check must come after it.
+  if (!listsCloneRemote(deps.runner(["git", "-C", root, "remote"]).stdout, name)) {
+    console.error(`error: the sandbox ${name} is not in clone mode (the project has no sandbox-<name> git remote)`);
     console.error(sandboxRecreateFix(name));
     return 1;
   }
@@ -853,10 +857,11 @@ export async function downSandbox(
     }
   }
 
-  // `sbx stop` keeps the clone and the sandbox. After a restart, the git
-  // daemon of clone mode publishes a new ephemeral port; the `sbx` CLI
-  // updates the `sandbox-<name>` remote URL itself
-  // (docs/research/RUN_ISOLATION.md section 2.4).
+  // `sbx stop` keeps the clone and the sandbox, but it removes the
+  // `sandbox-<name>` remote from the host repository. The next start of the
+  // sandbox adds the remote again, with the new ephemeral port of the git
+  // daemon (docs/research/RUN_ISOLATION.md section 2.4). `upSandbox`
+  // therefore checks the remote only after its first `sbx exec`.
   const stop = deps.runner([sbxBin(env), "stop", name]);
   if (stop.exitCode !== 0) {
     console.error(`error: sbx stop ${name} failed`);

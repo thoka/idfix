@@ -626,7 +626,7 @@ describe("upSandbox", () => {
     });
     const result = await upSandbox({}, env, makeDeps({ runner, probe: async () => ({ state: "up", version: "1.18.32" }) }));
     expect(result).toBe(0);
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "git", "exec", "secret", "exec", "ports", "ports", "ports", "policy", "policy", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec", "git", "secret", "exec", "ports", "ports", "ports", "policy", "policy", "exec"]);
   });
 
   test("a publish that fails without the port in a second list is an error", async () => {
@@ -654,7 +654,7 @@ describe("upSandbox", () => {
     });
     const result = await upSandbox({}, env, makeDeps({ runner }));
     expect(result).toBe(1);
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "git", "exec", "secret", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec", "git", "secret", "exec"]);
   });
 
   test("refuses without the project key file and calls no sbx", async () => {
@@ -694,6 +694,7 @@ describe("upSandbox", () => {
         return { stdout: JSON.stringify({ PATH: `${toolBin}:/usr/local/bin` }) };
       }
       if (isSubcommand(cmd, "policy") && cmd[2] === "check") return DENIED;
+      if (cmd[0] === "git") return GIT_REMOTE;
       return { stdout: "", exitCode: 0 };
     });
     const execCommands: string[][] = [];
@@ -708,7 +709,7 @@ describe("upSandbox", () => {
     expect(result).toBe(1);
 
     expect(subcommands(calls)).toEqual([
-      "mise", "mise", "ls", "create", "policy", "policy", "policy", "exec",
+      "mise", "mise", "ls", "create", "policy", "policy", "policy", "exec", "git",
       "secret", "secret", "exec", "ports", "ports", "policy", "policy", "exec",
     ]);
     // `mise install` and `mise env` run in the project root.
@@ -743,7 +744,9 @@ describe("upSandbox", () => {
     ]);
     // The clone check runs right after the create and its network rules.
     expect(calls[7]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "git", "-C", "/repo", "rev-parse", "--git-dir"]);
-    expect(calls[9]?.cmd).toEqual([
+    // The clone mode check follows the clone check.
+    expect(calls[8]?.cmd).toEqual(["git", "-C", "/repo", "remote"]);
+    expect(calls[10]?.cmd).toEqual([
       "sbx",
       "secret",
       "set",
@@ -753,13 +756,13 @@ describe("upSandbox", () => {
       "--command",
       `cat ${shellQuote(path.join(env.XDG_CONFIG_HOME as string, "test", "openrouter.key"))}`,
     ]);
-    expect(calls[10]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "sh", "-c", placeholderKeyScript("test")]);
-    expect(calls[12]?.cmd).toEqual(["sbx", "ports", "oc-sub-test", "--publish", "18768:4096"]);
+    expect(calls[11]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "sh", "-c", placeholderKeyScript("test")]);
+    expect(calls[13]?.cmd).toEqual(["sbx", "ports", "oc-sub-test", "--publish", "18768:4096"]);
     // The checks of the network rules, before the server starts.
-    expect(calls[13]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "host.docker.internal:8767"]);
-    expect(calls[14]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "localhost:8767"]);
+    expect(calls[14]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "host.docker.internal:8767"]);
+    expect(calls[15]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "localhost:8767"]);
     // The readability check of the shared rules, before the server starts.
-    expect(calls[15]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "test", "-r", `${sharedAgentsDir(env)}/AGENTS.md`]);
+    expect(calls[16]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "test", "-r", `${sharedAgentsDir(env)}/AGENTS.md`]);
     expect(execCommands).toEqual([[
       "sbx",
       "exec",
@@ -814,6 +817,30 @@ describe("upSandbox", () => {
     expect(subcommands(calls)).toEqual(["mise", "mise", "ls"]);
   });
 
+  test("a stopped clone-mode sandbox passes, because its start adds the remote again", async () => {
+    // `sbx stop` removes the `sandbox-<name>` remote, and the next start of
+    // the sandbox adds it again. The first `sbx exec` starts the sandbox.
+    const env = makeEnv();
+    let started = false;
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "exec")) started = true;
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
+      if (cmd[0] === "git") return started ? GIT_REMOTE : { stdout: "origin\n" };
+      return DENIED;
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    try {
+      await upSandbox({}, env, makeDeps({ runner, spawnServe: () => ({ pid: 4242, exitCode: () => 1 }) }));
+    } finally {
+      console.error = err;
+    }
+    expect(errors.join("\n")).not.toContain("not in clone mode");
+    expect(subcommands(calls).slice(0, 5)).toEqual(["mise", "mise", "ls", "exec", "git"]);
+  });
+
   test("an existing direct-mount sandbox without the clone remote stops up with a hint", async () => {
     const env = makeEnv();
     const { calls, runner } = fakeRunner((cmd) => {
@@ -840,7 +867,7 @@ describe("upSandbox", () => {
     expect(text).toContain("sbx rm --force oc-sub-test");
     expect(text).toContain("oc-sub up");
     // No secret, no exec, no server.
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "git"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec", "git"]);
   });
 
   test("an allowed policy check stops up before the server starts", async () => {
@@ -860,7 +887,7 @@ describe("upSandbox", () => {
     };
     const result = await upSandbox({}, env, makeDeps({ runner, spawnServe }));
     expect(result).toBe(1);
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "git", "exec", "secret", "exec", "ports", "policy"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec", "git", "secret", "exec", "ports", "policy"]);
   });
 
   test("a failed mise install stops up before any sbx call", async () => {
@@ -909,7 +936,7 @@ describe("upSandbox", () => {
     } finally {
       console.log = log;
     }
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "git", "exec", "secret", "exec", "ports", "policy", "policy", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec", "git", "secret", "exec", "ports", "policy", "policy", "exec"]);
     expect(output).toContain("http://127.0.0.1:18799 version 1.18.32");
     expect(output.join("\n")).not.toContain("OC_SUB_URL");
     expect(output.join("\n")).toContain("sandbox: oc-sub-test");
@@ -1075,7 +1102,7 @@ describe("upSandbox", () => {
     expect(result).toBe(1);
     expect(errors.join("\n")).toContain("has no git clone at /repo");
     expect(errors.join("\n")).toContain("sbx rm --force oc-sub-test");
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "git", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec"]);
   });
 });
 

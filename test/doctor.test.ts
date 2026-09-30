@@ -337,6 +337,24 @@ describe("sandbox-mounts", () => {
     expect(check?.fix).toContain("sbx rm --force oc-sub-repo");
   });
 
+  test("passes for a stopped clone-mode sandbox, because the clone check starts it", () => {
+    // `sbx stop` removes the `sandbox-<name>` remote, and the `sbx exec` of
+    // the clone check starts the sandbox, which adds the remote again.
+    let started = false;
+    const deps = makeDeps(
+      {},
+      {
+        runner: (cmd) => {
+          if (cmd[1] === "exec") started = true;
+          if (cmd[0] === "git") return { stdout: started ? "sandbox-oc-sub-repo\n" : "origin\n", exitCode: 0 };
+          return { stdout: lsWithMounts, exitCode: 0 };
+        },
+        sandboxState: () => ({ name: "oc-sub-repo", root: "/repo", port: 18768 }),
+      },
+    );
+    expect(byName(results(deps, SLOW_CHECKS), "sandbox-mounts")?.status).toBe("pass");
+  });
+
   test("fails with the sbx rm fix when the sandbox is not in clone mode", () => {
     const deps = makeDeps(
       {},

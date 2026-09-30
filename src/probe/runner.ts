@@ -4,8 +4,10 @@
  * key belongs to exactly one run.
  *
  * One run:
- *  1. create the run worktree `probe-<provider>-<n>` inside the sandbox
- *     clone (the same `oc-sub worktree` code),
+ *  1. create the run worktree `probe-<provider>-<n>-<HHMMSS>` inside the
+ *     sandbox clone (the same `oc-sub worktree` code); the `HHMMSS` stamp
+ *     comes from the start time of the batch, so a step name is unique per
+ *     batch and a leftover of an older batch is never reused,
  *  2. write `.opencode/opencode.json` with the model alias
  *     `glm-probe-<provider>` into the worktree, through `sbx exec`, before
  *     any server request touches the folder (a fresh directory loads its
@@ -21,7 +23,9 @@
  *  6. remove the run worktree.
  *
  * A run that fails at any step writes a result line with the error and the
- * loop goes on with the next run. Every `sbx` call goes through the
+ * loop goes on with the next run. A failure in a worktree step (create,
+ * config write, remove) counts with rule `setup`, not as a provider
+ * failure. Every `sbx` call goes through the
  * injectable runner, and every server and OpenRouter call goes through
  * injectable dependencies, so the tests use fakes only.
  */
@@ -80,8 +84,18 @@ export function probeConfig(provider: string): string {
 }
 
 /** The worktree step name of one probe run. */
-export function probeStep(provider: string, run: number): string {
-  return `probe-${provider.toLowerCase()}-${run}`;
+export function probeStep(provider: string, run: number, stamp?: string): string {
+  const base = `probe-${provider.toLowerCase()}-${run}`;
+  return stamp === undefined ? base : `${base}-${stamp}`;
+}
+
+/**
+ * The `HHMMSS` stamp of a batch, from its start time in UTC. Every batch of
+ * a probe run uses it in its step names, so a leftover of an older batch
+ * can never be reused by a newer one.
+ */
+export function batchStamp(nowMs: number): string {
+  return new Date(nowMs).toISOString().slice(11, 19).replaceAll(":", "");
 }
 
 /** The results file of one day, for example `probe/results/2026-09-30.jsonl`. */
@@ -96,6 +110,8 @@ export type ProbeFailure = { rule: string; detail: string };
 export type ProbeRunResult = {
   provider: string;
   run: number;
+  /** The worktree step name of the run, unique per batch. */
+  step: string;
   sessionId: string | null;
   pass: boolean;
   control: boolean;
@@ -230,11 +246,14 @@ export type ProbeInput = {
  */
 export async function runProbe(input: ProbeInput, deps: ProbeDeps): Promise<ProbeRunResult[]> {
   const results: ProbeRunResult[] = [];
+  // One stamp for the whole batch: every step name of the batch carries it,
+  // so it can never collide with a leftover of an older batch.
+  const stamp = batchStamp(deps.now());
   for (const provider of input.providers) {
     for (let run = 1; run <= input.runs; run++) {
       // The runs are strictly sequential: the real-cost delta of the key
       // belongs to exactly one run.
-      const result = await runOne(input, provider, run, deps);
+      const result = await runOne(input, provider, run, stamp, deps);
       results.push(result);
       const line = JSON.stringify(result);
       await deps.appendResult(input.resultsFile, line);
@@ -244,11 +263,12 @@ export async function runProbe(input: ProbeInput, deps: ProbeDeps): Promise<Prob
 }
 
 /** One probe run, with every step of the brief. Never throws. */
-async function runOne(input: ProbeInput, provider: string, run: number, deps: ProbeDeps): Promise<ProbeRunResult> {
+async function runOne(input: ProbeInput, provider: string, run: number, stamp: string, deps: ProbeDeps): Promise<ProbeRunResult> {
   const startedMs = deps.now();
   const result: ProbeRunResult = {
     provider,
     run,
+    step: probeStep(provider, run, stamp),
     sessionId: null,
     pass: false,
     control: input.control,
@@ -258,12 +278,15 @@ async function runOne(input: ProbeInput, provider: string, run: number, deps: Pr
     realCostDelta: null,
     wallMs: 0,
   };
-  const step = probeStep(provider, run);
+  const step = result.step;
   const root = path.resolve(input.dir);
   const project = deps.projectName(projectRootOfRun(root));
   const state = deps.sandboxState(project);
   let worktreeCreated = false;
   let answered = false;
+  // The worktree steps (create, config write, remove) are setup: they say
+  // nothing about the provider, so they fail with rule `setup`.
+  let phase: "setup" | "run" = "setup";
   try {
     if (state === null) throw new Error(`no sandbox state for project ${project}. Run oc-sub up first.`);
     const worktreePath = await createWorktree(step, root, input.env, deps);
@@ -272,6 +295,7 @@ async function runOne(input: ProbeInput, provider: string, run: number, deps: Pr
     // The config must exist before the first server request to the folder:
     // a fresh directory loads its config on first use (PROBE_ROUTING.md §4).
     writeRunConfig(deps.runner, state.name, worktreePath, provider, input.env);
+    phase = "run";
 
     const key = await deps.resolveKey(worktreePath);
     const usageBefore = key !== null ? await fetchKeyUsage(key, deps.fetch) : null;
@@ -336,23 +360,34 @@ async function runOne(input: ProbeInput, provider: string, run: number, deps: Pr
     result.realCostDelta = usageBefore !== null && usageAfter !== null ? usageAfter - usageBefore : null;
   } catch (error) {
     result.pass = false;
-    result.failures.push({ rule: "error", detail: error instanceof Error ? error.message : String(error) });
-    // A control run that fails with a routing refusal did what it should:
-    // the pin made OpenRouter refuse the request. Any other error, for
-    // example a model-not-found error from an unloaded alias config, fails
-    // the control, and the detail quotes the error text.
-    if (input.control) {
-      const detail = result.failures[0]?.detail ?? "the run failed";
-      if (!answered && isRoutingRefusal(detail)) {
-        result.pass = true;
-        result.failures = [{ rule: "control-error", detail }];
-      } else {
-        result.failures.push({ rule: "control", detail });
+    const detail = error instanceof Error ? error.message : String(error);
+    if (phase === "setup") {
+      // A setup failure says nothing about the provider.
+      result.failures.push({ rule: "setup", detail });
+    } else {
+      result.failures.push({ rule: "error", detail });
+      // A control run that fails with a routing refusal did what it should:
+      // the pin made OpenRouter refuse the request. Any other error, for
+      // example a model-not-found error from an unloaded alias config, fails
+      // the control, and the detail quotes the error text.
+      if (input.control) {
+        if (!answered && isRoutingRefusal(detail)) {
+          result.pass = true;
+          result.failures = [{ rule: "control-error", detail }];
+        } else {
+          result.failures.push({ rule: "control", detail });
+        }
       }
     }
   }
   result.wallMs = deps.now() - startedMs;
-  if (worktreeCreated) await removeWorktree(step, root, input.env, deps);
+  if (worktreeCreated) {
+    const removed = await removeWorktree(step, root, input.env, deps);
+    if (!removed) {
+      result.pass = false;
+      result.failures.push({ rule: "setup", detail: `removing the run worktree ${step} failed` });
+    }
+  }
   return result;
 }
 
@@ -361,30 +396,36 @@ function execCmd(env: Env, name: string, ...args: readonly string[]): string[] {
   return [sbxBin(env), "exec", name, ...args];
 }
 
-/** Creates the run worktree with the same code as `oc-sub worktree`. */
-async function createWorktree(step: string, root: string, env: Env, deps: ProbeDeps): Promise<string> {
-  const cloneDeps: CloneDeps = {
+/** The clone-mode dependencies of the worktree commands, over the probe deps. */
+function cloneDeps(deps: ProbeDeps): CloneDeps {
+  return {
     runner: deps.runner,
     sandboxState: deps.sandboxState,
     projectName: deps.projectName,
     // The probe task needs only grep and git, so no project setup command.
     setupCommand: () => undefined,
+    // The worktree removal disposes the opencode instance of the folder
+    // first, so that opencode stops writing into it before `git worktree
+    // remove` runs (the package-install race).
+    dispose: async (baseUrl, directory) => {
+      assertOk(await deps.client.instance.dispose({ query: { directory } }), "dispose instance");
+    },
+    sleep: deps.sleep,
   };
-  const code = worktree({ step, dir: root, noSetup: true }, env, cloneDeps);
+}
+
+/** Creates the run worktree with the same code as `oc-sub worktree`. */
+async function createWorktree(step: string, root: string, env: Env, deps: ProbeDeps): Promise<string> {
+  const code = worktree({ step, dir: root, noSetup: true }, env, cloneDeps(deps));
   if (code !== 0) throw new Error(`creating the run worktree ${step} failed`);
   return path.join(root, ".worktrees", step);
 }
 
 /** Removes the run worktree with the same code as `oc-sub worktree rm`. */
-async function removeWorktree(step: string, root: string, env: Env, deps: ProbeDeps): Promise<void> {
-  const cloneDeps: CloneDeps = {
-    runner: deps.runner,
-    sandboxState: deps.sandboxState,
-    projectName: deps.projectName,
-    setupCommand: () => undefined,
-  };
-  const code = worktreeRm({ step, dir: root }, env, cloneDeps);
+async function removeWorktree(step: string, root: string, env: Env, deps: ProbeDeps): Promise<boolean> {
+  const code = await worktreeRm({ step, dir: root }, env, cloneDeps(deps));
   if (code !== 0) console.error(`warning: removing the run worktree ${step} failed`);
+  return code === 0;
 }
 
 /**

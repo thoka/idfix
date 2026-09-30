@@ -14,7 +14,7 @@ import type { Env } from "../src/config";
 import { makeClient } from "../src/client";
 import { defaultRunner, resolveCommandUrl, readSandboxState, sandboxStatePath } from "../src/sandbox";
 import { projectNameOf } from "../src/keys";
-import { CONTROL_PROVIDER, defaultPendingRequests, defaultResolveKey, median, probeStep, resultsFilePath, runProbe, appendResultLine, type ProbeDeps, type ProbeRunResult } from "../src/probe/runner";
+import { CONTROL_PROVIDER, defaultPendingRequests, defaultResolveKey, median, resultsFilePath, runProbe, appendResultLine, type ProbeDeps, type ProbeRunResult } from "../src/probe/runner";
 import type { ExpectedAnswer } from "../src/probe/evaluate";
 import { formatCost, formatDuration } from "../src/summary";
 
@@ -100,17 +100,20 @@ function runLine(result: ProbeRunResult): string {
       ? "pass"
       : `FAIL (${result.failures.map((failure) => failure.rule).join(", ")})`;
   return (
-    `${probeStep(result.provider, result.run)}: ${outcome}, ` +
+    `${result.step}: ${outcome}, ` +
     `ttft ${ms(result.speed.timeToFirstTokenMs)}, ${rate(result.speed.generationTokensPerSecond)}, ` +
     `est ${formatCost(result.estimatedCost)}, real ${usd(result.realCostDelta)}, ${formatDuration(result.wallMs)}`
   );
 }
 
-/** One row of the end table, aggregated per provider. */
+/** One row of the end table, aggregated per provider. A run with a `setup`
+ * failure (worktree create, config write, or remove) is not a provider
+ * failure: the setup column counts it, and the pass rate leaves it out. */
 export function providerRows(results: readonly ProbeRunResult[]): Array<{
   provider: string;
   passes: number;
   runs: number;
+  setup: number;
   medianTtftMs: number | null;
   medianTokensPerSecond: number | null;
   medianRealCost: number | null;
@@ -121,14 +124,19 @@ export function providerRows(results: readonly ProbeRunResult[]): Array<{
     list.push(result);
     byProvider.set(result.provider, list);
   }
-  return [...byProvider.entries()].map(([provider, list]) => ({
-    provider,
-    passes: list.filter((result) => result.pass).length,
-    runs: list.length,
-    medianTtftMs: median(list.map((result) => result.speed.timeToFirstTokenMs ?? Number.NaN).filter((value) => !Number.isNaN(value))),
-    medianTokensPerSecond: median(list.map((result) => result.speed.generationTokensPerSecond ?? Number.NaN).filter((value) => !Number.isNaN(value))),
-    medianRealCost: median(list.map((result) => result.realCostDelta ?? Number.NaN).filter((value) => !Number.isNaN(value))),
-  }));
+  return [...byProvider.entries()].map(([provider, list]) => {
+    const setupRuns = list.filter((result) => result.failures.some((failure) => failure.rule === "setup"));
+    const providerRuns = list.filter((result) => !result.failures.some((failure) => failure.rule === "setup"));
+    return {
+      provider,
+      passes: providerRuns.filter((result) => result.pass).length,
+      runs: providerRuns.length,
+      setup: setupRuns.length,
+      medianTtftMs: median(list.map((result) => result.speed.timeToFirstTokenMs ?? Number.NaN).filter((value) => !Number.isNaN(value))),
+      medianTokensPerSecond: median(list.map((result) => result.speed.generationTokensPerSecond ?? Number.NaN).filter((value) => !Number.isNaN(value))),
+      medianRealCost: median(list.map((result) => result.realCostDelta ?? Number.NaN).filter((value) => !Number.isNaN(value))),
+    };
+  });
 }
 
 export async function main(argv: readonly string[], env: Env = process.env): Promise<number> {
@@ -182,17 +190,21 @@ export async function main(argv: readonly string[], env: Env = process.env): Pro
 
   const rows = providerRows(results);
   console.log("");
-  console.log("provider      passes  median ttft  median tok/s  median real cost");
+  console.log("provider      passes  setup  median ttft  median tok/s  median real cost");
   for (const row of rows) {
     console.log(
       row.provider.padEnd(14) +
         `${row.passes}/${row.runs}`.padEnd(8) +
+        String(row.setup).padEnd(7) +
         ms(row.medianTtftMs).padEnd(13) +
         rate(row.medianTokensPerSecond).padEnd(14) +
         usd(row.medianRealCost),
     );
   }
-  return results.every((result) => result.pass) ? 0 : 1;
+  // A setup failure is not a provider failure: it leaves the pass rate out,
+  // and the exit code counts only the provider runs.
+  const providerRuns = results.filter((result) => !result.failures.some((failure) => failure.rule === "setup"));
+  return providerRuns.every((result) => result.pass) ? 0 : 1;
 }
 
 if (import.meta.main) {

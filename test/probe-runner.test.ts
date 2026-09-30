@@ -14,6 +14,7 @@ import type { SandboxState } from "../src/sandbox";
 import type { MessageEntry } from "../src/summary";
 import {
   CONTROL_PROVIDER,
+  batchStamp,
   median,
   probeAlias,
   probeConfig,
@@ -24,6 +25,7 @@ import {
   type ProbeDeps,
 } from "../src/probe/runner";
 import type { ExpectedAnswer } from "../src/probe/evaluate";
+import { providerRows } from "../probe/run";
 
 const EXPECTED: ExpectedAnswer = {
   interfaces: [
@@ -84,6 +86,12 @@ function fakeClient(options: ClientOptions, log: string[], sessionMessages: Mess
   let polls = 0;
   const busyPolls = options.busyPolls ?? 0;
   return {
+    instance: {
+      dispose: async () => {
+        log.push("dispose");
+        return { data: true };
+      },
+    },
     session: {
       // The SDK wraps every answer in { data, error }, like unwrap/assertOk read it.
       create: async () => {
@@ -115,6 +123,7 @@ function fakeRunner(options: {
   answerMd?: string | null;
   commitCount?: string;
   failFirstConfig?: number;
+  failRemove?: boolean;
   calls?: string[][];
   log?: string[];
 }) {
@@ -123,6 +132,10 @@ function fakeRunner(options: {
     options.calls?.push([...cmd]);
     const text = cmd.join(" ");
     if (cmd[3] === "test" && cmd[4] === "-d") return { stdout: "", exitCode: 1 };
+    if (text.includes("worktree remove")) {
+      options.log?.push("worktree-remove");
+      return { stdout: "", stderr: "device busy\n", exitCode: options.failRemove ? 1 : 0 };
+    }
     if (cmd[3] === "sh" && text.includes("mkdir -p")) {
       configWrites += 1;
       if (configWrites <= (options.failFirstConfig ?? 0)) return { stdout: "", exitCode: 1 };
@@ -228,6 +241,13 @@ describe("probe helpers", () => {
     });
     expect(probeAlias("z-ai")).toBe("glm-probe-z-ai");
     expect(probeStep("z-ai", 2)).toBe("probe-z-ai-2");
+    // With the stamp of a batch, the step name is unique per batch.
+    expect(probeStep("z-ai", 2, "121530")).toBe("probe-z-ai-2-121530");
+  });
+
+  test("batchStamp formats the UTC time of the batch start as HHMMSS", () => {
+    expect(batchStamp(Date.UTC(2026, 8, 30, 14, 5, 9))).toBe("140509");
+    expect(batchStamp(Date.UTC(2026, 8, 30, 23, 59, 59))).toBe("235959");
   });
 
   test("resultsFilePath uses the ISO date", () => {
@@ -311,12 +331,60 @@ describe("runProbe", () => {
       const results = await runProbe(input({ providers: ["z-ai", "baseten"] }), fx.deps);
       expect(results).toHaveLength(2);
       expect(results[0]!.pass).toBe(false);
-      expect(results[0]!.failures[0]!.rule).toBe("error");
+      // A config write is a worktree step: it fails with rule setup, not error.
+      expect(results[0]!.failures[0]!.rule).toBe("setup");
       expect(results[1]!.provider).toBe("baseten");
       expect(results[1]!.pass).toBe(true);
       // Both worktrees were removed.
       const removed = fx.calls.filter((cmd) => cmd.join(" ").includes("worktree remove --force"));
       expect(removed).toHaveLength(2);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("the step name carries the batch stamp, so batches never share a step", async () => {
+    const first = makeFixture();
+    const second = makeFixture();
+    second.deps.now = () => BASE + 5_400_000;
+    try {
+      const [a, b] = [await runProbe(input(), first.deps), await runProbe(input({ providers: ["baseten"] }), second.deps)];
+      // Both batches stamp their steps, so a leftover of an older batch
+      // cannot be reused by a newer one.
+      expect(a[0]!.step).toMatch(/^probe-z-ai-1-\d{6}$/);
+      expect(b[0]!.step).toMatch(/^probe-baseten-1-\d{6}$/);
+      expect(a[0]!.step).not.toBe(b[0]!.step);
+    } finally {
+      first.cleanup();
+      second.cleanup();
+    }
+  });
+
+  test("the instance of the worktree is disposed before the removal", async () => {
+    const fx = makeFixture();
+    try {
+      await runProbe(input(), fx.deps);
+      const disposeIndex = fx.log.indexOf("dispose");
+      const removeIndex = fx.log.indexOf("worktree-remove");
+      expect(disposeIndex).toBeGreaterThanOrEqual(0);
+      expect(removeIndex).toBeGreaterThan(disposeIndex);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  test("a failing worktree removal counts with rule setup and fails the run", async () => {
+    const fx = makeFixture({
+      runnerOptions: {
+        failRemove: true,
+      },
+    });
+    try {
+      const results = await runProbe(input(), fx.deps);
+      const setup = results[0]!.failures.filter((failure) => failure.rule === "setup");
+      expect(setup).toHaveLength(1);
+      expect(setup[0]!.detail).toContain("removing the run worktree");
+      expect(results[0]!.pass).toBe(false);
     } finally {
       fx.cleanup();
     }
@@ -422,5 +490,17 @@ describe("runProbe", () => {
     } finally {
       fx.cleanup();
     }
+  });
+});
+
+describe("providerRows", () => {
+  test("a setup failure gets its own column and stays out of the pass rate", () => {
+    const pass = { provider: "z-ai", run: 1, step: "probe-z-ai-1-121530", sessionId: null, pass: true, control: false, failures: [], speed: { timeToFirstTokenMs: null, wallTimeMs: null, generationMs: null, outputTokens: 0, reasoningTokens: 0, generationTokensPerSecond: null }, estimatedCost: 0, realCostDelta: null, wallMs: 0 };
+    const setupFailure = { ...pass, run: 2, pass: false, failures: [{ rule: "setup", detail: "removing the run worktree failed" }] };
+    const providerFailure = { ...pass, run: 3, pass: false, failures: [{ rule: "answer", detail: "wrong" }] };
+    const rows = providerRows([pass, setupFailure, providerFailure]);
+    expect(rows).toHaveLength(1);
+    // passes/runs count only the provider runs; setup has its own column.
+    expect(rows[0]).toMatchObject({ provider: "z-ai", passes: 1, runs: 2, setup: 1 });
   });
 });

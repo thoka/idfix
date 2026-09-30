@@ -72,9 +72,11 @@ The runner (PLAN.md step 10d) executes the probe task once per provider and
 run number, strictly one run at a time, so the real-cost delta of the project
 key belongs to exactly one run. One run does, in order:
 
-1. Create the run worktree `probe-<provider>-<n>` inside the sandbox clone
-   with the same code as `oc-sub worktree` (branch `feature/probe-...` from
-   `host/alpha`, no setup command).
+1. Create the run worktree `probe-<provider>-<n>-<HHMMSS>` inside the sandbox
+   clone with the same code as `oc-sub worktree` (branch `feature/probe-...`
+   from `host/alpha`, no setup command). The `HHMMSS` stamp comes from the
+   start time of the batch, so a step name is unique per batch and a leftover
+   of an older batch is never reused.
 2. Write `.opencode/opencode.json` into the worktree, through `sbx exec`,
    **before** the first server request to the folder (a fresh directory
    loads its config on first use, see `docs/research/PROBE_ROUTING.md`
@@ -104,7 +106,10 @@ key belongs to exactly one run. One run does, in order:
 7. Remove the run worktree (`oc-sub worktree rm` code).
 
 A run that fails at any step writes a result line with the error and the
-loop goes on with the next run.
+loop goes on with the next run. A failure in a worktree step (create, config
+write, or remove) counts with rule `setup`: the end table shows it in a
+separate `setup` column and leaves those runs out of the pass rate of the
+provider, because they are not provider failures.
 
 **Control mode** (`--control`): one run with the provider
 `no-such-provider`. The pin must make OpenRouter refuse the request, so the

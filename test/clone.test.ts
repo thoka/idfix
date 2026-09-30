@@ -20,7 +20,9 @@ function fakeRunner(answer: (cmd: readonly string[]) => { stdout?: string; exitC
   const calls: Call[] = [];
   const runner: Runner = (cmd) => {
     calls.push({ cmd: [...cmd] });
-    const { stdout = "", exitCode = 0 } = answer(cmd);
+    // Default answers: commands succeed, but `test -d <folder>` fails, like
+    // a folder that git has just removed.
+    const { stdout = "", exitCode = cmd[3] === "test" && cmd[4] === "-d" ? 1 : 0 } = answer(cmd);
     return { stdout, exitCode };
   };
   return { calls, runner };
@@ -38,6 +40,8 @@ async function makeDeps(overrides: Partial<CloneDeps> = {}): Promise<{ env: Reco
     sandboxState: () => STATE,
     projectName: () => "test",
     setupCommand: () => undefined,
+    dispose: async () => {},
+    sleep: async () => {},
   };
   return { env, ...deps, ...overrides };
 }
@@ -212,13 +216,45 @@ describe("worktree", () => {
     expect(callsOf(calls, (c) => c.includes("worktree")).length).toBe(0);
   });
 
-  test("says so and exits 0 when the worktree exists", async () => {
+  test("says so and exits 0 when the worktree exists and git knows it", async () => {
     const deps = await makeDeps();
-    const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 0 } : {}));
+    const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 0 } : cmd.includes("rev-parse") ? { stdout: "/repo/.git/worktrees/14b\n" } : {}));
     const code = worktree({ step: "14b" }, deps.env as never, { ...deps, runner });
     expect(code).toBe(0);
     // No fetch, no config, no add after the existence test.
-    expect(callsOf(calls, (c) => c[3] === "git").length).toBe(0);
+    expect(callsOf(calls, (c) => c[3] === "git" && !c.includes("rev-parse")).length).toBe(0);
+    // The registration check runs git inside the folder, not at the root.
+    expect(callsOf(calls, (c) => c[3] === "git" && c.includes("rev-parse"))[0]).toEqual([
+      "sbx",
+      "exec",
+      NAME,
+      "git",
+      "-C",
+      runWorktreePath(ROOT, "14b"),
+      "rev-parse",
+      "--git-dir",
+    ]);
+  });
+
+  test("stops with an error when the folder exists but is not a registered worktree", async () => {
+    const deps = await makeDeps();
+    // The folder exists (test -d succeeds), but rev-parse fails: stale.
+    const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 0 } : cmd.includes("rev-parse") ? { exitCode: 128 } : {}));
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let code: number;
+    try {
+      code = worktree({ step: "14b" }, deps.env as never, { ...deps, runner });
+    } finally {
+      console.error = err;
+    }
+    expect(code).toBe(1);
+    expect(errors[0]).toContain(runWorktreePath(ROOT, "14b"));
+    expect(errors[0]).toContain("oc-sub worktree rm 14b");
+    // Nothing was added and nothing was fetched for a stale folder.
+    expect(callsOf(calls, (c) => c.includes("worktree") && c.includes("add")).length).toBe(0);
+    expect(callsOf(calls, (c) => c.includes("fetch")).length).toBe(0);
   });
 
   test("runs the setup command with the sandbox PATH after the worktree add", async () => {
@@ -283,7 +319,7 @@ describe("worktree", () => {
 
   test("runs no setup when the worktree already exists", async () => {
     const deps = await makeDeps();
-    const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 0 } : {}));
+    const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 0 } : cmd.includes("rev-parse") ? { stdout: "/repo/.git/worktrees/14b\n" } : {}));
     const code = worktree({ step: "14b" }, deps.env as never, {
       ...deps,
       runner,
@@ -338,18 +374,147 @@ describe("worktree", () => {
 });
 
 describe("worktree rm", () => {
-  test("removes the worktree and deletes the branch inside the clone", async () => {
+  test("disposes the instance, removes the worktree, and deletes the branch inside the clone", async () => {
     const deps = await makeDeps();
+    const disposed: string[] = [];
     const { calls, runner } = fakeRunner(() => ({}));
-    const code = worktreeRm({ step: "14b" }, deps.env as never, { ...deps, runner });
+    const code = await worktreeRm({ step: "14b" }, deps.env as never, {
+      ...deps,
+      runner,
+      dispose: async (_url, directory) => {
+        disposed.push(directory);
+      },
+    });
     expect(code).toBe(0);
+    // The dispose runs before the remove, with the folder as directory.
+    expect(disposed).toEqual([runWorktreePath(ROOT, "14b")]);
     expect(callsOf(calls, (c) => isSbxGit(c, ["worktree", "remove", "--force", runWorktreePath(ROOT, "14b")])).length).toBe(1);
     expect(callsOf(calls, (c) => isSbxGit(c, ["branch", "-D", "feature/14b"])).length).toBe(1);
+    // No fallback when the first remove worked.
+    expect(callsOf(calls, (c) => c.includes("rm") && c.includes("-rf")).length).toBe(0);
+    expect(callsOf(calls, (c) => isSbxGit(c, ["worktree", "prune"])).length).toBe(0);
+  });
+
+  test("a failed dispose is only a warning and the removal continues", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner(() => ({}));
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let code: number;
+    try {
+      code = await worktreeRm({ step: "14b" }, deps.env as never, {
+        ...deps,
+        runner,
+        dispose: async () => {
+          throw new Error("connection refused");
+        },
+      });
+    } finally {
+      console.error = err;
+    }
+    expect(code).toBe(0);
+    expect(errors[0]).toContain("disposing the opencode instance");
+    expect(callsOf(calls, (c) => isSbxGit(c, ["worktree", "remove", "--force", runWorktreePath(ROOT, "14b")])).length).toBe(1);
+  });
+
+  test("a failing remove prints its stderr, waits two seconds, and retries once", async () => {
+    const deps = await makeDeps();
+    let attempts = 0;
+    const waits: number[] = [];
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSbxGit(cmd, ["worktree", "remove", "--force", runWorktreePath(ROOT, "14b")])) {
+        attempts += 1;
+        // The first attempt fails, the second one succeeds.
+        return attempts === 1 ? { stderr: "fatal: cache still held\n", exitCode: 1 } : {};
+      }
+      return {};
+    });
+    const code = await worktreeRm({ step: "14b" }, deps.env as never, {
+      ...deps,
+      runner,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    expect(code).toBe(0);
+    expect(attempts).toBe(2);
+    expect(waits).toEqual([2000]);
+    expect(callsOf(calls, (c) => c.includes("rm") && c.includes("-rf")).length).toBe(0);
+  });
+
+  test("a remove that fails twice falls back to rm -rf and worktree prune, and reports the failure", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => {
+      // The folder exists while git tries to remove it, and is gone after
+      // the rm -rf fallback: `test -d` succeeds before it, fails after.
+      if (cmd[3] === "test" && cmd[4] === "-d") {
+        const pruned = callsOf(calls, (c) => isSbxGit(c, ["worktree", "prune"]));
+        return { exitCode: pruned.length === 0 ? 0 : 1 };
+      }
+      if (isSbxGit(cmd, ["worktree", "remove", "--force", runWorktreePath(ROOT, "14b")])) return { stderr: "device busy\n", exitCode: 1 };
+      return {};
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let code: number;
+    try {
+      code = await worktreeRm({ step: "14b" }, deps.env as never, { ...deps, runner });
+    } finally {
+      console.error = err;
+    }
+    // Nothing is left, but the removal did not succeed cleanly: exit 1.
+    expect(code).toBe(1);
+    expect(errors[0]).toContain("git worktree remove failed twice");
+    expect(callsOf(calls, (c) => isSbxGit(c, ["worktree", "remove", "--force", runWorktreePath(ROOT, "14b")])).length).toBe(2);
+    expect(callsOf(calls, (c) => c[3] === "rm" && c.includes("-rf") && c.includes(runWorktreePath(ROOT, "14b"))).length).toBe(1);
+    expect(callsOf(calls, (c) => isSbxGit(c, ["worktree", "prune"])).length).toBe(1);
+  });
+
+  test("a folder that survives even the fallback fails with exit 1", async () => {
+    const deps = await makeDeps();
+    const { runner } = fakeRunner((cmd) => {
+      if (cmd[3] === "test" && cmd[4] === "-d") return { exitCode: 0 };
+      if (isSbxGit(cmd, ["worktree", "remove", "--force", runWorktreePath(ROOT, "14b")])) return { stderr: "device busy\n", exitCode: 1 };
+      return {};
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let code: number;
+    try {
+      code = await worktreeRm({ step: "14b" }, deps.env as never, { ...deps, runner });
+    } finally {
+      console.error = err;
+    }
+    expect(code).toBe(1);
+    expect(errors[0]).toContain(`folder ${runWorktreePath(ROOT, "14b")}`);
+  });
+
+  test("a branch that survives the deletion fails with exit 1", async () => {
+    const deps = await makeDeps();
+    const { runner } = fakeRunner((cmd) => {
+      if (isSbxGit(cmd, ["worktree", "remove", "--force", runWorktreePath(ROOT, "14b")])) return { stderr: "device busy\n", exitCode: 1 };
+      if (isSbxGit(cmd, ["branch", "--list", "feature/14b"])) return { stdout: "feature/14b\n" };
+      return {};
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let code: number;
+    try {
+      code = await worktreeRm({ step: "14b" }, deps.env as never, { ...deps, runner });
+    } finally {
+      console.error = err;
+    }
+    expect(code).toBe(1);
+    expect(errors[0]).toContain("branch feature/14b");
   });
 
   test("stops with a clear error in host mode", async () => {
     const deps = await makeDeps();
-    const code = worktreeRm({ step: "14b" }, deps.env as never, { ...deps, sandboxState: () => null });
+    const code = await worktreeRm({ step: "14b" }, deps.env as never, { ...deps, sandboxState: () => null });
     expect(code).toBe(1);
   });
 });

@@ -12,6 +12,7 @@
  * with a fake and never call the real `sbx`.
  */
 import path from "node:path";
+import { assertOk, errorMessage, makeClient } from "./client";
 import type { Env } from "./config";
 import { projectRootOfRun, projectNameOf } from "./keys";
 import { projectSetupCommand } from "./project-config";
@@ -39,6 +40,10 @@ export type CloneDeps = {
   projectName: (directory: string) => string;
   /** The `setup` command of a project root, or undefined without one. */
   setupCommand: (root: string) => string | undefined;
+  /** Disposes the opencode instance of a directory. Rejects when the server does not answer. */
+  dispose: (baseUrl: string, directory: string) => Promise<void>;
+  /** Waits for a delay, so the retry pause of `worktreeRm` is testable. */
+  sleep: (ms: number) => Promise<void>;
 };
 
 export const defaultCloneDeps: CloneDeps = {
@@ -46,6 +51,10 @@ export const defaultCloneDeps: CloneDeps = {
   sandboxState: (project) => readSandboxState(sandboxStatePath(process.env as Env, project)),
   projectName: projectNameOf,
   setupCommand: projectSetupCommand,
+  dispose: async (baseUrl, directory) => {
+    assertOk(await makeClient(baseUrl, process.env as Env).instance.dispose({ query: { directory } }), "dispose instance");
+  },
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
 function mergeDeps(overrides: Partial<CloneDeps>): CloneDeps {
@@ -98,7 +107,9 @@ export const HOST_REMOTE = "host";
  * and creates `feature/STEP` from `host/BASE`. It does not fetch `origin`:
  * the clone copies the remotes of the host, so `origin` can be an SSH URL
  * that the sandbox cannot reach (RUN_ISOLATION.md section 9). When the
- * worktree already exists, it says so and exits 0.
+ * worktree already exists and git knows it, it says so and exits 0. A
+ * folder that exists but is not a registered worktree is stale: it stops
+ * with an error that names the folder and `oc-sub worktree rm`.
  *
  * When the project sets a `setup` command in `.opencode/oc-sub.json`, it
  * runs that command inside the new worktree after a successful `git
@@ -123,8 +134,17 @@ export function worktree(
   const worktreePath = runWorktreePath(root, args.step);
 
   if (run([bin, "exec", name, "test", "-d", worktreePath]).exitCode === 0) {
-    console.log(`worktree already exists: ${worktreePath}`);
-    return 0;
+    // The folder exists, but only a registered worktree counts: opencode can
+    // leave a stale folder behind when it still wrote into it during a
+    // `git worktree remove`. Git then knows nothing about the folder.
+    const registered = run([bin, "exec", name, "git", "-C", worktreePath, "rev-parse", "--git-dir"]);
+    if (registered.exitCode === 0) {
+      console.log(`worktree already exists: ${worktreePath}`);
+      return 0;
+    }
+    return fail(
+      `${worktreePath} exists but is not a registered worktree (stale leftover of an earlier run). Remove it with: oc-sub worktree rm ${args.step}`,
+    );
   }
 
   // Add the remote `host`, or set its URL when it exists already.
@@ -193,25 +213,76 @@ export function worktree(
  * `oc-sub worktree rm STEP [--dir ROOT]`: remove the worktree of the step
  * inside the clone and delete its branch there. The branch only exists in
  * the clone; the host reviews it through the `sandbox-<name>` remote.
+ *
+ * Order of the steps:
+ *  1. dispose the opencode instance of the folder, so that opencode stops
+ *     writing into it (a failed dispose is only a warning: the server may
+ *     be down),
+ *  2. `git worktree remove --force`; on failure print the stderr, wait two
+ *     seconds, and try once more,
+ *  3. when the folder still exists, `rm -rf` it inside the sandbox and run
+ *     `git worktree prune`,
+ *  4. delete the branch,
+ *  5. verify: a leftover folder or branch fails with exit 1, and so does a
+ *     removal that needed the fallback.
  */
-export function worktreeRm(
+export async function worktreeRm(
   args: { step: string; dir?: string },
   env: Env = process.env,
   depsOverrides: Partial<CloneDeps> = {},
-): number {
+): Promise<number> {
   const deps = mergeDeps(depsOverrides);
   const found = stateFor(args, env, deps);
   if (found === null) return fail(HOST_MODE_ERROR);
   const { root, state } = found;
   const bin = sbxBin(env);
   const { name } = state;
-  const sbxGit = (...gitArgs: readonly string[]) => deps.runner([bin, "exec", name, "git", "-C", root, ...gitArgs]);
+  const run = (cmd: readonly string[]) => deps.runner(cmd);
+  const sbxGit = (...gitArgs: readonly string[]) => run([bin, "exec", name, "git", "-C", root, ...gitArgs]);
   const worktreePath = runWorktreePath(root, args.step);
 
-  const remove = sbxGit("worktree", "remove", "--force", worktreePath);
-  if (remove.exitCode !== 0) return fail(`git worktree remove failed in the clone of ${name}`);
+  // opencode runs a background package install in every config folder and
+  // keeps writing into it. Dispose the instance first, so the folder is
+  // quiet when git removes it. A failed dispose is only a warning: the
+  // server may be down, and then nothing holds the folder open.
+  try {
+    await deps.dispose(`http://127.0.0.1:${state.port}`, worktreePath);
+  } catch (error) {
+    console.error(`warning: disposing the opencode instance of ${worktreePath} failed (${errorMessage(error)}). Continuing.`);
+  }
+
+  let removed = false;
+  let remove = sbxGit("worktree", "remove", "--force", worktreePath);
+  if (remove.exitCode !== 0) {
+    if (remove.stderr !== undefined && remove.stderr.length > 0) console.error(remove.stderr);
+    await deps.sleep(2000);
+    remove = sbxGit("worktree", "remove", "--force", worktreePath);
+    removed = remove.exitCode === 0;
+  } else {
+    removed = true;
+  }
+
+  if (run([bin, "exec", name, "test", "-d", worktreePath]).exitCode === 0) {
+    const rmrf = run([bin, "exec", name, "rm", "-rf", worktreePath]);
+    if (rmrf.exitCode !== 0) console.error(rmrf.stderr ?? `rm -rf ${worktreePath} failed`);
+    sbxGit("worktree", "prune");
+  }
+
   const branch = sbxGit("branch", "-D", `feature/${args.step}`);
-  if (branch.exitCode !== 0) return fail(`git branch -D failed in the clone of ${name}`);
+  if (branch.exitCode !== 0 && branch.stderr !== undefined && branch.stderr.length > 0) console.error(branch.stderr);
+
+  const leftovers: string[] = [];
+  if (run([bin, "exec", name, "test", "-d", worktreePath]).exitCode === 0) leftovers.push(`folder ${worktreePath}`);
+  if (sbxGit("branch", "--list", `feature/${args.step}`).stdout.trim().length > 0) leftovers.push(`branch feature/${args.step}`);
+  if (leftovers.length > 0) {
+    return fail(`worktree removal left ${leftovers.join(" and ")} behind in the clone of ${name}`);
+  }
+  if (!removed) {
+    // The fallback cleaned the folder and the branch, but the removal did
+    // not succeed cleanly: report it, so callers (the probe runner) can
+    // count the step as failed.
+    return fail(`git worktree remove failed twice in the clone of ${name}; the rm -rf fallback removed the folder and the branch`);
+  }
 
   console.log(`removed worktree ${worktreePath} and branch feature/${args.step}`);
   return 0;

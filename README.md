@@ -79,6 +79,8 @@ Checks the health of the host server (`GET /global/health`). When nothing answer
 
 `up` sets `OPENCODE_CONFIG_DIR` in the environment of the child process to the `opencode/` folder of this repository (computed from the location of the source file, not from the working directory). opencode then loads the research agents of the plugin for every project, after the project `.opencode` folder, so its agent wins over a project agent with the same name. If the environment already sets `OPENCODE_CONFIG_DIR` to another value, `up` keeps that value and prints a warning to stderr, because the research agents are then not loaded. If `OPENCODE_CONFIG_DIR` already holds the folder of the plugin, `up` prints no warning.
 
+`up` also needs the shared agents folder: `OC_SUB_SHARED_DIR`, else `$HOME/dv/meta/agents`. It holds your global rules in `AGENTS.md` and your skills in `skills/<name>/SKILL.md`. It is the only source, and `up` never copies it. When `<shared>/AGENTS.md` is missing, `up` stops with an error that names the path and `OC_SUB_SHARED_DIR`. Otherwise `up` sets `OPENCODE_CONFIG_CONTENT` for the child, with the rules file under `instructions` and the skills folder under `skills.paths`. The reason: opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever `OPENCODE_CONFIG_DIR` is set, and `up` always sets it. An absolute path in `instructions` still loads (see `docs/research/OPENCODE_RULES.md`). If the environment already sets `OPENCODE_CONFIG_CONTENT`, `up` keeps it and prints a warning, because the shared entries are then not added.
+
 One server serves many project folders, so its state lives in one folder per user, `$XDG_STATE_HOME/oc-sub/` (default `~/.local/state/oc-sub/`):
 
 - `serve-<port>.log` holds the output of the server.
@@ -170,6 +172,14 @@ The `key:` line shows the first 8 hex digits of the SHA-256 of the key. It never
 The last line asks `GET https://openrouter.ai/api/v1/key`, which costs nothing. It shows the limit, the usage, and the remaining amount in USD. With no limit, it prints `limit none` and the usage. When the server uses another key than the project key file, `ping` prints a warning, because the cost then goes to another key. Exit code 0 when OpenRouter accepts the key, even with the warning. Exit code 1 when the provider is not configured for the directory, when no key is set, when OpenRouter rejects the key (`openrouter: rejected (HTTP 401: ...)`), or when the key endpoint is unreachable (`openrouter: unreachable (...)`).
 
 The server caches the configuration. After a change of a configuration file, `ping` reports the old key until `oc-sub restart`.
+
+`ping --rules` checks that the agent on the server really sees the shared rules:
+
+```
+bun run src/cli.ts ping --rules [--dir DIR]
+```
+
+It reads the first line that starts with `# ` in `<shared>/AGENTS.md` on the host. Then it creates a session on the server of `--dir` (the normal URL resolution), sends one short prompt to the `researcher` agent with low reasoning effort, and asks it to reply with the first heading of its loaded instructions file, verbatim, or NONE. It prints `rules: pass` or `rules: FAIL` with the cost of the session, and it deletes the session afterwards when the API allows it. A failed deletion prints a warning and does not change the exit code. Exit code 0 on pass, 1 on fail. Run it once after `oc-sub up`.
 
 ### oc-sub watch
 

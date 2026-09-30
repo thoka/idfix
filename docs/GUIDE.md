@@ -81,14 +81,15 @@ claude plugin marketplace remove opencode-subagents
    }
    ```
 
-   Then start the server and check the key:
+   Then start the server and check the key and the shared rules:
 
    ```
    oc-sub up
    oc-sub ping --dir <project>
+   oc-sub ping --rules --dir <project>
    ```
 
-   The command must print `source: project key file ...` and `openrouter: ok`. If it warns that the server uses another key, follow the warning.
+   The key command must print `source: project key file ...` and `openrouter: ok`. If it warns that the server uses another key, follow the warning. The rules command must print `rules: pass`.
 
 Then ask Claude, for example: "Delegate step 4 to the opencode coder." Claude invokes the skill by itself. You can also type `/opencode-subagents:oc-sub`.
 
@@ -161,11 +162,12 @@ Details:
 - `up` needs the project key file `~/.config/<project>/openrouter.key`. It checks only that the file exists; it never reads it.
 - `down` stops the sandbox and keeps the state file, so the port stays the same.
 - The tools of the project come from the mise of the host. `up` runs `mise install` in the project root first, so that every tool of `mise.toml` exists. If it fails, `up` stops.
-- The sandbox mounts two host folders read-only: the `opencode/` folder of the plugin, and the mise installs folder `~/.local/share/mise/installs`. No tool is downloaded twice, the versions are the same as on the host, and the agent cannot change the tools.
-- If the sandbox exists but lacks one of the two mounts (for example after an update of this plugin), `up` stops with an error. It names the fix: remove the sandbox with `sbx rm NAME`, then run `oc-sub up` again, which creates it with both mounts. `up` does not remove the sandbox itself, because it holds the sessions.
+- The sandbox mounts three host folders read-only: the `opencode/` folder of the plugin, the mise installs folder `~/.local/share/mise/installs`, and the shared agents folder. The shared agents folder comes from `OC_SUB_SHARED_DIR`, else `$HOME/dv/meta/agents`. It holds your global rules in `AGENTS.md` and your skills in `skills/<name>/SKILL.md`. It is the only source, and `up` never copies it. Each mount keeps its host absolute path inside the sandbox, so the paths in the configuration reach the same files.
+- If the sandbox exists but lacks one of the three mounts (for example after an update of this plugin), `up` stops with an error. It names the fix: remove the sandbox with `sbx rm NAME`, then run `oc-sub up` again, which creates it with all three mounts. `up` does not remove the sandbox itself, because it holds the sessions. Note that `sbx rm` ends the sessions of the sandbox.
 - The server inside the sandbox starts with the tool folders of the project at the front of `PATH`, read from `mise env`, in front of the PATH of the sandbox. So `bun`, `node`, and `python` inside the sandbox are the versions of `mise.toml`.
 - Every `up` checks the network rules before the server starts: `sbx policy check network` must deny `host.docker.internal:8767` and `localhost:8767`. If one is allowed, `up` stops and names the deny command. This protects the host server of an old sandbox without the rules.
-- Inside the sandbox, `up` passes `OPENCODE_CONFIG_CONTENT` into the server. It turns bash into `allow` for `coder` and `researcher`, and it turns the MCP gateway of the `sbx` kit off. The agent files stay the same, and the host server keeps their rules. The other permissions still apply, for example `edit` of `researcher` and `external_directory`.
+- Inside the sandbox, `up` passes `OPENCODE_CONFIG_CONTENT` into the server. It turns bash into `allow` for `coder` and `researcher`, and it turns the MCP gateway of the `sbx` kit off. It also lists the shared rules file under `instructions` and the shared skills folder under `skills.paths`, because opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever `OPENCODE_CONFIG_DIR` is set (see `docs/research/OPENCODE_RULES.md`). The agent files stay the same, and the host server keeps their rules. The other permissions still apply, for example `edit` of `researcher` and `external_directory`.
+- Before `up` starts the server, it checks that the shared rules and skills are in place. When `<shared>/AGENTS.md` is missing on the host, `up` stops with an error that names the path and `OC_SUB_SHARED_DIR`, before anything changes state. Before the server starts, `up` runs `sbx exec NAME test -r <shared>/AGENTS.md` and stops with an error when the sandbox cannot read the file. After `up`, run `oc-sub ping --rules --dir <project>` once to check that the agent really sees the rules.
 - The network rules of a new sandbox: GET and HEAD to every host (`**`), so research can read any page. Every method to `mcp.exa.ai:443`, because the websearch of opencode calls it with POST. Deny for the host and the private networks (`host.docker.internal,localhost,127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16`); the proxy of `sbx` rewrites `host.docker.internal` to `localhost`, so a deny rule for `host.docker.internal` alone is not enough. GET to every host means that data can still leave in a GET URL; the host server and the LAN stay closed.
 - `git push` over SSH fails in the sandbox, because no SSH agent is forwarded (setup step 3). As a second guard, `up` also starts the server with an empty `SSH_AUTH_SOCK`. You push from the host, where the commits of the agent appear at once.
 - The project `opencode.json` can read the key with `{file:~/.config/<project>/openrouter.key}`. That file does not exist inside the sandbox, so `up` writes a placeholder file with the value `proxy-managed` there. The proxy of `sbx` replaces it with the real key.

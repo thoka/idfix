@@ -34,6 +34,7 @@ import {
   type Runner,
   type SandboxDeps,
 } from "../src/sandbox";
+import { sharedAgentsDir } from "../src/shared";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
 
 function tempDir(): string {
@@ -49,13 +50,17 @@ type Call = { cmd: string[]; cwd?: string };
 /** The mounts of a sandbox of the tests, as the WORKSPACE column shows them. */
 const PLUGIN_MOUNT = `${PLUGIN_CONFIG_DIR}:ro`;
 
+function sharedMount(env: Record<string, string>): string {
+  return `${sharedAgentsDir(env)}:ro`;
+}
+
 function installsMount(env: Record<string, string>): string {
   return `${miseInstallsDir(env)}:ro`;
 }
 
-/** The `sbx ls` output with both mounts, in the real column format. */
+/** The `sbx ls` output with all mounts, in the real column format. */
 function lsWorkspace(name: string, env: Record<string, string>): string {
-  return `NAME     STATUS     WORKSPACE\n${name}   running   /repo, ${PLUGIN_MOUNT}, ${installsMount(env)}\n`;
+  return `NAME     STATUS     WORKSPACE\n${name}   running   /repo, ${PLUGIN_MOUNT}, ${installsMount(env)}, ${sharedMount(env)}\n`;
 }
 
 /** What `sbx policy check network` prints for a denied target. */
@@ -95,6 +100,7 @@ function makeDeps(overrides: Partial<SandboxDeps> = {}): SandboxDeps {
     projectName: () => "test",
     rootOf: () => "/repo",
     binExists: () => true,
+    fileExists: () => true,
     healthTimeoutMs: 500,
     healthIntervalMs: 1,
     ...overrides,
@@ -336,8 +342,10 @@ describe("placeholderKeyScript", () => {
 });
 
 describe("sandboxConfigContent", () => {
+  const SHARED = "/srv/agents";
+
   test("is JSON with exactly the sandbox agents, each with bash allow", () => {
-    const parsed = JSON.parse(sandboxConfigContent()) as {
+    const parsed = JSON.parse(sandboxConfigContent(SHARED)) as {
       agent: Record<string, { permission: { bash: string } }>;
     };
     expect(Object.keys(parsed.agent).sort()).toEqual([...SANDBOX_BASH_AGENTS].sort());
@@ -347,8 +355,17 @@ describe("sandboxConfigContent", () => {
   });
 
   test("turns the MCP gateway of the sbx kit off", () => {
-    const parsed = JSON.parse(sandboxConfigContent()) as { mcp: Record<string, { enabled: boolean }> };
+    const parsed = JSON.parse(sandboxConfigContent(SHARED)) as { mcp: Record<string, { enabled: boolean }> };
     expect(parsed.mcp["mcp-gateway"]).toEqual({ enabled: false });
+  });
+
+  test("loads the shared rules and skills through absolute paths", () => {
+    const parsed = JSON.parse(sandboxConfigContent(SHARED)) as {
+      instructions: string[];
+      skills: { paths: string[] };
+    };
+    expect(parsed.instructions).toEqual(["/srv/agents/AGENTS.md"]);
+    expect(parsed.skills).toEqual({ paths: ["/srv/agents/skills"] });
   });
 
   test("the holder command names both -e options before the sandbox name", async () => {
@@ -375,7 +392,7 @@ describe("sandboxConfigContent", () => {
     expect(holderCommands).toHaveLength(1);
     const cmd = holderCommands[0] ?? [];
     const nameIndex = cmd.indexOf("oc-sub-test");
-    const contentFlag = cmd.indexOf(`OPENCODE_CONFIG_CONTENT=${sandboxConfigContent()}`);
+    const contentFlag = cmd.indexOf(`OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedAgentsDir(env))}`);
     const sshFlag = cmd.indexOf("SSH_AUTH_SOCK=");
     expect(sshFlag).toBe(contentFlag + 2);
     expect(contentFlag).toBeLessThan(nameIndex);
@@ -409,6 +426,82 @@ describe("sandboxConfigContent", () => {
 describe("upSandbox", () => {
   const PORTS_HEADER = "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n";
 
+  test("a missing shared AGENTS.md stops up before any call", async () => {
+    const { calls, runner } = fakeRunner(() => ({ stdout: "" }));
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, makeEnv(), makeDeps({ runner, fileExists: () => false }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    expect(calls).toHaveLength(0);
+    const text = errors.join("\n");
+    expect(text).toContain("AGENTS.md");
+    expect(text).toContain("OC_SUB_SHARED_DIR");
+  });
+
+  test("an existing sandbox without the shared mount stops up with a hint", async () => {
+    const env = makeEnv();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) {
+        return {
+          stdout: `NAME     STATUS     WORKSPACE\noc-sub-test   running   /repo, ${PLUGIN_MOUNT}, ${installsMount(env)}\n`,
+        };
+      }
+      return DENIED;
+    });
+    const spawnServe = () => {
+      throw new Error("no server may start");
+    };
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, env, makeDeps({ runner, spawnServe }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    expect(errors.join("\n")).toContain(`sbx rm oc-sub-test`);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls"]);
+  });
+
+  test("a failed readability check of the shared rules stops up before the server starts", async () => {
+    const env = makeEnv();
+    let execs = 0;
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret")) return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
+      if (isSubcommand(cmd, "exec")) {
+        execs += 1;
+        // The first exec writes the placeholder key file and succeeds.
+        return execs === 1 ? { stdout: "", exitCode: 0 } : { stdout: "", exitCode: 1 };
+      }
+      if (isSubcommand(cmd, "ports")) return { stdout: `${PORTS_HEADER}127.0.0.1   18768       4096           tcp4\n` };
+      return DENIED;
+    });
+    const spawnServe = () => {
+      throw new Error("no server may start");
+    };
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, env, makeDeps({ runner, spawnServe }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    expect(errors.join("\n")).toContain("cannot read the shared agents file");
+    expect(subcommands(calls).at(-1)).toBe("exec");
+  });
+
   test("a publish that fails is fine when a second list shows the port", async () => {
     const env = makeEnv();
     let lists = 0;
@@ -424,7 +517,7 @@ describe("upSandbox", () => {
     });
     const result = await upSandbox({}, env, makeDeps({ runner, probe: async () => ({ state: "up", version: "1.18.32" }) }));
     expect(result).toBe(0);
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec", "ports", "ports", "ports", "policy", "policy"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec", "ports", "ports", "ports", "policy", "policy", "exec"]);
   });
 
   test("a publish that fails without the port in a second list is an error", async () => {
@@ -504,7 +597,7 @@ describe("upSandbox", () => {
 
     expect(subcommands(calls)).toEqual([
       "mise", "mise", "ls", "create", "policy", "policy", "policy",
-      "secret", "secret", "exec", "ports", "ports", "policy", "policy",
+      "secret", "secret", "exec", "ports", "ports", "policy", "policy", "exec",
     ]);
     // `mise install` and `mise env` run in the project root.
     expect(calls[0]?.cmd).toEqual([miseBin(env), "install"]);
@@ -512,7 +605,8 @@ describe("upSandbox", () => {
     expect(calls[1]?.cmd).toEqual([miseBin(env), "env", "-C", "/repo", "--json"]);
     expect(calls[1]?.cwd).toBe("/repo");
     // The create runs with the working directory `/` and mounts the plugin
-    // folder and the mise installs folder read-only, both relative from `/`.
+    // folder, the mise installs folder, and the shared agents folder
+    // read-only, all relative from `/`.
     expect(calls[3]?.cmd).toEqual([
       "sbx",
       "create",
@@ -522,6 +616,7 @@ describe("upSandbox", () => {
       "/repo",
       `${relativeMount("/", PLUGIN_CONFIG_DIR)}:ro`,
       `${relativeMount("/", miseInstallsDir(env))}:ro`,
+      `${relativeMount("/", sharedAgentsDir(env))}:ro`,
     ]);
     expect(calls[3]?.cwd).toBe("/");
     expect(calls[4]?.cmd).toEqual([
@@ -548,13 +643,15 @@ describe("upSandbox", () => {
     // The checks of the network rules, before the server starts.
     expect(calls[12]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "host.docker.internal:8767"]);
     expect(calls[13]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "localhost:8767"]);
+    // The readability check of the shared rules, before the server starts.
+    expect(calls[14]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "test", "-r", `${sharedAgentsDir(env)}/AGENTS.md`]);
     expect(execCommands).toEqual([[
       "sbx",
       "exec",
       "-e",
       `OPENCODE_CONFIG_DIR=${PLUGIN_CONFIG_DIR}`,
       "-e",
-      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent()}`,
+      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedAgentsDir(env))}`,
       "-e",
       "SSH_AUTH_SOCK=",
       "-e",
@@ -666,7 +763,7 @@ describe("upSandbox", () => {
     } finally {
       console.log = log;
     }
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec", "ports", "policy", "policy"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "secret", "exec", "ports", "policy", "policy", "exec"]);
     expect(output).toContain("http://127.0.0.1:18799 version 1.18.32");
     expect(output.join("\n")).not.toContain("OC_SUB_URL");
     expect(output.join("\n")).toContain("sandbox: oc-sub-test");

@@ -16,6 +16,7 @@ import { assertUsable, probeServer } from "./client";
 import { resolveServerUrl } from "./config";
 import { gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOf } from "./keys";
 import { stateDir, serveDirsPath, serveLogPath, servePidPath, readPid, readDirs, removeFiles } from "./state";
+import { sharedAgentsDir, sharedConfigEntries } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
 
 /** The first port that a sandbox may take. */
@@ -70,12 +71,19 @@ export const SANDBOX_BASH_AGENTS = ["coder", "researcher"] as const;
  * replaces the bash rules of the agent file; an object value would only be
  * merged key by key, and the later `ask` rules of the file would win.
  */
-export function sandboxConfigContent(): string {
+export function sandboxConfigContent(sharedDir: string): string {
   const agents: Record<string, { permission: { bash: string } }> = {};
   for (const agent of SANDBOX_BASH_AGENTS) agents[agent] = { permission: { bash: "allow" } };
   // The kit of `sbx` adds an MCP gateway to the opencode configuration of
   // the sandbox. An agent could call its tools, so the sandbox turns it off.
-  return JSON.stringify({ agent: agents, mcp: { "mcp-gateway": { enabled: false } } });
+  // The shared rules and skills load through the absolute paths, because the
+  // `OPENCODE_CONFIG_DIR` of the sandbox drops the global AGENTS.md (see
+  // docs/research/OPENCODE_RULES.md).
+  return JSON.stringify({
+    agent: agents,
+    mcp: { "mcp-gateway": { enabled: false } },
+    ...sharedConfigEntries(sharedDir),
+  });
 }
 
 /** The name of the sandbox of a project: `oc-sub-<project>`, sanitized. */
@@ -337,6 +345,8 @@ export type SandboxDeps = {
   rootOf: (directory: string) => string;
   /** Whether a binary such as `sbx` exists on the PATH. */
   binExists: (bin: string) => boolean;
+  /** Whether a host file such as the shared AGENTS.md exists. */
+  fileExists: (file: string) => boolean;
   healthTimeoutMs: number;
   healthIntervalMs: number;
 };
@@ -351,6 +361,7 @@ export const defaultSandboxDeps: SandboxDeps = {
   projectName: projectNameOf,
   rootOf: projectRoot,
   binExists: (bin) => Bun.which(bin) !== null,
+  fileExists: existsSync,
   healthTimeoutMs: HEALTH_TIMEOUT_MS,
   healthIntervalMs: HEALTH_INTERVAL_MS,
 };
@@ -440,6 +451,16 @@ export async function upSandbox(
   const name = sandboxName(project);
   const root = deps.rootOf(dir);
   const bin = sbxBin(env);
+  // The shared rules and skills are the only source of the global agent
+  // files. Without them, every session in the sandbox would silently lose
+  // the global rules, so up stops before anything changes state.
+  const sharedDir = sharedAgentsDir(env);
+  const sharedFile = path.join(sharedDir, "AGENTS.md");
+  if (!deps.fileExists(sharedFile)) {
+    console.error(`error: the shared agents file ${sharedFile} does not exist.`);
+    console.error("Create it, or set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md.");
+    return 1;
+  }
   if (!deps.binExists(bin)) {
     console.error(`error: the sbx binary "${bin}" is not on the PATH (set SBX_BIN to its location).`);
     console.error("To start a host server instead, run: oc-sub up --no-sandbox");
@@ -478,16 +499,19 @@ export async function upSandbox(
   const toolPath = projectToolPath(deps.runner([mise, "env", "-C", root, "--json"], { cwd: root }).stdout, installsDir);
 
   // `sbx create` accepts read-only mounts only with relative paths, so the
-  // working directory is `/` and both mounts are relative from there. The
-  // plugin folder keeps its host path, and the mise installs folder makes
-  // the host tools of the project available unchanged inside the sandbox.
+  // working directory is `/` and all mounts are relative from there. The
+  // plugin folder keeps its host path, the mise installs folder makes
+  // the host tools of the project available unchanged inside the sandbox,
+  // and the shared agents folder keeps its host path, so the absolute
+  // paths in `OPENCODE_CONFIG_CONTENT` reach the same files.
   const pluginMount = `${relativeMount("/", PLUGIN_CONFIG_DIR)}:ro`;
   const installsMount = `${relativeMount("/", installsDir)}:ro`;
+  const sharedMount = `${relativeMount("/", sharedDir)}:ro`;
 
   const lsStdout = deps.runner([bin, "ls"]).stdout;
   if (!listsName(lsStdout, name)) {
     const create = deps.runner(
-      [bin, "create", "--name", name, "opencode", root, pluginMount, installsMount],
+      [bin, "create", "--name", name, "opencode", root, pluginMount, installsMount, sharedMount],
       { cwd: "/" },
     );
     if (create.exitCode !== 0) {
@@ -515,11 +539,11 @@ export async function upSandbox(
       console.error(`error: sbx policy deny network failed for ${name}`);
       return 1;
     }
-  } else if (!listsMounts(lsStdout, name, [`${PLUGIN_CONFIG_DIR}:ro`, `${installsDir}:ro`])) {
+  } else if (!listsMounts(lsStdout, name, [`${PLUGIN_CONFIG_DIR}:ro`, `${installsDir}:ro`, `${sharedDir}:ro`])) {
     // The sandbox holds the sessions, so oc-sub does not remove it itself.
-    console.error(`error: the sandbox ${name} lacks the plugin or the mise installs mount`);
+    console.error(`error: the sandbox ${name} lacks the plugin, the mise installs, or the shared agents mount`);
     console.error(`Remove it with: sbx rm ${name}`);
-    console.error("Then run oc-sub up. It creates the sandbox again with both mounts.");
+    console.error("Then run oc-sub up. It creates the sandbox again with all three mounts.");
     return 1;
   }
 
@@ -579,6 +603,16 @@ export async function upSandbox(
     }
   }
 
+  // The shared rules must be readable inside the sandbox before a server
+  // uses them. A missing mount would otherwise drop the global rules again.
+  const readable = deps.runner([bin, "exec", name, "test", "-r", sharedFile]);
+  if (readable.exitCode !== 0) {
+    console.error(`error: the sandbox ${name} cannot read the shared agents file ${sharedFile}`);
+    console.error(`Remove it with: sbx rm ${name}`);
+    console.error("Then run oc-sub up. It creates the sandbox again with the shared mount.");
+    return 1;
+  }
+
   const serveUrl = `http://127.0.0.1:${port}`;
   const healthy = await deps.probe(serveUrl);
   if (healthy.state === "up") {
@@ -603,7 +637,7 @@ export async function upSandbox(
       "-e",
       `OPENCODE_CONFIG_DIR=${PLUGIN_CONFIG_DIR}`,
       "-e",
-      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent()}`,
+      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedDir)}`,
       "-e",
       "SSH_AUTH_SOCK=",
       "-e",

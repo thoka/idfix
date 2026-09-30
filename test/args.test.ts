@@ -243,11 +243,19 @@ describe("parseArgs", () => {
   });
 
   test("ping parses like status", () => {
-    expect(parseArgs(["ping"])).toEqual({ command: "ping" });
-    expect(parseArgs(["ping", "--dir", "/w"])).toEqual({ command: "ping", dir: "/w" });
-    expect(parseArgs(["ping", "--dir=/w", "--url=http://h:1"])).toEqual({ command: "ping", dir: "/w", url: "http://h:1" });
+    expect(parseArgs(["ping"])).toEqual({ command: "ping", rules: false });
+    expect(parseArgs(["ping", "--dir", "/w"])).toEqual({ command: "ping", dir: "/w", rules: false });
+    expect(parseArgs(["ping", "--dir=/w", "--url=http://h:1"])).toEqual({
+      command: "ping",
+      dir: "/w",
+      url: "http://h:1",
+      rules: false,
+    });
+    expect(parseArgs(["ping", "--rules", "--dir", "/w"])).toEqual({ command: "ping", dir: "/w", rules: true });
+    expect(parseArgs(["ping", "--rules"])).toEqual({ command: "ping", rules: true });
     expect(() => parseArgs(["ping", "extra"])).toThrow(/takes no positional arguments/);
     expect(() => parseArgs(["ping", "--dir"])).toThrow(/needs a value/);
+    expect(() => parseArgs(["ping", "--rules=yes"])).toThrow(/takes no value/);
   });
 
   test("--url is accepted by every command", () => {

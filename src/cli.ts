@@ -9,6 +9,7 @@ import { attach } from "./attach";
 import { status } from "./status";
 import { top } from "./top/load";
 import { ping } from "./ping";
+import { pingRules } from "./rules";
 import { watch } from "./watch";
 import { log } from "./log";
 import { abort } from "./abort";
@@ -29,6 +30,7 @@ Usage:
   oc-sub status [--dir DIR | --all]
   oc-sub top --once [--dir DIR | --all] [--json]
   oc-sub ping [--dir DIR]
+  oc-sub ping --rules [--dir DIR]
   oc-sub watch SESSION [--dir DIR] [--json]
   oc-sub log SESSION [--dir DIR]
   oc-sub abort SESSION [--dir DIR]
@@ -53,6 +55,8 @@ Sandbox mode:
 
 Environment:
   OC_SUB_URL                 default server URL
+  OC_SUB_SHARED_DIR          the folder with the shared AGENTS.md and skills
+                             (default: $HOME/dv/meta/agents)
   OPENCODE_SERVER_PASSWORD   enables basic auth (never printed)
   OPENCODE_SERVER_USERNAME   basic-auth user (default: opencode)
   SBX_BIN                    the sbx binary (default: sbx on PATH)`;
@@ -88,7 +92,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     case "top":
       return top(args);
     case "ping":
-      return ping(args);
+      return args.rules ? pingRules(args) : ping(args);
     case "watch":
       return watch(args);
     case "log":

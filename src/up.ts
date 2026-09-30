@@ -1,9 +1,10 @@
 /** `oc-sub up`: make sure an opencode server answers, start one if needed. */
-import { openSync, closeSync } from "node:fs";
+import { existsSync, openSync, closeSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { resolveTarget, type Env } from "./config";
 import { assertUsable, probeServer } from "./client";
+import { sharedAgentsFile, sharedConfigEntries, sharedAgentsDir } from "./shared";
 import { removeFiles, serveDirsPath, serveLogPath, servePidPath } from "./state";
 
 const HEALTH_TIMEOUT_MS = 60_000;
@@ -27,25 +28,47 @@ export const PLUGIN_CONFIG_DIR = path.resolve(import.meta.dir, "..", "opencode")
  * point to other agent files, and gives a warning. Pure: the input env object
  * is not changed.
  *
+ * opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever
+ * `OPENCODE_CONFIG_DIR` is set (see docs/research/OPENCODE_RULES.md). So the
+ * serve environment also sets `OPENCODE_CONFIG_CONTENT` with the shared rules
+ * file in `instructions` and the shared skills folder in `skills.paths`. An
+ * existing `OPENCODE_CONFIG_CONTENT` stays and gives a warning, because the
+ * shared entries are then not added.
+ *
  * opencode offers the websearch tool to an OpenRouter model only when
  * `OPENCODE_ENABLE_EXA` is truthy. The researcher needs it to read web pages.
  * So the serve environment sets it to `1`, unless the environment already
  * sets it.
  */
-export function serveEnv(env: Env, pluginConfigDir: string = PLUGIN_CONFIG_DIR): { env: Env; warning?: string } {
+export function serveEnv(
+  env: Env,
+  pluginConfigDir: string = PLUGIN_CONFIG_DIR,
+  sharedDir: string = sharedAgentsDir(env),
+): { env: Env; warnings: string[] } {
   const exa = { OPENCODE_ENABLE_EXA: env.OPENCODE_ENABLE_EXA ?? "1" };
+  const warnings: string[] = [];
+  const withConfigDir = { ...env };
   const current = env.OPENCODE_CONFIG_DIR;
   if (current !== undefined && current.trim().length > 0) {
     // A relative path or a trailing slash still names the same folder.
-    const same = path.resolve(current) === path.resolve(pluginConfigDir);
-    return {
-      env: { ...env, ...exa },
-      warning: same
-        ? undefined
-        : `OPENCODE_CONFIG_DIR is already set to ${current}. The research agents of the plugin are not loaded.`,
-    };
+    if (path.resolve(current) !== path.resolve(pluginConfigDir)) {
+      warnings.push(
+        `OPENCODE_CONFIG_DIR is already set to ${current}. The research agents of the plugin are not loaded.`,
+      );
+    }
+  } else {
+    withConfigDir.OPENCODE_CONFIG_DIR = pluginConfigDir;
   }
-  return { env: { ...env, OPENCODE_CONFIG_DIR: pluginConfigDir, ...exa } };
+
+  const currentContent = env.OPENCODE_CONFIG_CONTENT;
+  if (currentContent !== undefined && currentContent.trim().length > 0) {
+    warnings.push(
+      "OPENCODE_CONFIG_CONTENT is already set on the host. The shared rules and skills are not added to it.",
+    );
+  } else {
+    withConfigDir.OPENCODE_CONFIG_CONTENT = JSON.stringify(sharedConfigEntries(sharedDir));
+  }
+  return { env: { ...withConfigDir, ...exa }, warnings };
 }
 
 export async function up(args: { url?: string; port?: number }, env: Env = process.env): Promise<number> {
@@ -59,8 +82,17 @@ export async function up(args: { url?: string; port?: number }, env: Env = proce
   // A server that refused the credentials still runs: do not start another.
   if (existing.state === "unauthorized") assertUsable(existing, targetUrl, env);
 
+  // The shared rules and skills are the only source of the global agent
+  // files. Without them, every session would silently lose the global rules.
+  const sharedFile = sharedAgentsFile(env);
+  if (!existsSync(sharedFile)) {
+    console.error(`error: the shared agents file ${sharedFile} does not exist.`);
+    console.error("Create it, or set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md.");
+    return 1;
+  }
+
   const serve = serveEnv(env);
-  if (serve.warning !== undefined) console.error(`warning: ${serve.warning}`);
+  for (const warning of serve.warnings) console.error(`warning: ${warning}`);
 
   const port = target.port;
   const serveUrl = `http://127.0.0.1:${port}`;

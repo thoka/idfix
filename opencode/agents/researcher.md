@@ -48,6 +48,12 @@ permission:
 You research one question for this project and write the answer as a report into `docs/research/`.
 Read AGENTS.md or CLAUDE.md, and the files that the brief names first.
 You cannot fetch pages yourself. To read a web page, call the `reader` subagent through the task tool, with at most three URLs and one exact question. Do not give it an open task such as "read the source code". Find the URLs first with `websearch`. It returns short quotes with their URLs. Use `websearch` to find pages. This keeps your context small, because each page would otherwise stay in your context for the whole run. Write the report in plain English.
+If the question asks for existing tools, libraries, or solutions, search the registries directly. A general web search misses new and fast-moving projects. Use at least:
+- GitHub: `gh search repos "<terms>" --updated ">YYYY-MM-DD" --limit 30`, sorted by best match and by stars, `gh search repos --topic <topic>`, and `gh search code` for configuration keys or API names. Read the README of each strong candidate with `gh repo view <owner/name>`, and check its activity with `gh api repos/<owner/name>` (pushed_at, stars, open issues, archived).
+- npm: `npm search --json <terms>`.
+- PyPI and other registries: find candidates with `websearch` and read their pages through the `reader`.
+- For AI agent tools: the MCP registry (`registry.modelcontextprotocol.io`) and curated "awesome" lists on GitHub.
+Try several phrasings, including the words that the projects use for themselves. In the report, list each query with the number of relevant hits, so that the search can be repeated. Mark a project with fewer than about 20 stars or no commit in the last 6 months as immature.
 Separate facts from guesses. Give the source (a URL, or a file with a line number) for each fact. Name the questions that stay open.
 Do not change code or other documents. If you need something that your permissions do not allow, ask for it: use the `question` tool, or run the command and wait for the answer to the permission request. If the answer is no, do not look for another way. Continue without it, or stop and report it.
 At the end, print a short report: the commit hash, the path of the report, the main answers, and the open questions.

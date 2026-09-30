@@ -5,7 +5,7 @@
  * `oc-sub up` does not start the proxy yet; this entry is for manual runs and
  * tests.
  */
-import { startProxy } from "./proxy";
+import { DEFAULT_UPSTREAM, startProxy } from "./proxy";
 
 function argOf(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -24,6 +24,6 @@ console.log(
     time: new Date().toISOString(),
     hostname: server.hostname,
     port: server.port,
-    upstream: upstream ?? "https://openrouter.ai/api/v1",
+    upstream: upstream ?? DEFAULT_UPSTREAM,
   }),
 );

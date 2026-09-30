@@ -12,6 +12,14 @@ import { applyChunk, createSseTap, type TapResult } from "./tap";
 
 export const LOG_SOURCE = "oc-sub-cost-proxy";
 
+/**
+ * The upstream origin plus the prefix in front of the API version. opencode
+ * points its base URL at `http://127.0.0.1:PORT/v1`, so the request path
+ * already starts with `/v1`, and the proxy appends it to this value:
+ * `/v1/chat/completions` goes to `https://openrouter.ai/api/v1/chat/completions`.
+ */
+export const DEFAULT_UPSTREAM = "https://openrouter.ai/api";
+
 export interface StartProxyOptions {
   port: number;
   hostname?: string;
@@ -36,7 +44,7 @@ const decoder = new TextDecoder();
 export function startProxy({
   port,
   hostname = "127.0.0.1",
-  upstream = "https://openrouter.ai/api/v1",
+  upstream = DEFAULT_UPSTREAM,
   log = (line) => console.log(JSON.stringify(line)),
   fetchImpl = fetch,
 }: StartProxyOptions): Bun.Server<never> {

@@ -1,3 +1,4 @@
+import { proxyBaseUrl } from "../src/sandbox";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { startProxy } from "../src/proxy/proxy";
 
@@ -362,5 +363,29 @@ describe("startProxy", () => {
     expect(typeof end.error).toBe("string");
     expect((end.error as string).length).toBeGreaterThan(0);
     expect(p.lines).toHaveLength(2);
+  });
+});
+
+describe("upstream URL", () => {
+  test("the base URL that up gives opencode reaches the OpenRouter API path", async () => {
+    // Regression of 2026-09-30: opencode requested `<base>/chat/completions`
+    // with base `http://127.0.0.1:PORT/v1`, and the proxy sent it to
+    // `https://openrouter.ai/api/v1/v1/chat/completions`, a 404.
+    const seen: string[] = [];
+    const server = startProxy({
+      port: 0,
+      log: () => {},
+      fetchImpl: (async (input: string | URL | Request) => {
+        seen.push(String(input));
+        return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+      }) as unknown as typeof fetch,
+    });
+    try {
+      const base = proxyBaseUrl(server.port as number);
+      await fetch(`${base}/chat/completions`, { method: "POST", body: "{}" });
+      expect(seen).toEqual(["https://openrouter.ai/api/v1/chat/completions"]);
+    } finally {
+      server.stop(true);
+    }
   });
 });

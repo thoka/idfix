@@ -202,7 +202,7 @@ In clone mode, the worktree of a run lives only inside the sandbox clone, at `<r
 
 ## Cost proxy
 
-The module `src/proxy/` holds a small pass-through HTTP proxy between opencode and OpenRouter (plan step 11b, research in `docs/research/COST_PROXY.md`). It forwards every request to the upstream base URL (default `https://openrouter.ai/api/v1`), streams the response back without buffering, and writes one JSON log line per request to stdout:
+The module `src/proxy/` holds a small pass-through HTTP proxy between opencode and OpenRouter (plan step 11b, research in `docs/research/COST_PROXY.md`). It appends the request path to the upstream URL (default `https://openrouter.ai/api`), so `/v1/chat/completions` goes to `https://openrouter.ai/api/v1/chat/completions`. It streams the response back without buffering, and writes one JSON log line per request to stdout:
 
 - A `start` line when the request opens: the opencode session (`X-Session-Id` header), the parent session, the method, and the path.
 - An `end` line when the response ends: the status, the latency, the generation id, the provider, the model, the real cost from the last stream chunk (`usage.cost`), the token counts, and the finish reason.

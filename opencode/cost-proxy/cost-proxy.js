@@ -437,11 +437,12 @@ function createSseTap() {
 
 // src/proxy/proxy.ts
 var LOG_SOURCE = "oc-sub-cost-proxy";
+var DEFAULT_UPSTREAM = "https://openrouter.ai/api";
 var decoder = new TextDecoder;
 function startProxy({
   port,
   hostname = "127.0.0.1",
-  upstream = "https://openrouter.ai/api/v1",
+  upstream = DEFAULT_UPSTREAM,
   log = (line) => console.log(JSON.stringify(line)),
   fetchImpl = fetch
 }) {
@@ -595,5 +596,5 @@ console.log(JSON.stringify({
   time: new Date().toISOString(),
   hostname: server.hostname,
   port: server.port,
-  upstream: upstream ?? "https://openrouter.ai/api/v1"
+  upstream: upstream ?? DEFAULT_UPSTREAM
 }));

@@ -1,0 +1,37 @@
+{
+  "interfaces": [
+    {
+      "name": "ProbeLedgerEntry",
+      "line": 4868,
+      "fields": [
+        "entryId",
+        "recordedAt",
+        "amountMinor",
+        "currencyCode",
+        "memo",
+        "settled"
+      ]
+    },
+    {
+      "name": "ProbeManifestField",
+      "line": 5047,
+      "fields": [
+        "key",
+        "label",
+        "required",
+        "maxLength"
+      ]
+    },
+    {
+      "name": "ProbeReplicaConfig",
+      "line": 7820,
+      "fields": [
+        "region",
+        "lagBudgetMs",
+        "readonly",
+        "backfillBatch",
+        "healthEndpoint"
+      ]
+    }
+  ]
+}

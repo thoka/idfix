@@ -65,6 +65,27 @@ export function stableStringify(value: unknown): string {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
 }
 
+/**
+ * Message-based loop check over completed tool calls, in order. True when a
+ * row of at least `loopLimit` identical calls (same tool, same input) occurs.
+ * This is the offline variant of the live loop detector inside `createGuard`
+ * and shares `stableStringify` with it, for checks over a finished session.
+ */
+export function detectLoop(
+  calls: ReadonlyArray<{ tool: string; input: unknown }>,
+  loopLimit: number = LOOP_LIMIT,
+): boolean {
+  let lastKey: string | undefined;
+  let count = 0;
+  for (const call of calls) {
+    const key = `${call.tool}\n${stableStringify(call.input)}`;
+    count = key === lastKey ? count + 1 : 1;
+    lastKey = key;
+    if (count >= loopLimit) return true;
+  }
+  return false;
+}
+
 export function createGuard(options: GuardOptions = {}): Guard {
   const loopLimit = options.loopLimit ?? LOOP_LIMIT;
   const stallMs = options.stallMs ?? STALL_MS;

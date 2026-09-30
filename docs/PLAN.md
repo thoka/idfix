@@ -181,3 +181,15 @@ Root cause: opencode stores neither the provider nor the real cost of a step. Th
 1. A small local proxy between opencode and OpenRouter records the provider, the generation ID, and the real cost of each request (see [REAL_COST.md](research/REAL_COST.md), option b). This also gives the exact real cost per run, also for overlapping runs.
 2. The detectors of step 6 flag a run with a loop, a stall, unreadable text, or runaway reasoning. Then the provider of the flagged steps gets a strike.
 3. After two or three strikes, the provider goes onto the OpenRouter `ignore` list for some days. After that, it gets a new chance.
+
+## Step 12: A working mise inside the sandbox
+
+Status: open. Decided with the user on 2026-09-30. The research is in [SANDBOX_MISE.md](research/SANDBOX_MISE.md).
+
+Root cause: the sandbox gets the tool folders of the host read-only, but no `mise` binary. An agent cannot add a tool. On 2026-09-30, a coder in arch-helper needed `pwsh`, found neither mise nor `pwsh`, and tried workarounds for a long time. In the same run, a user-scope install of PowerShell modules failed, because `/home/toka/.local/share` in the sandbox belongs to root.
+
+1. `mise.toml` lists `mise` itself as a tool. The binary then lands in the mounted installs folder, in the same version as on the host.
+2. `oc-sub up` passes `MISE_SHARED_INSTALL_DIRS=<installs mount>` into the server. mise then uses the host versions read-only and installs new tools into the home of the sandbox user.
+3. `up` writes `trusted_config_paths` for the project root only (not `/home/**`) into the mise configuration of the sandbox.
+4. Open: the feature is experimental upstream. Make sure that it works without `MISE_EXPERIMENTAL=1`, or set it. Find out why `/home/toka/.local/share` belongs to root inside the sandbox, and whether `HOME` points to `/home/toka` there.
+5. Tests for the environment of the server, and one bullet each in `docs/GUIDE.md` and `skills/oc-sub/reference.md`.

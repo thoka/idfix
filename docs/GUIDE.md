@@ -200,6 +200,17 @@ In clone mode, the worktree of a run lives only inside the sandbox clone, at `<r
 - `oc-sub worktree rm STEP` removes the worktree and deletes the branch `feature/STEP` inside the clone. `rm` deletes work that was not fetched. Run `oc-sub fetch` before you remove a worktree whose work you want to keep.
 - `oc-sub status` and `oc-sub top` also see the run worktrees in clone mode: for a sandbox server, and for a `--dir` project with a sandbox state file, they list the project root plus the worktrees that `git worktree list` shows inside the clone, so the sessions of clone-mode runs appear there.
 
+## Cost proxy
+
+The module `src/proxy/` holds a small pass-through HTTP proxy between opencode and OpenRouter (plan step 11b, research in `docs/research/COST_PROXY.md`). It forwards every request to the upstream base URL (default `https://openrouter.ai/api/v1`), streams the response back without buffering, and writes one JSON log line per request to stdout:
+
+- A `start` line when the request opens: the opencode session (`X-Session-Id` header), the parent session, the method, and the path.
+- An `end` line when the response ends: the status, the latency, the generation id, the provider, the model, the real cost from the last stream chunk (`usage.cost`), the token counts, and the finish reason.
+
+The log lines carry the tag `"source":"oc-sub-cost-proxy"`. The proxy never logs the `Authorization` header or any request body, so the key stays out of the log in host mode. For a manual test run: `bun src/proxy/main.ts --port 4097`.
+
+`oc-sub up` does not start the proxy yet. A later step points `provider.openrouter.options.baseURL` at it inside the sandbox and reads its log from the serve log file.
+
 ## Security
 
 - **The server listens only on 127.0.0.1.** Do not start it with `--hostname 0.0.0.0`. The server can read and change every file of a project, and it can run the allowed commands.

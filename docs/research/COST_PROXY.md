@@ -173,3 +173,7 @@ Additions for the design step 11b:
 - The proxy writes two lines per request: a `start` line when the request opens, and an `end` line with the fields of section 7. With both, `oc-sub watch` knows whether a model request is open. That fixes the false stall during a long bash command (known limit of step 6), and it finds a hanging provider after about 60 seconds instead of three minutes.
 - The `end` line also records `finish_reason` and the HTTP error of a failed request, because retries and cut-off answers are provider signals for the strikes.
 - The first implementation step starts with open question 1 (`NO_PROXY` inside the sandbox) as a live test of the main thread, before any other code.
+
+## Live test of the main thread (2026-09-30)
+
+Open question 1 is answered. Inside the sandbox of this project, `NO_PROXY` and `no_proxy` already hold `localhost,127.0.0.1,::1,gateway.docker.internal`. A Bun 1.4.2 server on `127.0.0.1:4097` answered a `fetch` from the same sandbox with status 200. Its own upstream `fetch` to `https://openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints` went through the `sbx` gateway and got status 200. Open question 3 (a POST with key injection through the proxy) stays open, because it needs a paid call. The first real run of the proxy answers it.

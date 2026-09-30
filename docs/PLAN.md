@@ -240,7 +240,7 @@ Open follow-ups of step 14:
 
 ## Hand-off on 2026-09-30
 
-State for the next thread. Everything above is on `alpha` and pushed, except the run below.
+State for the next thread. Everything above is on `alpha` and pushed.
 
 No run is active. Step 8i finished on 2026-09-30 and is on `alpha`: the project column of `top` shows the `shortName` of `.opencode/oc-sub.json`, else the full project name.
 

@@ -14,6 +14,7 @@ import {
   gateFastChecks,
   globalRulesFix,
   isPermissionOnlyAgent,
+  kvmAccessRootFix,
   doctor,
   makeDoctorDeps,
   pluginFreshFix,
@@ -25,7 +26,7 @@ import {
   type CheckResult,
   type DoctorDeps,
 } from "../src/doctor";
-import { cloneCheckCommand, missingCloneMessage, requiredSandboxMounts, sandboxRecreateFix } from "../src/sandbox";
+import { cloneCheckCommand, kvmAccessCheck, missingCloneMessage, requiredSandboxMounts, sandboxRecreateFix, type KvmDeps } from "../src/sandbox";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
 
 function tempDir(): string {
@@ -75,6 +76,16 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     // The fake swap turns the file entry into a symlink entry, so a re-run of
     // the checks sees the fixed state.
     replaceWithSymlink: (file, target) => files.set(file, { link: target }),
+    // /dev/kvm exists and is usable by default, so kvm-access passes.
+    kvm: {
+      platform: "linux",
+      statDevice: () => ({ mode: 0o20666, uid: 0, gid: 990 }),
+      canReadWrite: () => true,
+    },
+    rootRunner: () => {
+      throw new Error("the root runner must not run in this test");
+    },
+    stdinIsTTY: true,
     ...overrides,
   };
   return deps;
@@ -880,5 +891,215 @@ describe("defaultReplaceWithSymlink with the real file system", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("kvm-access", () => {
+  const usable: KvmDeps = {
+    platform: "linux",
+    statDevice: () => ({ mode: 0o20666, uid: 0, gid: 990 }),
+    canReadWrite: () => true,
+  };
+
+  test("skips on a platform other than Linux", () => {
+    const check = kvmAccessCheck({ ...usable, platform: "darwin" });
+    expect(check.status).toBe("skip");
+    expect(check.message).toContain("darwin");
+  });
+
+  test("fails when /dev/kvm is missing", () => {
+    const check = kvmAccessCheck({ ...usable, statDevice: () => null });
+    expect(check.status).toBe("fail");
+    expect(check.message).toContain("/dev/kvm does not exist");
+    expect(check.message).toContain("sbx needs KVM");
+  });
+
+  test("fails without read and write access and names the mode, the owner, and the group", () => {
+    const paths: string[] = [];
+    const check = kvmAccessCheck({
+      platform: "linux",
+      // The real case of 2026-09-30: a character device, mode 0660, group 109.
+      statDevice: (file) => {
+        paths.push(file);
+        return { mode: 0o20660, uid: 0, gid: 109 };
+      },
+      canReadWrite: (file) => {
+        paths.push(file);
+        return false;
+      },
+    });
+    expect(check.status).toBe("fail");
+    expect(check.message).toContain("mode 0660");
+    expect(check.message).toContain("owner uid 0");
+    expect(check.message).toContain("group gid 109");
+    expect(check.fix).toContain("oc-sub doctor --fix-as-root");
+    expect(check.fix).toContain("sudo chmod 0666 /dev/kvm");
+    expect(paths).toEqual(["/dev/kvm", "/dev/kvm"]);
+  });
+
+  test("passes with read and write access", () => {
+    expect(kvmAccessCheck(usable).status).toBe("pass");
+  });
+
+  test("is a slow check and runs before sandbox-mounts", () => {
+    const names = SLOW_CHECKS.map((check) => check.name);
+    expect(names).toContain("kvm-access");
+    expect(FAST_CHECKS.map((check) => check.name)).not.toContain("kvm-access");
+    expect(names.indexOf("kvm-access")).toBeLessThan(names.indexOf("sandbox-mounts"));
+  });
+});
+
+describe("the kvm-access root fix", () => {
+  /** Fake deps whose /dev/kvm becomes usable when the root runner exits 0. */
+  function kvmDeps(opts: { tty: boolean; exitCode: number }): { deps: DoctorDeps; calls: string[][] } {
+    const calls: string[][] = [];
+    let fixed = false;
+    // The shared rules file exists, so no other fix runs or fails.
+    const deps = makeDeps(
+      { files: map({ "/home/u/dv/meta/agents/AGENTS.md": { content: "# rules" } }) },
+      {
+        kvm: {
+          platform: "linux",
+          statDevice: () => ({ mode: fixed ? 0o20666 : 0o20660, uid: 0, gid: 109 }),
+          canReadWrite: () => fixed,
+        },
+        stdinIsTTY: opts.tty,
+        rootRunner: (cmd) => {
+          calls.push([...cmd]);
+          if (opts.exitCode === 0) fixed = true;
+          return { exitCode: opts.exitCode };
+        },
+      },
+    );
+    return { deps, calls };
+  }
+
+  function runDoctor(args: Parameters<typeof doctor>[0], deps: DoctorDeps): { code: number; lines: string[] } {
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    try {
+      return { code: doctor(args, { HOME: "/home/u" } as Record<string, string>, deps), lines };
+    } finally {
+      logSpy.mockRestore();
+    }
+  }
+
+  test("--fix never calls the root runner and names --fix-as-root", () => {
+    const { deps, calls } = kvmDeps({ tty: true, exitCode: 0 });
+    const { code, lines } = runDoctor({ fix: true }, deps);
+    expect(calls).toEqual([]);
+    expect(lines).toContain("needs --fix-as-root (kvm-access): this fix runs sudo; run oc-sub doctor --fix-as-root");
+    expect(lines.some((line) => line.startsWith("FAIL  kvm-access"))).toBe(true);
+    expect(code).toBe(1);
+  });
+
+  test("--fix-as-root runs sudo chmod 0666 /dev/kvm, and the re-run decides the exit code", () => {
+    const { deps, calls } = kvmDeps({ tty: true, exitCode: 0 });
+    const { code, lines } = runDoctor({ fixAsRoot: true }, deps);
+    expect(calls).toEqual([["sudo", "chmod", "0666", "/dev/kvm"]]);
+    expect(lines.some((line) => line.startsWith("fixing kvm-access:"))).toBe(true);
+    expect(lines.some((line) => line.startsWith("fixed kvm-access: sudo chmod 0666 /dev/kvm"))).toBe(true);
+    // The first run failed, the re-run passes, so the exit code is 0.
+    expect(lines.some((line) => line.startsWith("pass  kvm-access"))).toBe(true);
+    expect(code).toBe(0);
+  });
+
+  test("--fix-as-root returns 1 when the re-run still fails", () => {
+    // sudo exits 0, but the device stays unusable (for example a wrong device).
+    const calls: string[][] = [];
+    const deps = makeDeps(
+      {},
+      {
+        kvm: { platform: "linux", statDevice: () => ({ mode: 0o20660, uid: 0, gid: 109 }), canReadWrite: () => false },
+        rootRunner: (cmd) => {
+          calls.push([...cmd]);
+          return { exitCode: 0 };
+        },
+      },
+    );
+    const { code, lines } = runDoctor({ fixAsRoot: true }, deps);
+    expect(calls).toHaveLength(1);
+    expect(lines.some((line) => line.startsWith("FAIL  kvm-access"))).toBe(true);
+    expect(code).toBe(1);
+  });
+
+  test("without a terminal, the root fix runs sudo -n and a failure says to use a terminal", () => {
+    const { deps, calls } = kvmDeps({ tty: false, exitCode: 1 });
+    const { code, lines } = runDoctor({ fixAsRoot: true }, deps);
+    expect(calls).toEqual([["sudo", "-n", "chmod", "0666", "/dev/kvm"]]);
+    const failed = lines.find((line) => line.startsWith("fix failed (kvm-access):"));
+    expect(failed).toContain("run in a terminal: sudo chmod 0666 /dev/kvm");
+    expect(code).toBe(1);
+  });
+
+  test("the root fix reports a failed sudo in a terminal with its exit code", () => {
+    const { deps } = kvmDeps({ tty: true, exitCode: 1 });
+    const outcome = kvmAccessRootFix(deps, {} as CheckResult, { force: false });
+    expect(outcome).toEqual({ ok: false, note: "sudo chmod 0666 /dev/kvm exited with code 1" });
+  });
+
+  test("runFixes runs a root fix only with asRoot, and a pass result runs nothing", () => {
+    const ran: string[] = [];
+    const checks: Check[] = [
+      {
+        name: "root",
+        run: () => ({ name: "root", status: "fail", message: "bad" }),
+        rootFix: () => {
+          ran.push("root");
+          return { ok: true, note: "done" };
+        },
+      },
+    ];
+    const failed: CheckResult[] = [{ name: "root", status: "fail", message: "bad" }];
+    const print = () => {};
+    expect(runFixes(checks, makeDeps(), failed, { force: false }, print)).toEqual([]);
+    expect(ran).toEqual([]);
+    expect(runFixes(checks, makeDeps(), [{ name: "root", status: "pass", message: "ok" }], { force: false, asRoot: true }, print)).toEqual([]);
+    expect(ran).toEqual([]);
+    expect(runFixes(checks, makeDeps(), failed, { force: false, asRoot: true }, print)).toEqual([
+      { name: "root", ok: true, note: "done" },
+    ]);
+    expect(ran).toEqual(["root"]);
+  });
+});
+
+describe("doctor --fix-as-root argument parsing", () => {
+  test("--fix-as-root implies --fix", () => {
+    expect(parseArgs(["doctor", "--fix-as-root"])).toMatchObject({ command: "doctor", fix: true, fixAsRoot: true, force: false });
+  });
+
+  test("--fix alone does not set fixAsRoot", () => {
+    expect(parseArgs(["doctor", "--fix"])).toMatchObject({ fix: true, fixAsRoot: false });
+    expect(parseArgs(["doctor"])).toMatchObject({ fix: false, fixAsRoot: false });
+  });
+
+  test("--fix-as-root allows --force and --json", () => {
+    expect(parseArgs(["doctor", "--fix-as-root", "--force", "--json"])).toMatchObject({
+      fix: true,
+      fixAsRoot: true,
+      force: true,
+      json: true,
+    });
+  });
+});
+
+describe("sandbox-mounts when the sandbox does not start", () => {
+  test("names the stderr of sbx exec instead of a missing clone", () => {
+    const mounts = requiredSandboxMounts("/repo", PLUGIN_CONFIG_DIR, "/home/u/.local/share/mise/installs", "/home/u/dv/meta/agents").join(", ");
+    const deps = makeDeps(
+      {},
+      {
+        runner: (cmd) => {
+          if (cmd[1] === "exec") return { stdout: "", exitCode: 1, stderr: "start runtime: 500 Internal Server Error\n" };
+          return { stdout: `NAME STATUS WORKSPACE\noc-sub-repo running /repo, ${mounts}\n`, exitCode: 0 };
+        },
+        sandboxState: () => ({ name: "oc-sub-repo", root: "/repo", port: 18768 }),
+      },
+    );
+    const check = byName(results(deps, SLOW_CHECKS), "sandbox-mounts");
+    expect(check?.status).toBe("fail");
+    expect(check?.message).toContain("start runtime: 500 Internal Server Error");
+    expect(check?.message).not.toContain("has no git clone");
+    expect(check?.fix).toContain("sbx diagnose");
   });
 });

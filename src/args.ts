@@ -39,7 +39,7 @@ export type ParsedArgs =
   | { command: "say"; url?: string; session: string; dir?: string; agent?: string; text: string }
   | { command: "worktree"; step: string; dir?: string; base?: string; noSetup: boolean; remove: boolean }
   | { command: "fetch"; dir?: string }
-  | { command: "doctor"; dir?: string; json: boolean; fix: boolean; force: boolean };
+  | { command: "doctor"; dir?: string; json: boolean; fix: boolean; force: boolean; fixAsRoot: boolean };
 
 /** The reply values of a permission request. */
 export type Reply = "once" | "always" | "reject";
@@ -393,18 +393,27 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "doctor": {
       const { flags, positionals } = collectFlags(
         rest,
-        new Set(["dir", "json", "fix", "force"]),
-        new Set(["json", "fix", "force"]),
+        new Set(["dir", "json", "fix", "force", "fix-as-root"]),
+        new Set(["json", "fix", "force", "fix-as-root"]),
       );
       if (positionals.length > 0) {
         throw new UsageError(`doctor takes no positional arguments, got "${positionals.join(" ")}"`);
       }
-      const fix = flags.get("fix") === true;
+      // --fix-as-root implies --fix: it runs the safe fixes and the root fixes.
+      const fixAsRoot = flags.get("fix-as-root") === true;
+      const fix = flags.get("fix") === true || fixAsRoot;
       const force = flags.get("force") === true;
       if (force && !fix) {
-        throw new UsageError("--force is only allowed together with --fix");
+        throw new UsageError("--force is only allowed together with --fix or --fix-as-root");
       }
-      return { command: "doctor", dir: optionalString(flags, "dir"), json: flags.get("json") === true, fix, force };
+      return {
+        command: "doctor",
+        dir: optionalString(flags, "dir"),
+        json: flags.get("json") === true,
+        fix,
+        force,
+        fixAsRoot,
+      };
     }
     default:
       throw new UsageError(`unknown command "${head}"`);

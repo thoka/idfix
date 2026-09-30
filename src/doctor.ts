@@ -2,7 +2,7 @@
  * `oc-sub doctor`: a registry of named health checks. The fast checks 1 to 6
  * only stat and list directories (except check 6, which reads the frontmatter
  * of a project agent file), so `up` and `run` run them on every invocation.
- * The slow checks 7 and 8 need a git call or `sbx` calls, so only
+ * The slow checks need a git call, `sbx` calls, or the KVM device, so only
  * `oc-sub doctor` runs them. The design is in `docs/research/DOCTOR.md`.
  * Every dependency is injected, so the tests use fakes like in
  * `test/sandbox.test.ts`.
@@ -11,7 +11,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpat
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
-import { hasClone, listsCloneRemote, miseInstallsDir, missingCloneMessage, readSandboxState, requiredSandboxMounts, sandboxName, sandboxRecreateFix, sandboxStatePath, listsMounts, listsName, defaultRunner, type Runner, type SandboxState } from "./sandbox";
+import { cloneStatus, defaultKvmDeps, execFailedMessage, KVM_CHMOD_COMMAND, kvmAccessCheck, listsCloneRemote, miseInstallsDir, missingCloneMessage, readSandboxState, requiredSandboxMounts, sandboxName, sandboxRecreateFix, sandboxStatePath, listsMounts, listsName, defaultRunner, type KvmDeps, type Runner, type SandboxState } from "./sandbox";
 import { projectRootOfRun } from "./keys";
 import { sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
@@ -73,6 +73,25 @@ export type DoctorDeps = {
    * file, so the swap is atomic.
    */
   replaceWithSymlink: (file: string, target: string) => void;
+  /** The platform, the stat, and the access test of the `kvm-access` check. */
+  kvm: KvmDeps;
+  /**
+   * The runner of the root fixes. It runs the command with stdin, stdout, and
+   * stderr inherited from the terminal, so that sudo can ask for the
+   * password. The tests replace it, so they never call sudo.
+   */
+  rootRunner: RootRunner;
+  /** Whether stdin is a terminal. Without one, a root fix runs `sudo -n`. */
+  stdinIsTTY: boolean;
+};
+
+/** A runner whose child process shares the terminal of this process. */
+export type RootRunner = (cmd: readonly string[]) => { exitCode: number };
+
+/** The real root runner: one synchronous subprocess with inherited stdio. */
+export const defaultRootRunner: RootRunner = (cmd) => {
+  const proc = Bun.spawnSync([...cmd], { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+  return { exitCode: proc.exitCode ?? 1 };
 };
 
 /** The check of `installed_plugins.json` and the fix for an old install. */
@@ -156,6 +175,9 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     claudeBin: env.CLAUDE_BIN !== undefined && env.CLAUDE_BIN.length > 0 ? env.CLAUDE_BIN : "claude",
     claudeRunner: defaultRunner,
     replaceWithSymlink: defaultReplaceWithSymlink,
+    kvm: defaultKvmDeps,
+    rootRunner: defaultRootRunner,
+    stdinIsTTY: process.stdin.isTTY === true,
   };
   return { ...deps, ...overrides };
 }
@@ -177,6 +199,11 @@ export type Check = {
    * returns the outcome; a throw counts as a failed fix.
    */
   fix?: (deps: DoctorDeps, result: CheckResult, ctx: { force: boolean }) => FixOutcome;
+  /**
+   * A fix that needs root. Only `--fix-as-root` runs it, never `--fix`
+   * alone, and only a root fix may call sudo. Same contract as `fix`.
+   */
+  rootFix?: (deps: DoctorDeps, result: CheckResult, ctx: { force: boolean }) => FixOutcome;
 };
 
 function result(name: string, status: CheckResult["status"], message: string, fix?: string): CheckResult {
@@ -484,8 +511,18 @@ function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
     );
   }
   // The same clone check as in `up`: a create can exit 0 and leave no clone.
-  // Its `sbx exec` also starts a stopped sandbox.
-  if (!hasClone(deps.runner, deps.sandboxBin, name, state.root)) {
+  // Its `sbx exec` also starts a stopped sandbox. When the exec itself fails,
+  // the sandbox did not start, and a recreate would not help.
+  const clone = cloneStatus(deps.runner, deps.sandboxBin, name, state.root);
+  if (clone.state === "exec-failed") {
+    return result(
+      "sandbox-mounts",
+      "fail",
+      execFailedMessage(name, clone.exitCode, clone.stderr),
+      `run ${deps.sandboxBin} diagnose for the cause; check kvm-access first`,
+    );
+  }
+  if (clone.state === "missing") {
     return result("sandbox-mounts", "fail", missingCloneMessage(name, state.root), sandboxRecreateFix(name));
   }
   // Clone mode is a create-time flag, so an old direct-mount sandbox needs
@@ -503,6 +540,28 @@ function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
   return result("sandbox-mounts", "pass", `the sandbox ${name} has all required mounts, clone mode, and a clone`);
 }
 
+/**
+ * The root fix of `kvm-access`: `sudo chmod 0666 /dev/kvm`. In a terminal,
+ * sudo may ask for the password. Without a terminal, `sudo -n` fails instead
+ * of waiting for a password that nobody can type. Mode 0666 works at once,
+ * without a new login for a group membership. The fix lasts until WSL
+ * creates /dev/kvm again (the next WSL restart); a permanent fix is a task
+ * of the machine setup.
+ */
+export function kvmAccessRootFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): FixOutcome {
+  const plain = ["sudo", ...KVM_CHMOD_COMMAND];
+  const cmd = deps.stdinIsTTY ? plain : ["sudo", "-n", ...KVM_CHMOD_COMMAND];
+  const { exitCode } = deps.rootRunner(cmd);
+  if (exitCode === 0) return { ok: true, note: `${cmd.join(" ")} (lasts until the next WSL restart)` };
+  if (!deps.stdinIsTTY) {
+    return {
+      ok: false,
+      note: `${cmd.join(" ")} exited with code ${exitCode}; sudo needs a password, run in a terminal: ${plain.join(" ")}`,
+    };
+  }
+  return { ok: false, note: `${cmd.join(" ")} exited with code ${exitCode}` };
+}
+
 /** The fast checks: `up` and `run` run them on every invocation. */
 export const FAST_CHECKS: Check[] = [
   { name: "env-files", run: envFilesCheck },
@@ -516,6 +575,8 @@ export const FAST_CHECKS: Check[] = [
 /** The slow checks: only `oc-sub doctor` runs them. */
 export const SLOW_CHECKS: Check[] = [
   { name: "plugin-fresh", run: pluginFreshCheck, fix: pluginFreshFix },
+  // Before sandbox-mounts: without KVM access, the sandbox cannot start.
+  { name: "kvm-access", run: (deps) => kvmAccessCheck(deps.kvm), rootFix: kvmAccessRootFix },
   { name: "sandbox-mounts", run: sandboxMountsCheck },
 ];
 
@@ -612,47 +673,65 @@ export function gateForCommand(
  * order of the given check list. It prints `fixing <name>: <fix text>` before
  * each action and `fixed <name>: <note>` or `fix failed (<name>): <note>`
  * after it. An action that throws counts as a failed fix with the error
- * message as note, and the other actions still run.
+ * message as note, and the other actions still run. A root fix runs only
+ * with `ctx.asRoot` (`--fix-as-root`); without it, the line
+ * `needs --fix-as-root (<name>): ...` names the flag, and nothing runs.
  */
 export function runFixes(
   checks: readonly Check[],
   deps: DoctorDeps,
   results: readonly CheckResult[],
-  ctx: { force: boolean },
+  ctx: { force: boolean; asRoot?: boolean },
   print: (line: string) => void = console.log,
 ): FixRecord[] {
   const records: FixRecord[] = [];
-  for (let i = 0; i < checks.length; i++) {
-    const check = checks[i];
-    const res = results[i];
-    if (check === undefined || res === undefined) continue;
-    if (check.fix === undefined) continue;
-    if (res.status !== "warn" && res.status !== "fail") continue;
+  const apply = (check: Check, res: CheckResult, action: NonNullable<Check["fix"]>) => {
     print(`fixing ${check.name}: ${res.fix ?? res.message}`);
     let outcome: FixOutcome;
     try {
-      outcome = check.fix(deps, res, ctx);
+      outcome = action(deps, res, { force: ctx.force });
     } catch (error) {
       outcome = { ok: false, note: error instanceof Error ? error.message : String(error) };
     }
     records.push({ name: check.name, ok: outcome.ok, note: outcome.note });
     print(outcome.ok ? `fixed ${check.name}: ${outcome.note}` : `fix failed (${check.name}): ${outcome.note}`);
+  };
+  for (let i = 0; i < checks.length; i++) {
+    const check = checks[i];
+    const res = results[i];
+    if (check === undefined || res === undefined) continue;
+    if (res.status !== "warn" && res.status !== "fail") continue;
+    if (check.fix !== undefined) apply(check, res, check.fix);
+    if (check.rootFix !== undefined) {
+      if (ctx.asRoot === true) {
+        apply(check, res, check.rootFix);
+      } else {
+        print(`needs --fix-as-root (${check.name}): this fix runs sudo; run oc-sub doctor --fix-as-root`);
+      }
+    }
   }
   return records;
 }
 
 /** `oc-sub doctor`: run all checks and print the results. */
 export function doctor(
-  args: { dir?: string; json?: boolean; fix?: boolean; force?: boolean },
+  args: { dir?: string; json?: boolean; fix?: boolean; force?: boolean; fixAsRoot?: boolean },
   env: Env = process.env,
   overrides: Partial<DoctorDeps> = {},
 ): number {
   const deps = makeDoctorDeps(env, args.dir ?? process.cwd(), overrides);
   const results = runChecks(ALL_CHECKS, deps);
-  if (args.fix === true) {
+  // --fix-as-root implies --fix and also runs the root fixes.
+  if (args.fix === true || args.fixAsRoot === true) {
     // With --json, stdout holds only the JSON object, so the fix lines go to stderr.
     const print = args.json === true ? console.error : console.log;
-    const fixes = runFixes(ALL_CHECKS, deps, results, { force: args.force === true }, print);
+    const fixes = runFixes(
+      ALL_CHECKS,
+      deps,
+      results,
+      { force: args.force === true, asRoot: args.fixAsRoot === true },
+      print,
+    );
     const rerun = runChecks(ALL_CHECKS, deps);
     if (args.json === true) {
       console.log(JSON.stringify({ fixes, results: rerun }, null, 2));

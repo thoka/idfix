@@ -44,6 +44,7 @@ Usage:
   oc-sub fetch [--dir ROOT]
   oc-sub doctor [--dir DIR] [--json]
   oc-sub doctor --fix [--force] [--dir DIR] [--json]
+  oc-sub doctor --fix-as-root [--force] [--dir DIR] [--json]
 
 Every command accepts:
   --url URL   opencode server URL (default: $OC_SUB_URL or http://127.0.0.1:8767)
@@ -75,7 +76,14 @@ Environment:
   OPENCODE_SERVER_USERNAME   basic-auth user (default: opencode)
   SBX_BIN                    the sbx binary (default: sbx on PATH)
   CLAUDE_BIN                 the claude binary for doctor --fix
-                             (default: claude on PATH)`;
+                             (default: claude on PATH)
+
+Doctor fixes:
+  --fix           runs the safe fixes, then all checks again. It never
+                  calls sudo.
+  --fix-as-root   implies --fix, and also runs the fixes that need root
+                  through sudo (for example chmod 0666 /dev/kvm). sudo may
+                  ask for the password; without a terminal it runs sudo -n.`;
 
 const HELP_EXIT_HINT = "run `oc-sub --help` for usage";
 

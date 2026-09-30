@@ -4,12 +4,13 @@
  * design of step 9a in `docs/PLAN.md`. Every `sbx` call goes through a
  * runner, so the tests replace it with a fake and never call the real `sbx`.
  */
-import { existsSync, openSync, closeSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, openSync, closeSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
 import type { Env } from "./config";
 import type { ServerState } from "./client";
+import type { CheckResult } from "./doctor";
 // The busy check and the holder stop reuse the helpers of `down`.
 import { busySessions, formatBusyLine, isAlive, waitUntilGone } from "./down";
 import { assertUsable, probeServer } from "./client";
@@ -246,8 +247,11 @@ export async function pickPort(
   throw new Error(`no free port from ${SANDBOX_PORT_BASE} upward`);
 }
 
-/** The result of one `sbx` call. */
-export type RunnerResult = { stdout: string; exitCode: number };
+/**
+ * The result of one `sbx` call. `stderr` is optional, so a fake runner in a
+ * test may leave it out.
+ */
+export type RunnerResult = { stdout: string; exitCode: number; stderr?: string };
 
 /** A runner for the `sbx` binary. The tests replace it with a fake. */
 export type Runner = (cmd: readonly string[], opts?: { cwd?: string }) => RunnerResult;
@@ -255,8 +259,98 @@ export type Runner = (cmd: readonly string[], opts?: { cwd?: string }) => Runner
 /** The real runner: one synchronous subprocess per call. */
 export const defaultRunner: Runner = (cmd, opts = {}) => {
   const proc = Bun.spawnSync([...cmd], { stdout: "pipe", stderr: "pipe", cwd: opts.cwd });
-  return { stdout: proc.stdout.toString(), exitCode: proc.exitCode ?? 1 };
+  return { stdout: proc.stdout.toString(), exitCode: proc.exitCode ?? 1, stderr: proc.stderr.toString() };
 };
+
+/**
+ * Print the stderr of a failed call, indented, so that the cause of the
+ * failure is visible. An empty stderr prints nothing.
+ */
+export function printStderr(res: RunnerResult, print: (line: string) => void = console.error): void {
+  const text = (res.stderr ?? "").trim();
+  if (text.length === 0) return;
+  for (const line of text.split("\n")) print(`  ${line}`);
+}
+
+/** The KVM device. `sbx` runs every sandbox as a microVM and needs it. */
+export const KVM_DEVICE = "/dev/kvm";
+
+/**
+ * The plain root fix of the `kvm-access` check. Mode 0666 works at once,
+ * without a new login for a group membership. It lasts only until WSL
+ * creates /dev/kvm again (the next WSL restart); a permanent fix is a task
+ * of the machine setup (for example a udev rule or the WSL boot command).
+ */
+export const KVM_CHMOD_COMMAND = ["chmod", "0666", KVM_DEVICE] as const;
+
+/** The fix text of the `kvm-access` check. */
+export const KVM_FIX = `run oc-sub doctor --fix-as-root, or: sudo ${KVM_CHMOD_COMMAND.join(" ")} (it lasts until the next WSL restart)`;
+
+/** The metadata of /dev/kvm that the check names in its message. */
+export type KvmStat = { mode: number; uid: number; gid: number };
+
+/** What the `kvm-access` check reaches outside this module. */
+export type KvmDeps = {
+  /** The platform, as in `process.platform`. */
+  platform: string;
+  /** The metadata of a path, or null when it does not exist. */
+  statDevice: (file: string) => KvmStat | null;
+  /** Whether the current process can read and write the path. */
+  canReadWrite: (file: string) => boolean;
+};
+
+/** The real dependencies of the `kvm-access` check. */
+export const defaultKvmDeps: KvmDeps = {
+  platform: process.platform,
+  statDevice: (file) => {
+    try {
+      const info = statSync(file);
+      return { mode: info.mode, uid: info.uid, gid: info.gid };
+    } catch {
+      return null;
+    }
+  },
+  canReadWrite: (file) => {
+    try {
+      accessSync(file, fsConstants.R_OK | fsConstants.W_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+};
+
+/**
+ * The `kvm-access` check: the current process can read and write /dev/kvm.
+ * `oc-sub doctor` runs it as a slow check, and `upSandbox` runs it before
+ * its first `sbx` call. Without the access, `sbx create` and the start of a
+ * sandbox fail with an error that does not name the cause.
+ */
+export function kvmAccessCheck(deps: KvmDeps = defaultKvmDeps): CheckResult {
+  const name = "kvm-access";
+  if (deps.platform !== "linux") {
+    return { name, status: "skip", message: `not on Linux (${deps.platform})` };
+  }
+  const info = deps.statDevice(KVM_DEVICE);
+  if (info === null) {
+    return {
+      name,
+      status: "fail",
+      message: `${KVM_DEVICE} does not exist; sbx needs KVM`,
+      fix: "turn on KVM (on WSL: nestedVirtualization=true in .wslconfig), then restart the machine or WSL",
+    };
+  }
+  if (!deps.canReadWrite(KVM_DEVICE)) {
+    const mode = (info.mode & 0o7777).toString(8).padStart(4, "0");
+    return {
+      name,
+      status: "fail",
+      message: `the current user cannot read and write ${KVM_DEVICE} (mode ${mode}, owner uid ${info.uid}, group gid ${info.gid}); sbx cannot start a sandbox`,
+      fix: KVM_FIX,
+    };
+  }
+  return { name, status: "pass", message: `the current user can read and write ${KVM_DEVICE}` };
+}
 
 /** The `sbx` binary: from `SBX_BIN`, else from `PATH`. */
 export function sbxBin(env: Env): string {
@@ -450,6 +544,8 @@ export type SandboxDeps = {
   binExists: (bin: string) => boolean;
   /** Whether a host file such as the shared AGENTS.md exists. */
   fileExists: (file: string) => boolean;
+  /** The `kvm-access` check of `doctor`; the tests replace it. */
+  checkKvm: () => CheckResult;
   healthTimeoutMs: number;
   healthIntervalMs: number;
 };
@@ -465,6 +561,7 @@ export const defaultSandboxDeps: SandboxDeps = {
   rootOf: projectRoot,
   binExists: (bin) => Bun.which(bin) !== null,
   fileExists: existsSync,
+  checkKvm: () => kvmAccessCheck(defaultKvmDeps),
   healthTimeoutMs: HEALTH_TIMEOUT_MS,
   healthIntervalMs: HEALTH_INTERVAL_MS,
 };
@@ -535,7 +632,38 @@ export function cloneCheckCommand(bin: string, name: string, root: string): stri
  * `sandbox-mounts` check of `doctor` both call it, so the two never differ.
  */
 export function hasClone(runner: Runner, bin: string, name: string, root: string): boolean {
-  return runner(cloneCheckCommand(bin, name, root)).exitCode === 0;
+  return cloneStatus(runner, bin, name, root).state === "present";
+}
+
+/**
+ * The exit code of git for "not a git repository" and for a missing `-C`
+ * folder. Any other exit code of the clone check means that `sbx exec`
+ * itself failed, for example because the sandbox did not start.
+ */
+const GIT_FATAL_EXIT = 128;
+
+/**
+ * The clone check with the cause of a failure: `present`, `missing` (git ran
+ * inside the sandbox and found no repository), or `exec-failed` (the
+ * `sbx exec` failed, for example because the sandbox did not start), with
+ * the stderr of the call.
+ */
+export function cloneStatus(
+  runner: Runner,
+  bin: string,
+  name: string,
+  root: string,
+): { state: "present" } | { state: "missing" } | { state: "exec-failed"; exitCode: number; stderr: string } {
+  const res = runner(cloneCheckCommand(bin, name, root));
+  if (res.exitCode === 0) return { state: "present" };
+  if (res.exitCode === GIT_FATAL_EXIT) return { state: "missing" };
+  return { state: "exec-failed", exitCode: res.exitCode, stderr: (res.stderr ?? "").trim() };
+}
+
+/** The error message for a clone check whose `sbx exec` failed. */
+export function execFailedMessage(name: string, exitCode: number, stderr: string): string {
+  const cause = stderr.length > 0 ? `: ${stderr}` : " (no stderr)";
+  return `sbx exec in the sandbox ${name} failed with code ${exitCode}, the sandbox may not start${cause}`;
 }
 
 /** The error message for a sandbox without a clone at the project root. */
@@ -661,6 +789,16 @@ export async function upSandbox(
     console.error("To start a host server instead, run: oc-sub up --no-sandbox");
     return 1;
   }
+  // `sbx` runs the sandbox as a microVM and needs read and write access to
+  // /dev/kvm, both for `sbx create` and for the start of an existing
+  // sandbox. Without it, `sbx` fails with an error that does not name the
+  // cause, so up stops here, before any `sbx` call.
+  const kvm = deps.checkKvm();
+  if (kvm.status === "fail") {
+    console.error(`error: ${kvm.name}: ${kvm.message}`);
+    if (kvm.fix !== undefined) console.error(`fix: ${kvm.fix}`);
+    return 1;
+  }
 
   // The host value stays on the host: only an `-e` option of the holder
   // command reaches the sandbox, so the host value never gets there anyway.
@@ -688,6 +826,7 @@ export async function upSandbox(
   const install = deps.runner([mise, "install"], { cwd: root });
   if (install.exitCode !== 0) {
     console.error(`error: mise install failed in ${root}`);
+    printStderr(install);
     return 1;
   }
   const installsDir = miseInstallsDir(env);
@@ -742,6 +881,8 @@ export async function upSandbox(
     );
     if (create.exitCode !== 0) {
       console.error(`error: sbx create failed for ${name}`);
+      printStderr(create);
+      console.error(`For the cause, run: ${bin} diagnose`);
       return 1;
     }
     for (const dir of plan.inClone) {
@@ -756,16 +897,19 @@ export async function upSandbox(
     const allow = deps.runner([bin, "policy", "allow", "network", "--sandbox", name, "**", "--method", "GET,HEAD"]);
     if (allow.exitCode !== 0) {
       console.error(`error: sbx policy allow network failed for ${name}`);
+      printStderr(allow);
       return 1;
     }
     const allowExa = deps.runner([bin, "policy", "allow", "network", "--sandbox", name, EXA_HOST]);
     if (allowExa.exitCode !== 0) {
       console.error(`error: sbx policy allow network for ${EXA_HOST} failed for ${name}`);
+      printStderr(allowExa);
       return 1;
     }
     const deny = deps.runner([bin, "policy", "deny", "network", "--sandbox", name, NETWORK_DENY_HOSTS.join(",")]);
     if (deny.exitCode !== 0) {
       console.error(`error: sbx policy deny network failed for ${name}`);
+      printStderr(deny);
       return 1;
     }
   } else if (!listsMounts(lsStdout, name, requiredSandboxMounts(root, PLUGIN_CONFIG_DIR, installsDir, sharedDir))) {
@@ -778,8 +922,16 @@ export async function upSandbox(
   // After the create, and on every up of an existing sandbox: the clone must
   // exist at the project root. `sbx create --clone` can exit 0 and still
   // leave no clone (RUN_ISOLATION.md section 9), and every run worktree
-  // lives in that clone.
-  if (!hasClone(deps.runner, bin, name, root)) {
+  // lives in that clone. This `sbx exec` also starts a stopped sandbox.
+  // When the exec itself fails (the sandbox does not start), the cause is in
+  // its stderr, and a recreate would not help.
+  const clone = cloneStatus(deps.runner, bin, name, root);
+  if (clone.state === "exec-failed") {
+    console.error(`error: ${execFailedMessage(name, clone.exitCode, clone.stderr)}`);
+    console.error(`For the cause, run: ${bin} diagnose`);
+    return 1;
+  }
+  if (clone.state === "missing") {
     console.error(`error: ${missingCloneMessage(name, root)}`);
     console.error(sandboxRecreateFix(name));
     return 1;
@@ -810,6 +962,7 @@ export async function upSandbox(
     ]);
     if (set.exitCode !== 0) {
       console.error(`error: sbx secret set failed for ${name}`);
+      printStderr(set);
       return 1;
     }
   }
@@ -821,6 +974,7 @@ export async function upSandbox(
   const placeholder = deps.runner([bin, "exec", name, "sh", "-c", placeholderKeyScript(project)]);
   if (placeholder.exitCode !== 0) {
     console.error(`error: cannot write the placeholder key file in ${name}`);
+    printStderr(placeholder);
     return 1;
   }
 
@@ -836,6 +990,7 @@ export async function upSandbox(
     // Then the publish fails with "already published", and a second list shows it.
     if (publish.exitCode !== 0 && !listsPublishedPort(deps.runner([bin, "ports", name]).stdout, port)) {
       console.error(`error: sbx ports --publish ${port}:${SERVE_PORT} failed for ${name}`);
+      printStderr(publish);
       return 1;
     }
   }
@@ -846,6 +1001,7 @@ export async function upSandbox(
     const check = deps.runner([bin, "policy", "check", "network", "--sandbox", name, target]);
     if (!deniesNetwork(check.stdout)) {
       console.error(`error: the sandbox ${name} may reach ${target}`);
+      if (check.exitCode !== 0) printStderr(check);
       console.error(
         `Deny it with: sbx policy deny network --sandbox ${name} "${NETWORK_DENY_HOSTS.join(",")}"`,
       );
@@ -858,6 +1014,7 @@ export async function upSandbox(
   const readable = deps.runner([bin, "exec", name, "test", "-r", sharedFile]);
   if (readable.exitCode !== 0) {
     console.error(`error: the sandbox ${name} cannot read the shared agents file ${sharedFile}`);
+    printStderr(readable);
     console.error(`Remove it with: sbx rm --force ${name}`);
     console.error("Then run oc-sub up. It creates the sandbox again with the shared mount.");
     return 1;
@@ -982,6 +1139,7 @@ export async function downSandbox(
   const stop = deps.runner([sbxBin(env), "stop", name]);
   if (stop.exitCode !== 0) {
     console.error(`error: sbx stop ${name} failed`);
+    printStderr(stop);
     return 1;
   }
 

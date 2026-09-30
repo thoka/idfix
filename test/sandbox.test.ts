@@ -36,6 +36,8 @@ import {
   isInsideRoot,
   cloneCheckCommand,
   hasClone,
+  cloneStatus,
+  printStderr,
   missingCloneMessage,
   sandboxUrlFor,
   SANDBOX_BASH_AGENTS,
@@ -98,15 +100,15 @@ const DENIED = { stdout: "Denied: host.docker.internal:8767\n" };
 const GIT_REMOTE = { stdout: "origin\nsandbox-oc-sub-test\n" };
 
 /** A fake runner whose answers come from a per-subcommand script. */
-function fakeRunner(answer: (cmd: readonly string[]) => { stdout?: string; exitCode?: number }): {
+function fakeRunner(answer: (cmd: readonly string[]) => { stdout?: string; exitCode?: number; stderr?: string }): {
   calls: Call[];
   runner: Runner;
 } {
   const calls: Call[] = [];
   const runner: Runner = (cmd, opts) => {
     calls.push({ cmd: [...cmd], cwd: opts?.cwd });
-    const { stdout = "", exitCode = 0 } = answer(cmd);
-    return { stdout, exitCode };
+    const { stdout = "", exitCode = 0, stderr } = answer(cmd);
+    return stderr === undefined ? { stdout, exitCode } : { stdout, exitCode, stderr };
   };
   return { calls, runner };
 }
@@ -132,6 +134,7 @@ function makeDeps(overrides: Partial<SandboxDeps> = {}): SandboxDeps {
     rootOf: () => "/repo",
     binExists: () => true,
     fileExists: () => true,
+    checkKvm: () => ({ name: "kvm-access", status: "pass", message: "ok" }),
     healthTimeoutMs: 500,
     healthIntervalMs: 1,
     ...overrides,
@@ -1314,5 +1317,109 @@ describe("downSandbox", () => {
       probe: async () => ({ state: "down" }),
     }));
     expect(result).toBe(1);
+  });
+});
+
+/** Capture console.error while the body runs. */
+async function captureErrors(body: () => Promise<number>): Promise<{ result: number; text: string }> {
+  const errors: string[] = [];
+  const err = console.error;
+  console.error = (line: string) => errors.push(line);
+  try {
+    const result = await body();
+    return { result, text: errors.join("\n") };
+  } finally {
+    console.error = err;
+  }
+}
+
+describe("the KVM gate and the stderr of sbx in upSandbox", () => {
+  const SBX_START_ERROR = "ERROR: start runtime: 500 Internal Server Error";
+
+  test("a failed kvm-access check stops up before any sbx call", async () => {
+    const { calls, runner } = fakeRunner(() => ({ stdout: "" }));
+    const { result, text } = await captureErrors(() =>
+      upSandbox({}, makeEnv(), makeDeps({
+        runner,
+        checkKvm: () => ({
+          name: "kvm-access",
+          status: "fail",
+          message: "the current user cannot read and write /dev/kvm (mode 0660, owner uid 0, group gid 109)",
+          fix: "run oc-sub doctor --fix-as-root, or: sudo chmod 0666 /dev/kvm",
+        }),
+      })),
+    );
+    expect(result).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(text).toContain("error: kvm-access: the current user cannot read and write /dev/kvm (mode 0660");
+    expect(text).toContain("fix: run oc-sub doctor --fix-as-root");
+  });
+
+  test("a skipped or passed kvm-access check lets up continue", async () => {
+    const { calls, runner } = fakeRunner(() => ({ stdout: "", exitCode: 1 }));
+    await captureErrors(() =>
+      upSandbox({}, makeEnv(), makeDeps({
+        runner,
+        checkKvm: () => ({ name: "kvm-access", status: "skip", message: "not on Linux (darwin)" }),
+      })),
+    );
+    // The first call after the gate is `mise install`.
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  test("a failed sbx create prints its stderr and names sbx diagnose", async () => {
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "create")) return { exitCode: 1, stderr: `${SBX_START_ERROR}\n` };
+      return { stdout: "" };
+    });
+    const { result, text } = await captureErrors(() => upSandbox({}, makeEnv(), makeDeps({ runner })));
+    expect(result).toBe(1);
+    expect(text).toContain("error: sbx create failed for oc-sub-test");
+    expect(text).toContain(`  ${SBX_START_ERROR}`);
+    expect(text).toContain("sbx diagnose");
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "create"]);
+  });
+
+  test("a failed sbx exec of the clone check prints its stderr, not \"has no git clone\"", async () => {
+    const env = makeEnv();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "exec")) return { exitCode: 1, stderr: SBX_START_ERROR };
+      return DENIED;
+    });
+    const { result, text } = await captureErrors(() => upSandbox({}, env, makeDeps({ runner })));
+    expect(result).toBe(1);
+    expect(text).not.toContain("has no git clone");
+    expect(text).not.toContain("sbx rm --force");
+    expect(text).toContain(SBX_START_ERROR);
+    expect(text).toContain("sbx diagnose");
+    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec"]);
+  });
+});
+
+describe("cloneStatus and printStderr", () => {
+  test("cloneStatus tells a missing clone from a failed sbx exec", () => {
+    expect(cloneStatus(() => ({ stdout: ".git\n", exitCode: 0 }), "sbx", "n", "/r")).toEqual({ state: "present" });
+    expect(cloneStatus(() => ({ stdout: "", exitCode: 128, stderr: "fatal: not a git repository" }), "sbx", "n", "/r")).toEqual({
+      state: "missing",
+    });
+    expect(cloneStatus(() => ({ stdout: "", exitCode: 1, stderr: " boom \n" }), "sbx", "n", "/r")).toEqual({
+      state: "exec-failed",
+      exitCode: 1,
+      stderr: "boom",
+    });
+    expect(cloneStatus(() => ({ stdout: "", exitCode: 1 }), "sbx", "n", "/r")).toEqual({
+      state: "exec-failed",
+      exitCode: 1,
+      stderr: "",
+    });
+  });
+
+  test("printStderr indents each line and prints nothing for an empty stderr", () => {
+    const lines: string[] = [];
+    printStderr({ stdout: "", exitCode: 1, stderr: "a\nb\n" }, (line) => lines.push(line));
+    printStderr({ stdout: "", exitCode: 1 }, (line) => lines.push(line));
+    printStderr({ stdout: "", exitCode: 1, stderr: "  \n" }, (line) => lines.push(line));
+    expect(lines).toEqual(["  a", "  b"]);
   });
 });

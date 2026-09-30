@@ -80,7 +80,11 @@ claude plugin marketplace remove opencode-subagents
    oc-sub doctor
    ```
 
-   Every finding names its fix. The first lines should read `pass` for `env-files`, `claude-md`, and `agent-copies`. With `oc-sub doctor --fix`, the command repairs the safe findings itself (it turns an equal copy of the global rules into a symlink, re-points a broken link, and updates the plugin), then runs the checks again. Then start the server and check the key and the shared rules:
+   Every finding names its fix. The first lines should read `pass` for `env-files`, `claude-md`, and `agent-copies`. With `oc-sub doctor --fix`, the command repairs the safe findings itself (it turns an equal copy of the global rules into a symlink, re-points a broken link, and updates the plugin), then runs the checks again. `--fix` never calls sudo.
+
+   On Linux, the check `kvm-access` tests that you can read and write `/dev/kvm`. The sandbox needs this access. Without it, `sbx create` and the start of a sandbox fail with an error that does not name the cause, and `oc-sub up` stops before its first `sbx` call. To repair it, run `oc-sub doctor --fix-as-root`. It does the same as `--fix`, and it also runs `sudo chmod 0666 /dev/kvm`. sudo may ask for your password, so run it in a terminal. The repair lasts until the next WSL restart, because WSL then creates `/dev/kvm` again. A permanent repair is a task of the machine setup.
+
+   Then start the server and check the key and the shared rules:
 
    ```
    oc-sub up

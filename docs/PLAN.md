@@ -176,6 +176,13 @@ Root cause: from the afternoon of 2026-09-28, five GLM runs in a row produced br
 3. Pass rules, checked by code: the correct answer, a commit, no repeated identical calls, no unreadable text, and reasoning under a limit.
 4. The result is two or three approved fallback providers after Z.AI. Estimated cost: 0.15 to 0.30 USD.
 
+Sub-steps, decided on 2026-09-30:
+
+- 10a, done on 2026-09-30. The report is [PROVIDER_PROBE.md](research/PROVIDER_PROBE.md). 31 providers serve the model, 11 of 33 endpoints in fp4. Z.AI has a p50 of 28 tokens per second, while BaseTen, Parasail, and Together reach about 100. The review of the main thread picks option B: the probe runs through `oc-sub run` with one pinned provider per run, because the failures happened inside the opencode loop. Research run cost 0.0122 USD at OpenRouter.
+- 10b, running: research on how one server pins one provider per run ([PROBE_ROUTING.md](research/PROBE_ROUTING.md)).
+- 10c, running: the fixture of the task and a pure evaluator with the pass rules and the speed metrics, in `probe/` and `src/probe/`.
+- 10d, open: the probe runner, then the paid probe (about 30 runs, about 0.30 USD), then the new `order` list in `opencode/opencode.json`.
+
 ## Step 11: A local proxy, the real cost per request, and a penalty for bad providers
 
 Status: open. Decided with the user on 2026-09-29. It builds on step 6 (the detectors) and step 10 (the approved list).
@@ -268,7 +275,7 @@ The workflow in this project now (clone mode):
 
 Next steps of the plan, in this order:
 
-1. Step 10 first, decided with the user on 2026-09-30: fallback providers make every later run safer, and the probe also measures speed per provider. The research run 10a (`docs/research/PROVIDER_PROBE.md`, worktree `r-provider-probe`) started on 2026-09-30.
+1. Step 10 first, decided with the user on 2026-09-30: fallback providers make every later run safer, and the probe also measures speed per provider. 10a is done, 10b and 10c run in the worktrees `r-probe-routing` and `probe-eval`.
 1. Step 15: `oc-sub doctor --fix`, next is 15c (stable plugin folder, stale-server check, restart of an idle server), then 15d and 15e (`--renovate`). Start 15c from the 15c bullets of step 15 and from the review section of [DOCTOR_FIX.md](research/DOCTOR_FIX.md).
 2. 8h: `oc-sub status --json`.
 3. The known gaps of 8g: new worktrees appear in the live view only after `a` twice, the footer lacks the day totals and the key usage per project, and the title is cut below about 110 columns.

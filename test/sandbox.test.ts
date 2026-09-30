@@ -94,6 +94,7 @@ function makeDeps(overrides: Partial<SandboxDeps> = {}): SandboxDeps {
     spawnServe: () => ({ pid: 4242, exitCode: () => null }),
     projectName: () => "test",
     rootOf: () => "/repo",
+    binExists: () => true,
     healthTimeoutMs: 500,
     healthIntervalMs: 1,
     ...overrides,
@@ -458,6 +459,24 @@ describe("upSandbox", () => {
     expect(calls).toHaveLength(0);
   });
 
+  test("a missing sbx binary stops up with the host alternative", async () => {
+    const { calls, runner } = fakeRunner(() => ({ stdout: "" }));
+    const env = makeEnv();
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, { ...env, SBX_BIN: "/nowhere/sbx" }, makeDeps({ runner, binExists: () => false }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(errors.join("\n")).toContain("/nowhere/sbx");
+    expect(errors.join("\n")).toContain("oc-sub up --no-sandbox");
+  });
+
   test("a first up creates the sandbox, sets the rules, the secret, the port, and execs", async () => {
     const env = makeEnv();
     const toolBin = `${miseInstallsDir(env)}/bun/1.4.2/bin`;
@@ -577,7 +596,8 @@ describe("upSandbox", () => {
     }
     expect(result).toBe(1);
     expect(errors.join("\n")).toContain(`sbx rm oc-sub-test`);
-    expect(errors.join("\n")).toContain("oc-sub up --sandbox");
+    expect(errors.join("\n")).toContain("oc-sub up");
+    expect(errors.join("\n")).not.toContain("--sandbox");
     // No secret, no exec, no server.
     expect(subcommands(calls)).toEqual(["mise", "mise", "ls"]);
   });

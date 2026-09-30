@@ -335,6 +335,8 @@ export type SandboxDeps = {
   projectName: (directory: string) => string;
   /** The main repository folder of a directory. */
   rootOf: (directory: string) => string;
+  /** Whether a binary such as `sbx` exists on the PATH. */
+  binExists: (bin: string) => boolean;
   healthTimeoutMs: number;
   healthIntervalMs: number;
 };
@@ -348,6 +350,7 @@ export const defaultSandboxDeps: SandboxDeps = {
   spawnServe: spawnDetached,
   projectName: projectNameOf,
   rootOf: projectRoot,
+  binExists: (bin) => Bun.which(bin) !== null,
   healthTimeoutMs: HEALTH_TIMEOUT_MS,
   healthIntervalMs: HEALTH_INTERVAL_MS,
 };
@@ -423,7 +426,7 @@ function printUp(serveUrl: string, name: string, logPath: string, version: strin
 }
 
 /**
- * `oc-sub up --sandbox`: make sure an opencode server in the project sandbox
+ * `oc-sub up` in sandbox mode: make sure an opencode server in the project sandbox
  * answers, set the sandbox up and start one if needed.
  */
 export async function upSandbox(
@@ -437,6 +440,11 @@ export async function upSandbox(
   const name = sandboxName(project);
   const root = deps.rootOf(dir);
   const bin = sbxBin(env);
+  if (!deps.binExists(bin)) {
+    console.error(`error: the sbx binary "${bin}" is not on the PATH (set SBX_BIN to its location).`);
+    console.error("To start a host server instead, run: oc-sub up --no-sandbox");
+    return 1;
+  }
 
   // The host value stays on the host: only an `-e` option of the holder
   // command reaches the sandbox, so the host value never gets there anyway.
@@ -511,7 +519,7 @@ export async function upSandbox(
     // The sandbox holds the sessions, so oc-sub does not remove it itself.
     console.error(`error: the sandbox ${name} lacks the plugin or the mise installs mount`);
     console.error(`Remove it with: sbx rm ${name}`);
-    console.error("Then run oc-sub up --sandbox; it creates the sandbox again with both mounts.");
+    console.error("Then run oc-sub up. It creates the sandbox again with both mounts.");
     return 1;
   }
 
@@ -639,7 +647,7 @@ export async function upSandbox(
 }
 
 /**
- * `oc-sub down --sandbox`: stop the sandbox of the project. It keeps the
+ * `oc-sub down` in sandbox mode: stop the sandbox of the project. It keeps the
  * busy check of `down`, stops the sandbox, and removes the PID file. The
  * state file stays, so that the port stays the same.
  */
@@ -653,7 +661,7 @@ export async function downSandbox(
   const project = deps.projectName(dir);
   const state = readSandboxState(sandboxStatePath(env, project));
   if (state === null) {
-    console.error(`error: no sandbox state for project ${project}. Run oc-sub up --sandbox first.`);
+    console.error(`error: no sandbox state for project ${project}. Run oc-sub up first.`);
     return 1;
   }
   const { name, port } = state;

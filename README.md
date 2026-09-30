@@ -55,15 +55,16 @@ bun run typecheck   # tsc --noEmit
 
 `oc-sub` drives an opencode server: start it, launch subagent runs, watch them live, and read the results. Entry point: `src/cli.ts`. Run it with `bin/oc-sub`, `bun run src/cli.ts`, or `bun src/cli.ts`. With the plugin enabled, Claude runs it as `oc-sub`.
 
-The server URL comes from `--url` or the environment variable `OC_SUB_URL`, default `http://127.0.0.1:8767`. With `--port N`, `up`, `down`, and `restart` target port N and keep the host of the URL; a `--url` flag whose port differs from `--port` is a usage error. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: oc-sub up` and exit with code 1. If a server answers with HTTP 401 or 403, every command exits with code 1 and says that the server rejected the password in `OPENCODE_SERVER_PASSWORD`, or that it needs one. `up` then does not start a second server. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `ping`, `watch`, `log`, `abort`, and `answer` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
+The server URL comes from `--url` or the environment variable `OC_SUB_URL`, default `http://127.0.0.1:8767`. `up`, `down`, and `restart` run the server in sandbox mode by default (one Docker Sandbox per project, see `docs/GUIDE.md`). `--no-sandbox` selects the host server, which the sections below describe. `--port N` and `--url URL` name a host server, so they imply `--no-sandbox`. With `--port N`, they target port N and keep the host of the URL; a `--url` flag whose port differs from `--port` is a usage error. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: oc-sub up` and exit with code 1. If a server answers with HTTP 401 or 403, every command exits with code 1 and says that the server rejected the password in `OPENCODE_SERVER_PASSWORD`, or that it needs one. `up` then does not start a second server. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `ping`, `watch`, `log`, `abort`, and `answer` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
 
 ### oc-sub up
 
 ```
-bun run src/cli.ts up [--port N]
+bun run src/cli.ts up [--dir DIR]
+bun run src/cli.ts up --no-sandbox [--port N]
 ```
 
-Checks the health of the server (`GET /global/health`). When nothing answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background (detached, so it outlives the command), waits until it is healthy, and prints the URL and the version. Without `--port`, the port comes from the URL, then from 8767. With `--port N`, `up` checks and starts the server on port N and keeps the host of the URL (so `OC_SUB_URL` keeps its host). When both `--url` and `--port` are given and their ports differ, `up` stops with a usage error.
+Checks the health of the host server (`GET /global/health`). When nothing answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background (detached, so it outlives the command), waits until it is healthy, and prints the URL and the version. Without `--port`, the port comes from the URL, then from 8767. With `--port N`, `up` checks and starts the server on port N and keeps the host of the URL (so `OC_SUB_URL` keeps its host). When both `--url` and `--port` are given and their ports differ, `up` stops with a usage error. Without `--no-sandbox`, `up` starts a sandbox instead (see `docs/GUIDE.md`).
 
 `up` sets `OPENCODE_CONFIG_DIR` in the environment of the child process to the `opencode/` folder of this repository (computed from the location of the source file, not from the working directory). opencode then loads the research agents of the plugin for every project, after the project `.opencode` folder, so its agent wins over a project agent with the same name. If the environment already sets `OPENCODE_CONFIG_DIR` to another value, `up` keeps that value and prints a warning to stderr, because the research agents are then not loaded. If `OPENCODE_CONFIG_DIR` already holds the folder of the plugin, `up` prints no warning.
 
@@ -77,7 +78,7 @@ One server serves many project folders, so its state lives in one folder per use
 ### oc-sub down
 
 ```
-oc-sub down [--port N] [--force]
+oc-sub down --no-sandbox [--port N] [--force]
 ```
 
 Stops the server that `oc-sub up` started on the port. It reads the PID file and makes sure that the process is still `opencode serve` on that port. If a session in one of the listed folders is still busy, `down` lists it and stops with code 1. With `--force`, it stops the server anyway. Then it sends SIGTERM to the process group of the server, waits up to 15 seconds, and removes the state files. If no server runs, it says so and exits with code 0. If a server answers but `oc-sub up` did not start it, `down` does not touch it and exits with code 1.
@@ -87,10 +88,10 @@ Stops the server that `oc-sub up` started on the port. It reads the PID file and
 ### oc-sub restart
 
 ```
-oc-sub restart [--port N] [--force]
+oc-sub restart --no-sandbox [--port N] [--force]
 ```
 
-Runs `down` and then `up` on the same port. If `down` fails, `restart` stops there.
+Runs `down` and then `up` on the same port. If `down` fails, `restart` stops there. In sandbox mode (`oc-sub restart` without `--no-sandbox`), it restarts the sandbox of the project.
 
 ### oc-sub run
 

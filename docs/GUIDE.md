@@ -135,9 +135,9 @@ It prints one short line per tool call. When the run ends, it prints a summary l
 
 ## Sandbox mode
 
-By default, the opencode server of `oc-sub` runs on the host, and the agent works inside your user account. The permission rules in the agent files limit what it may do, but a test command can always run any code.
+By default, `oc-sub up`, `down`, and `restart` run the server in sandbox mode. In sandbox mode, the server runs inside a Docker Sandbox (`sbx`): one microVM per project. The agent gets sudo in the VM, but it can only reach the file system and network that you share. It reaches OpenRouter through the credential proxy of `sbx`, so it cannot read your project key.
 
-In sandbox mode, the server runs inside a Docker Sandbox (`sbx`): one microVM per project. The agent gets sudo in the VM, but it can only reach the file system and network that you share. It reaches OpenRouter through the credential proxy of `sbx`, so it cannot read your project key.
+The old default, the server on the host with the permission rules of the agent files, still exists. Use `--no-sandbox` for it. The permission rules limit what the agent may do, but a test command can always run any code.
 
 Setup, once:
 
@@ -148,21 +148,21 @@ Setup, once:
 Use it:
 
 ```
-oc-sub up --sandbox
-oc-sub down --sandbox
-oc-sub restart --sandbox
+oc-sub up
+oc-sub down
+oc-sub restart
 ```
 
-`--sandbox` starts the server for the project of the current folder. Add `--dir DIR` to name another project folder. You do not need `OC_SUB_URL`: every other command finds the sandboxed server of the project of `--dir` by itself (see the URL order below).
+A plain `oc-sub up` starts the sandbox of the project of the current folder. Add `--dir DIR` to name another project folder. `--sandbox` is the explicit form of the same default. `--no-sandbox` starts the host server instead, and `--port N` or `--url URL` also name a host server, so they imply `--no-sandbox`. `--dir` is only allowed in sandbox mode. You do not need `OC_SUB_URL`: every other command finds the sandboxed server of the project of `--dir` by itself (see the URL order below).
 
 Details:
 
 - Each project gets the sandbox `oc-sub-<project>` and a fixed host port, stored in `~/.local/state/oc-sub/sandbox-<project>.json`. The port stays the same across restarts.
 - `up` needs the project key file `~/.config/<project>/openrouter.key`. It checks only that the file exists; it never reads it.
-- `down --sandbox` stops the sandbox and keeps the state file, so the port stays the same.
+- `down` stops the sandbox and keeps the state file, so the port stays the same.
 - The tools of the project come from the mise of the host. `up` runs `mise install` in the project root first, so that every tool of `mise.toml` exists. If it fails, `up` stops.
 - The sandbox mounts two host folders read-only: the `opencode/` folder of the plugin, and the mise installs folder `~/.local/share/mise/installs`. No tool is downloaded twice, the versions are the same as on the host, and the agent cannot change the tools.
-- If the sandbox exists but lacks one of the two mounts (for example after an update of this plugin), `up` stops with an error. It names the fix: remove the sandbox with `sbx rm NAME`, then run `oc-sub up --sandbox` again, which creates it with both mounts. `up` does not remove the sandbox itself, because it holds the sessions.
+- If the sandbox exists but lacks one of the two mounts (for example after an update of this plugin), `up` stops with an error. It names the fix: remove the sandbox with `sbx rm NAME`, then run `oc-sub up` again, which creates it with both mounts. `up` does not remove the sandbox itself, because it holds the sessions.
 - The server inside the sandbox starts with the tool folders of the project at the front of `PATH`, read from `mise env`, in front of the PATH of the sandbox. So `bun`, `node`, and `python` inside the sandbox are the versions of `mise.toml`.
 - Every `up` checks the network rules before the server starts: `sbx policy check network` must deny `host.docker.internal:8767` and `localhost:8767`. If one is allowed, `up` stops and names the deny command. This protects the host server of an old sandbox without the rules.
 - Inside the sandbox, `up` passes `OPENCODE_CONFIG_CONTENT` into the server. It turns bash into `allow` for `coder` and `researcher`, and it turns the MCP gateway of the `sbx` kit off. The agent files stay the same, and the host server keeps their rules. The other permissions still apply, for example `edit` of `researcher` and `external_directory`.

@@ -16,12 +16,12 @@ import { say } from "./say";
 const HELP = `oc-sub - drive an opencode server for subagent runs
 
 Usage:
-  oc-sub up [--port N]
-  oc-sub up --sandbox [--dir DIR]
-  oc-sub down [--port N] [--force]
-  oc-sub down --sandbox [--dir DIR] [--force]
-  oc-sub restart [--port N] [--force]
-  oc-sub restart --sandbox [--dir DIR] [--force]
+  oc-sub up [--dir DIR]
+  oc-sub up --no-sandbox [--port N]
+  oc-sub down [--dir DIR] [--force]
+  oc-sub down --no-sandbox [--port N] [--force]
+  oc-sub restart [--dir DIR] [--force]
+  oc-sub restart --no-sandbox [--port N] [--force]
   oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T]
   oc-sub status [--dir DIR | --all]
   oc-sub ping [--dir DIR]
@@ -35,10 +35,17 @@ Every command accepts:
   --url URL   opencode server URL (default: $OC_SUB_URL or http://127.0.0.1:8767)
 
 Sandbox mode:
-  --sandbox   run the opencode server in a Docker Sandbox (sbx) per project.
-  --dir DIR   the project directory (only with --sandbox; default: the current folder).
-              The sandbox needs sbx on PATH (or $SBX_BIN) and one sbx login.
-              It cannot be combined with --url or --port.
+  Sandbox mode is the default for up, down, and restart. It runs the opencode
+  server in a Docker Sandbox (sbx) per project. The sandbox needs sbx on PATH
+  (or $SBX_BIN) and one sbx login. A host server needs --no-sandbox.
+  --sandbox       the explicit form of the default. It cannot be combined
+                  with --no-sandbox, --url, or --port.
+  --no-sandbox    run the opencode server on the host (the old default).
+  --port N        a host port. Implies --no-sandbox.
+  --url URL       a host server URL. Implies --no-sandbox.
+  --dir DIR       the project directory (only in sandbox mode; default: the
+                  current folder). Not allowed with --no-sandbox, --url, or
+                  --port.
 
 Environment:
   OC_SUB_URL                 default server URL

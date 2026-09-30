@@ -120,20 +120,27 @@ function requireSession(positionals: readonly string[]): string {
 }
 
 /**
- * The shared flags of up, down, and restart in sandbox mode. `--dir` is only
- * allowed with `--sandbox`, and `--sandbox` cannot name a server itself,
- * because the URL and the port come from the sandbox state.
+ * The shared flags of up, down, and restart. Sandbox mode is the default.
+ * `--no-sandbox` selects the host server. `--port` and `--url` name a host
+ * server, so they imply host mode too. `--dir` is only allowed in sandbox
+ * mode, and `--sandbox` cannot name a server itself, because the URL and the
+ * port come from the sandbox state.
  */
 function parseSandboxFlags(flags: Flags, globals: Globals): { sandbox: boolean; dir?: string } {
-  const sandbox = flags.get("sandbox") === true;
+  const sandboxFlag = flags.get("sandbox") === true;
+  const noSandbox = flags.get("no-sandbox") === true;
+  const namesHost = noSandbox || globals.url !== undefined || flags.has("port");
+  if (sandboxFlag && noSandbox) {
+    throw new UsageError("--sandbox and --no-sandbox cannot be combined");
+  }
+  if (sandboxFlag && (globals.url !== undefined || flags.has("port"))) {
+    throw new UsageError("--sandbox cannot be combined with --url or --port, they already name a host server");
+  }
   const dir = optionalString(flags, "dir");
-  if (dir !== undefined && !sandbox) {
-    throw new UsageError("--dir is only allowed with --sandbox");
+  if (dir !== undefined && namesHost) {
+    throw new UsageError("--dir is only allowed in sandbox mode, not with --no-sandbox, --url, or --port");
   }
-  if (sandbox && (globals.url !== undefined || flags.has("port"))) {
-    throw new UsageError("--sandbox cannot be combined with --url or --port");
-  }
-  return { sandbox, dir };
+  return { sandbox: !namesHost, dir };
 }
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
@@ -145,8 +152,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "up": {
       const { flags, positionals, globals } = collectFlags(
         rest,
-        new Set(["port", "url", "sandbox", "dir"]),
-        new Set(["sandbox"]),
+        new Set(["port", "url", "sandbox", "no-sandbox", "dir"]),
+        new Set(["sandbox", "no-sandbox"]),
       );
       if (positionals.length > 0) {
         throw new UsageError(`up takes no positional arguments, got "${positionals.join(" ")}"`);
@@ -162,8 +169,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "restart": {
       const { flags, positionals, globals } = collectFlags(
         rest,
-        new Set(["port", "force", "url", "sandbox", "dir"]),
-        new Set(["force", "sandbox"]),
+        new Set(["port", "force", "url", "sandbox", "no-sandbox", "dir"]),
+        new Set(["force", "sandbox", "no-sandbox"]),
       );
       if (positionals.length > 0) {
         throw new UsageError(`${head} takes no positional arguments, got "${positionals.join(" ")}"`);

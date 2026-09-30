@@ -105,6 +105,7 @@ Progress on 2026-09-30:
 - 8f, done on 2026-09-30: the session column shows the last 6 characters of the session ID, like `oc-sub attach CODE` of step 9f. The folder column becomes two columns, project and worktree. The project column shows the configured short name of the project: the `shortName` in `.opencode/oc-sub.json` of the project root (step 8i), else the full project name, not shortened. The worktree column shows the folder name under `.worktrees/`, or `-` for the main folder. Without `--all`, the project column is hidden, because all rows belong to one project. The code lives in `src/top/columns.ts`, for `--once` and the live view.
 - 8g, done on 2026-09-30: `oc-sub top` without `--once` opens a full-screen Ink view with a colored state, a selected row, a detail pane, and a footer with the servers, the totals, and the keys (`j`/`k`, arrows, `o`, `a`, `q`). The logic is in pure functions (`src/top/view-model.ts`), and the model got a `reasoning` state. Without a terminal, it prints the snapshot and a hint. Known gaps: a worktree that appears after the start shows only after `a` twice; the footer has no day totals and no key usage per project (item 5); the `o` command finds only runs that `oc-sub run` started; below about 110 columns the title is cut away; the SDK leaves an `AbortError` of a stopped stream unhandled, which the view ignores.
 - 8h, open: `status --json`.
+- 8j, done on 2026-09-30: a run worktree in the clone holds only tracked files, so it had no `node_modules`. `.opencode/oc-sub.json` can set a `setup` shell command. `oc-sub worktree` runs it inside the new worktree through `sbx exec -w`, with the PATH of the sandbox server (`sandboxToolPathEntry` in `src/sandbox.ts`). `--no-setup` skips it, and an existing worktree never runs it. A failing setup keeps the worktree and prints a shell-quoted command to run it again. An end-to-end test created a worktree with `node_modules` in about 4 seconds.
 - 8i, done on 2026-09-30: the project column shows no computed short name. It shows the `shortName` from `.opencode/oc-sub.json` of the project root (`src/project-config.ts`, read once per root per process), else the full project name. The run folder maps to its root with `projectRootOfRun`, so clone-mode run folders find the config of the host root. This repository sets `{ "shortName": "opsub" }` for itself.
 
 `oc-sub status` stays short and line-based for agents, and gets `--json`. `oc-sub top` is a full-screen live view for the user, like `htop`. `oc-sub top --once` prints one text snapshot for agents.
@@ -242,22 +243,21 @@ Open follow-ups of step 14:
 
 State for the next thread. Everything above is on `alpha` and pushed.
 
-No run is active. Step 8i finished on 2026-09-30 and is on `alpha`: the project column of `top` shows the `shortName` of `.opencode/oc-sub.json`, else the full project name.
+No run is active. Step 8j finished on 2026-09-30 and is on `alpha`: `oc-sub worktree` runs the `setup` command of `.opencode/oc-sub.json` inside the new run worktree. This repository sets `bun install --frozen-lockfile`, so a coder starts with `node_modules`.
 
 The workflow in this project now (clone mode):
 
-1. `oc-sub worktree STEP` creates the run worktree inside the sandbox clone.
+1. `oc-sub worktree STEP` creates the run worktree inside the sandbox clone and runs the setup command of the project.
 2. `oc-sub run --agent coder --dir <root>/.worktrees/STEP --brief <file>` starts the run, and `oc-sub watch` waits.
 3. `oc-sub fetch` on the host, review with `git diff alpha...sandbox-oc-sub-opencode-subagents/feature/STEP`, run `mise exec -- bun test` on the host, and squash-merge into `alpha`.
 4. `oc-sub worktree rm STEP` removes the worktree inside the clone.
 
 Next steps of the plan, in this order:
 
-1. A run worktree in the clone has no `node_modules`, so every coder must run `bun install` first, and the 8i coder stopped to ask for it. Root cause: a clone holds only tracked files (RUN_ISOLATION.md section 4). Fix: `oc-sub worktree` runs a setup command of the project inside the new worktree, for example a `setup` entry in `.opencode/oc-sub.json` such as `bun install --frozen-lockfile`.
-2. 8h: `oc-sub status --json`.
-3. The known gaps of 8g: new worktrees appear in the live view only after `a` twice, the footer lacks the day totals and the key usage per project, and the title is cut below about 110 columns.
-4. Step 12: a working mise inside the sandbox (open, decided with the user).
-5. `oc-sub say` warns when the session waits for an answer to a `question` (open follow-up of step 10b).
+1. 8h: `oc-sub status --json`.
+2. The known gaps of 8g: new worktrees appear in the live view only after `a` twice, the footer lacks the day totals and the key usage per project, and the title is cut below about 110 columns.
+3. Step 12: a working mise inside the sandbox (open, decided with the user).
+4. `oc-sub say` warns when the session waits for an answer to a `question` (open follow-up of step 10b).
 
 Open tasks of the user:
 
@@ -266,4 +266,4 @@ Open tasks of the user:
 - Decide from [DEPLOY_ACCESS.md](research/DEPLOY_ACCESS.md) section 8: whether Tailscale runs on the servers, and how long a debugging window lasts.
 - Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.
 
-Lessons of this day in `~/dv/meta/agents/lessons/`: `sbx-clone-mode-fails-silently.md` and `opencode-sdk-sse-abort-unhandled.md`.
+Lessons of this day in `~/dv/meta/agents/lessons/`: `sbx-clone-mode-fails-silently.md`, `opencode-sdk-sse-abort-unhandled.md`, `worktree-needs-setup-command.md`, and `compare-failing-test-names.md`.

@@ -179,7 +179,7 @@ Root cause: from the afternoon of 2026-09-28, five GLM runs in a row produced br
 Sub-steps, decided on 2026-09-30:
 
 - 10a, done on 2026-09-30. The report is [PROVIDER_PROBE.md](research/PROVIDER_PROBE.md). 31 providers serve the model, 11 of 33 endpoints in fp4. Z.AI has a p50 of 28 tokens per second, while BaseTen, Parasail, and Together reach about 100. The review of the main thread picks option B: the probe runs through `oc-sub run` with one pinned provider per run, because the failures happened inside the opencode loop. Research run cost 0.0122 USD at OpenRouter.
-- 10b, running: research on how one server pins one provider per run ([PROBE_ROUTING.md](research/PROBE_ROUTING.md)).
+- 10b, done on 2026-09-30. The report is [PROBE_ROUTING.md](research/PROBE_ROUTING.md). Each probe run directory gets a `.opencode/opencode.json` with a model alias such as `glm-probe-baseten` (`id` is the real slug, `options.provider.only` pins one provider). The alias inherits the catalog data of the real model and cannot collide with the pin of the plugin. The file must exist before the first server request to that directory, because the server caches the configuration per directory.
 - 10c, running: the fixture of the task and a pure evaluator with the pass rules and the speed metrics, in `probe/` and `src/probe/`.
 - 10d, open: the probe runner, then the paid probe (about 30 runs, about 0.30 USD), then the new `order` list in `opencode/opencode.json`.
 

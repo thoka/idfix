@@ -244,9 +244,11 @@ Open follow-ups of step 14:
 
 Goal: one command brings the plugin, the server, and the sandbox of a project up to date. Today `oc-sub doctor` only prints a fix text for each problem, and the user or the agent must type each command by hand. The user asked for this step on 2026-09-30.
 
-- 15a, open: research first. How do established tools split "diagnose" from "repair" (for example `brew doctor`, `flutter doctor`, `eslint --fix`, `npm audit fix`, `rustup update`)? Which fixes run without a question, and how do they guard a destructive fix? First search the lessons and `research-index.md` in meta. The report goes to `docs/research/DOCTOR_FIX.md` and extends [DOCTOR.md](research/DOCTOR.md).
-- 15b, open: the safe fixes. Each check gets an optional fix action next to its fix text, and `--fix` runs the action of each check that fails or warns, then runs the checks again. The first candidates: the plugin update (`PLUGIN_UPDATE_FIX`), then `oc-sub restart` of an idle server, so that it loads the new plugin folder. A global rule file that is a copy becomes a symlink only when its content equals the shared file; otherwise `--fix` reports it and changes nothing.
-- 15c, open: the recreate of a sandbox that is not in clone mode or lacks a mount. It ends the sessions of the sandbox, so it runs only with `--fix --force` and only when the busy check of `down` finds no running session. It runs `sbx rm --force NAME` and `oc-sub up`.
+- 15a, done on 2026-09-30. The report is [DOCTOR_FIX.md](research/DOCTOR_FIX.md), with the review of the main thread at the end. Established tools apply safe fixes without a question and guard a destructive fix with a flag and with preconditions, never with a prompt. `--fix` never prompts. `doctor` without `--fix` is the dry run. The exit code comes from a second run of the checks after the fixes.
+- 15b, in progress: the fix framework and the two safe fixes. A check gets an optional fix action. `--fix` runs the action of each check that warns or fails, in registry order, prints one line before and one after each action, then runs all checks again. The exit code is 1 when the second run has a fail or when a fix action failed. `--json --fix` prints `{fixes, results}`. The `plugin-fresh` fix runs the two `claude plugin` commands. The `global-rules` fix replaces a copy with a symlink only when its content equals the shared file, and re-points a wrong link.
+- 15c, open: a check for a stale server plugin folder, and the restart of an idle server as its fix. Reason: the server takes its plugin folder from the `oc-sub` that started it. On this machine `~/.local/bin/oc-sub` links to the development checkout, so a plugin update does not change that folder. A restart helps only when the folder of the running server differs from the current one, so the state files must record the folder.
+- 15d, open: the recreate of a sandbox that is not in clone mode or lacks a mount, with `--fix --force` only. A busy session or unfetched `feature/*` commits in the clone always block it, also with `--force`. It runs `sbx rm --force NAME` and `oc-sub up`.
+- Open question for the user: in sandbox mode the plugin folder is a mount. A plugin update from the cache gives a new folder path per commit, and then `sandbox-mounts` fails and needs a recreate. A stable plugin path, for example a symlink to the current plugin folder, avoids that.
 
 Default decisions, open for a change by the user: the command is a flag of `doctor` and not a new `update` command, because the fixes belong to the checks. Every fix that can end a session or lose a local change needs `--force`, because the goal of the step is to repair and not to destroy.
 
@@ -265,7 +267,7 @@ The workflow in this project now (clone mode):
 
 Next steps of the plan, in this order:
 
-1. Step 15: `oc-sub doctor --fix`, starting with the research 15a.
+1. Step 15: `oc-sub doctor --fix`, 15b is in progress, then 15c and 15d.
 2. 8h: `oc-sub status --json`.
 3. The known gaps of 8g: new worktrees appear in the live view only after `a` twice, the footer lacks the day totals and the key usage per project, and the title is cut below about 110 columns.
 4. Step 12: a working mise inside the sandbox (open, decided with the user).

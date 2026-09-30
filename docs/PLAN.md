@@ -209,4 +209,4 @@ No project copies `coder.md` or `researcher.md` any more. The plugin serves the 
 Open follow-ups:
 
 - `oc-sub say` warns when the session waits for an answer to a `question`. Today the message is queued, and the agent does not see it until the question is answered.
-- A project allowlist in sandbox mode is not possible, because `bash: "allow"` replaces the whole bash map (AGENT_MERGE.md, case 4). The sandbox network and file boundaries bound the blast radius instead.
+- Sandbox mode needs no project allowlist. The sandbox is the boundary, so `oc-sub up` allows every bash command and every path for `coder` and `researcher`. Only two kinds of rules stay. Role rules shape the job of an agent: the researcher edits only `docs/research/` and reads pages through `reader`. The `.env` read deny stays because the sandbox cannot stop a key in the context from reaching the model provider. The key of a project lives in `~/.config/<project>/`, outside the mount.

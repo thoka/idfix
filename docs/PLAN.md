@@ -102,7 +102,8 @@ Progress on 2026-09-30:
 - 8c, done: `src/top/model.ts` is a pure model from server events to one row per session. The guard of step 6 gives the loop, stall, and reasoning states.
 - 8d, done: `oc-sub top --once [--dir DIR | --all] [--json]` loads every server and prints one snapshot. It shows the running sessions and the sessions updated in the last 60 minutes. The time of the last activity comes from the newest message, because `time.updated` of a session changes only with the session object.
 - 8e, next: the live event stream, one `GET /global/event` per server, with reconnect and a new seed after a reconnect.
-- 8f: the Ink view. 8g: `status --json`.
+- 8f, a wish of the user on 2026-09-30: the session column shows the last 6 characters of the session ID, like `oc-sub attach CODE` of step 9f. The folder column becomes two columns, project and worktree. The project gets a short name, for example `op-sub` for opencode-subagents. Rule (a default, not yet confirmed by the user): a name of at most 8 characters stays. A longer name keeps the first 2 characters of its first part and the first 3 of each later part, split at `-`, `_`, and `.`. If two projects get the same short name, both keep their full name. The worktree column shows the folder name under `.worktrees/`, or `-` for the main folder. Without `--all`, the project column is hidden, because all rows belong to one project.
+- 8g: the Ink view. 8h: `status --json`.
 
 `oc-sub status` stays short and line-based for agents, and gets `--json`. `oc-sub top` is a full-screen live view for the user, like `htop`. `oc-sub top --once` prints one text snapshot for agents.
 

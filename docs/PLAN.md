@@ -242,9 +242,7 @@ Open follow-ups of step 14:
 
 State for the next thread. Everything above is on `alpha` and pushed, except the run below.
 
-Running when this was written:
-
-- Step 8i, a GLM coder run in the sandbox clone: session `ses_f0d8e5e50ffeRPmRrMSZljSAWV`, worktree `.worktrees/8i-project-name` inside the clone, brief in the run record. The user decided: the project column of `top` shows the full project name, or the `shortName` of `.opencode/oc-sub.json` in the project root. The shortening rule of 8f goes away. To continue: `oc-sub status --dir <root>/.worktrees/8i-project-name` to see whether it is idle, then `oc-sub log ses_f0d8e5e50ffeRPmRrMSZljSAWV --dir <root>/.worktrees/8i-project-name`, `oc-sub fetch`, review `git diff alpha...sandbox-oc-sub-opencode-subagents/feature/8i-project-name`, run the tests on the host, squash-merge, push, and `oc-sub worktree rm 8i-project-name`.
+No run is active. Step 8i finished on 2026-09-30 and is on `alpha`: the project column of `top` shows the `shortName` of `.opencode/oc-sub.json`, else the full project name.
 
 The workflow in this project now (clone mode):
 
@@ -255,7 +253,7 @@ The workflow in this project now (clone mode):
 
 Next steps of the plan, in this order:
 
-1. Finish 8i (above).
+1. A run worktree in the clone has no `node_modules`, so every coder must run `bun install` first, and the 8i coder stopped to ask for it. Root cause: a clone holds only tracked files (RUN_ISOLATION.md section 4). Fix: `oc-sub worktree` runs a setup command of the project inside the new worktree, for example a `setup` entry in `.opencode/oc-sub.json` such as `bun install --frozen-lockfile`.
 2. 8h: `oc-sub status --json`.
 3. The known gaps of 8g: new worktrees appear in the live view only after `a` twice, the footer lacks the day totals and the key usage per project, and the title is cut below about 110 columns.
 4. Step 12: a working mise inside the sandbox (open, decided with the user).

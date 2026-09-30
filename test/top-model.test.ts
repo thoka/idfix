@@ -168,6 +168,39 @@ describe("seed", () => {
     expect(row.outputTokens).toBe(500);
     expect(row.reasoningTokens).toBe(130);
     expect(row.state).toBe("idle");
+    // The last event is the newest message (completed at 901_000), not the
+    // seed time and not the older `time.updated`.
+    expect(row.msSinceEvent).toBe(NOW - 901_000);
+    // An idle session stops its elapsed time at its last event.
+    expect(row.elapsedMs).toBe(1_000);
+  });
+
+  test("without messages, the elapsed time of an idle session stops at time.updated", () => {
+    const model = createTopModel();
+    model.seed(SERVER, {
+      session: sessionInfo({ id: "ses_idle_el", time: { created: 500_000, updated: 900_000 } }),
+      messages: [],
+      pending: [],
+    }, NOW);
+    const row = rowOf(model.rows(NOW), "ses_idle_el");
+    expect(row.state).toBe("idle");
+    expect(row.elapsedMs).toBe(400_000);
+    expect(row.msSinceEvent).toBe(NOW - 900_000);
+    // The elapsed time does not grow with nowMs.
+    expect(model.rows(NOW + 50_000).find((r) => r.sessionId === "ses_idle_el")?.elapsedMs).toBe(400_000);
+  });
+
+  test("a busy session counts its elapsed time until nowMs", () => {
+    const model = createTopModel();
+    model.seed(SERVER, {
+      session: sessionInfo({ id: "ses_busy_el", time: { created: 500_000, updated: 900_000 } }),
+      messages: [],
+      status: { type: "busy" },
+      pending: [],
+    }, NOW);
+    const row = rowOf(model.rows(NOW), "ses_busy_el");
+    expect(row.elapsedMs).toBe(NOW - 500_000);
+    expect(model.rows(NOW + 50_000).find((r) => r.sessionId === "ses_busy_el")?.elapsedMs).toBe(NOW + 50_000 - 500_000);
   });
 
   test("takes the agent from the assistant mode when no user message exists", () => {

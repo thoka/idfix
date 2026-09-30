@@ -128,6 +128,16 @@ function eventId(event: Event): string | undefined {
   return typeof info?.id === "string" ? info.id : undefined;
 }
 
+/** The time of the newest message of a session, or its `time.updated` without messages. */
+export function lastActivityMs(session: Session, messages: readonly MessageEntry[]): number {
+  let latest = session.time.updated;
+  for (const { info } of messages) {
+    const time = info.role === "assistant" ? (info.time.completed ?? info.time.created) : info.time.created;
+    if (time > latest) latest = time;
+  }
+  return latest;
+}
+
 /** The request ID that a replied or rejected event names. */
 function requestIdOf(properties: Record<string, unknown>): string {
   for (const key of ["requestID", "permissionID", "id"] as const) {
@@ -234,6 +244,16 @@ export function createTopModel(options: TopModelOptions = {}): TopModel {
     const record = sessions.get(id);
     if (record === undefined) return undefined;
     const startTimeMs = record.info?.time.created;
+    const state = stateOf(id, record.status);
+    // An idle session no longer works, so its elapsed time stops at its
+    // last event. Every other state runs until `nowMs`.
+    const lastEvent = record.lastEventMs;
+    const elapsedMs =
+      state === "idle" && startTimeMs !== undefined && lastEvent !== undefined
+        ? Math.max(0, lastEvent - startTimeMs)
+        : startTimeMs === undefined
+          ? 0
+          : Math.max(0, nowMs - startTimeMs);
     const usage = treeUsage(id);
     const output = usage.summary.tokens.output;
     const reasoning = usage.summary.tokens.reasoning;
@@ -243,9 +263,9 @@ export function createTopModel(options: TopModelOptions = {}): TopModel {
       directory: record.info?.directory ?? "",
       title: record.info?.title ?? "",
       agent: record.agent ?? "",
-      state: stateOf(id, record.status),
+      state,
       startTimeMs,
-      elapsedMs: startTimeMs === undefined ? 0 : Math.max(0, nowMs - startTimeMs),
+      elapsedMs,
       msSinceEvent: record.lastEventMs === undefined ? 0 : Math.max(0, nowMs - record.lastEventMs),
       steps: usage.summary.steps,
       toolCalls: usage.toolCalls,
@@ -397,7 +417,10 @@ export function createTopModel(options: TopModelOptions = {}): TopModel {
       if (input.status?.type === "busy" || input.status?.type === "retry") {
         guard.touch(input.session.id, nowMs);
       }
-      record.lastEventMs = nowMs;
+      // The seed is not an event. The last activity of the session is its
+      // newest message: `time.updated` of the session changes only with the
+      // session object (for example the title), not with every message.
+      record.lastEventMs = lastActivityMs(input.session, input.messages);
     },
 
     apply(server, directory, event, nowMs) {

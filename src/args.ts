@@ -12,6 +12,7 @@ export type ParsedArgs =
   | { command: "down" | "restart"; url?: string; port?: number; force: boolean; sandbox: boolean; dir?: string }
   | { command: "run"; url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string }
   | { command: "status"; url?: string; dir?: string; all: boolean }
+  | { command: "top"; url?: string; dir?: string; all: boolean; once: boolean; json: boolean }
   | { command: "ping"; url?: string; dir?: string }
   | { command: "watch"; url?: string; session: string; dir?: string; json: boolean }
   | { command: "log"; url?: string; session: string; dir?: string }
@@ -219,6 +220,28 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         throw new UsageError("--all and --dir cannot be combined");
       }
       return { command: "status", url: globals.url, dir, all: flags.get("all") === true };
+    }
+    case "top": {
+      const { flags, positionals, globals } = collectFlags(
+        rest,
+        new Set(["dir", "url", "all", "once", "json"]),
+        new Set(["all", "once", "json"]),
+      );
+      if (positionals.length > 0) {
+        throw new UsageError(`top takes no positional arguments, got "${positionals.join(" ")}"`);
+      }
+      const dir = optionalString(flags, "dir");
+      if (flags.get("all") === true && dir !== undefined) {
+        throw new UsageError("--all and --dir cannot be combined");
+      }
+      return {
+        command: "top",
+        url: globals.url,
+        dir,
+        all: flags.get("all") === true,
+        once: flags.get("once") === true,
+        json: flags.get("json") === true,
+      };
     }
     case "ping": {
       const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "url"]), new Set<string>());

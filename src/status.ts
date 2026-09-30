@@ -129,10 +129,27 @@ async function listSessionsSafe(
 }
 
 /**
- * The running sessions of one server, one line each. The directories come
- * from three sources: the folders of past runs on this port, the projects of
- * the server, and the git worktrees of both. A session that another server
- * already listed (same session ID) is skipped.
+ * The directories that one server knows: the folders of past runs on its
+ * port, the projects of the server, and the git worktrees of both. A
+ * directory that does not exist on this machine is dropped. `oc-sub status
+ * --all` and `oc-sub top --all` share this listing.
+ */
+export async function serverDirectories(baseUrl: string, env: Env, deps: StatusDeps): Promise<string[]> {
+  const client = makeClient(baseUrl, env);
+  const port = resolvePort(undefined, baseUrl);
+  const fromDirsFile = await readDirs(serveDirsPath(env, port));
+  const projects = unwrap(await client.project.list({}), "list projects");
+  const projectDirs = projects.map((project) => project.worktree).filter((dir) => dir !== "/");
+  const base = uniqueDirectories([...fromDirsFile, ...projectDirs]);
+  return uniqueDirectories([...base, ...base.flatMap((dir) => deps.worktreesOf(dir))]).filter((dir) =>
+    deps.exists(dir),
+  );
+}
+
+/**
+ * The running sessions of one server, one line each, from the directories of
+ * `serverDirectories`. A session that another server already listed (same
+ * session ID) is skipped.
  */
 async function allServerLines(
   baseUrl: string,
@@ -141,14 +158,7 @@ async function allServerLines(
   listed: Set<string>,
 ): Promise<string[]> {
   const client = makeClient(baseUrl, env);
-  const port = resolvePort(undefined, baseUrl);
-  const fromDirsFile = await readDirs(serveDirsPath(env, port));
-  const projects = unwrap(await client.project.list({}), "list projects");
-  const projectDirs = projects.map((project) => project.worktree).filter((dir) => dir !== "/");
-  const base = uniqueDirectories([...fromDirsFile, ...projectDirs]);
-  const directories = uniqueDirectories([...base, ...base.flatMap((dir) => deps.worktreesOf(dir))]).filter((dir) =>
-    deps.exists(dir),
-  );
+  const directories = await serverDirectories(baseUrl, env, deps);
 
   const lines: string[] = [];
   for (const directory of directories) {

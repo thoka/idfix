@@ -125,6 +125,28 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["status", "--dir=/w", "--all"])).toThrow(/--all and --dir/);
   });
 
+  test("top parses like status, with --once and --json", () => {
+    expect(parseArgs(["top"])).toEqual({ command: "top", all: false, once: false, json: false });
+    expect(parseArgs(["top", "--once", "--dir", "/w"])).toEqual({
+      command: "top",
+      dir: "/w",
+      all: false,
+      once: true,
+      json: false,
+    });
+    expect(parseArgs(["top", "--once", "--all", "--json", "--url=http://h:1"])).toEqual({
+      command: "top",
+      url: "http://h:1",
+      all: true,
+      once: true,
+      json: true,
+    });
+    expect(() => parseArgs(["top", "--all", "--dir", "/w"])).toThrow(/--all and --dir/);
+    expect(() => parseArgs(["top", "ses_1"])).toThrow(/top takes no positional arguments/);
+    expect(() => parseArgs(["top", "--once=yes"])).toThrow(/takes no value/);
+    expect(() => parseArgs(["top", "--scope", "/w"])).toThrow(/unknown option/);
+  });
+
   test("answer with answers, --reply, and --reject", () => {
     expect(parseArgs(["answer", "que_1", "Option A"])).toEqual({
       command: "answer",

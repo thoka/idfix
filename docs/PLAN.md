@@ -236,3 +236,35 @@ Open follow-ups of step 14:
 
 - 14d, done on 2026-09-30. `oc-sub status --all` and `oc-sub top` now see the run folders of clone mode: for a sandbox server they list the project root plus the worktrees that `sbx exec NAME git -C <root> worktree list --porcelain` shows inside the clone, and without `--all` a `--dir` project with a sandbox state file gets the same list (`--dir` is mapped with `projectRootOfRun` first). The clone listing goes through the injectable `cloneDirectoriesOf` dependency of `StatusDeps` and returns an empty list when the sandbox does not answer.
 - The other project sandboxes (arch-helper, grata, meta) are still in direct-mount mode. Their next `oc-sub up` stops and names `sbx rm --force`.
+
+## Hand-off on 2026-09-30
+
+State for the next thread. Everything above is on `alpha` and pushed, except the run below.
+
+Running when this was written:
+
+- Step 8i, a GLM coder run in the sandbox clone: session `ses_f0d8e5e50ffeRPmRrMSZljSAWV`, worktree `.worktrees/8i-project-name` inside the clone, brief in the run record. The user decided: the project column of `top` shows the full project name, or the `shortName` of `.opencode/oc-sub.json` in the project root. The shortening rule of 8f goes away. To continue: `oc-sub status --dir <root>/.worktrees/8i-project-name` to see whether it is idle, then `oc-sub log ses_f0d8e5e50ffeRPmRrMSZljSAWV --dir <root>/.worktrees/8i-project-name`, `oc-sub fetch`, review `git diff alpha...sandbox-oc-sub-opencode-subagents/feature/8i-project-name`, run the tests on the host, squash-merge, push, and `oc-sub worktree rm 8i-project-name`.
+
+The workflow in this project now (clone mode):
+
+1. `oc-sub worktree STEP` creates the run worktree inside the sandbox clone.
+2. `oc-sub run --agent coder --dir <root>/.worktrees/STEP --brief <file>` starts the run, and `oc-sub watch` waits.
+3. `oc-sub fetch` on the host, review with `git diff alpha...sandbox-oc-sub-opencode-subagents/feature/STEP`, run `mise exec -- bun test` on the host, and squash-merge into `alpha`.
+4. `oc-sub worktree rm STEP` removes the worktree inside the clone.
+
+Next steps of the plan, in this order:
+
+1. Finish 8i (above).
+2. 8h: `oc-sub status --json`.
+3. The known gaps of 8g: new worktrees appear in the live view only after `a` twice, the footer lacks the day totals and the key usage per project, and the title is cut below about 110 columns.
+4. Step 12: a working mise inside the sandbox (open, decided with the user).
+5. `oc-sub say` warns when the session waits for an answer to a `question` (open follow-up of step 10b).
+
+Open tasks of the user:
+
+- Update the installed Claude Code plugin, which is still at 039f9f4. `oc-sub doctor` warns about it. Command: `claude plugin marketplace update opencode-subagents && claude plugin update opencode-subagents@opencode-subagents`.
+- Recreate the sandboxes of arch-helper, grata, and meta in clone mode when no session runs there: `sbx rm --force oc-sub-<project>`, then `oc-sub up` in the project. This ends their sessions. grata had active sessions on 2026-09-30.
+- Decide from [DEPLOY_ACCESS.md](research/DEPLOY_ACCESS.md) section 8: whether Tailscale runs on the servers, and how long a debugging window lasts.
+- Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.
+
+Lessons of this day in `~/dv/meta/agents/lessons/`: `sbx-clone-mode-fails-silently.md` and `opencode-sdk-sse-abort-unhandled.md`.

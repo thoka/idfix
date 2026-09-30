@@ -1,6 +1,6 @@
 # `oc-sub top`: what it needs from Ink and from the opencode server
 
-Research for step 8 of [PLAN.md](../PLAN.md). Written 2026-09-29, against opencode/SDK 1.18.32, bun 1.4.2 (`mise.toml`). Facts carry sources; guesses are marked.
+Research for step 8 of [PLAN.md](../PLAN.md). Written 2026-09-29, updated 2026-09-30 (section 6, after step 9), against opencode/SDK 1.18.32, bun 1.4.2 (`mise.toml`). Facts carry sources; guesses are marked.
 
 ## 1. Ink under bun
 
@@ -13,6 +13,8 @@ Research for step 8 of [PLAN.md](../PLAN.md). Written 2026-09-29, against openco
 - #636 "Bun support" (closed, not planned).
 
 No release note from v4.2.0 to v7.1.1 mentions bun. So: bun is not officially supported or tested by Ink, the raw-mode bug was fixed, and a macOS cursor issue is open by policy. **Nothing here proves Ink 7.1.1 breaks on bun 1.4.2, and nothing proves it works. A smoke test (a `useInput` counter in the alternate screen, run with `bun run`) is the first implementation step.** opencode's own TUI runs under bun but uses `@opentui/*` + solid-js, not Ink (opencode `packages/tui/package.json`, tag v1.18.32), so it is no proof either way.
+
+Update 2026-09-30: v7.1.1 is still the latest release (GitHub releases API: newest tag v7.1.1, published 2026-07-16; the repo is active, last push 2026-09-29, ~40k stars). No new issue with "bun" in the title since then — the only bun-titled issues remain the three closed ones above; the three issues opened on 2026-09-29 (#1034 cursor lost on sibling re-render, #1035/#1036 incremental rendering) are not bun-specific.
 
 **Packages for table + selected row + detail pane.**
 
@@ -62,9 +64,69 @@ All of it is built into Ink 7; no extra packages needed.
 
 **`top --once`.** No `render()` call at all: it does the startup REST reconciliation, waits a short grace period for one stream burst (or runs stream-less, REST-only for the first version), and prints the same table plus the selected detail as plain text — like `status`, one line per session, machine-readable with `--json`. `interactive: false` in Ink terms, or simply `console.log` formatting shared with the Ink table renderer.
 
+## 6. Several servers since step 9 (added 2026-09-30)
+
+Since step 9, several opencode servers can run at once: the host server on 127.0.0.1:8767 and one sandbox server per project, each published on a host port from 18768 up, with a state file `~/.local/state/oc-sub/sandbox-<project>.json` (`src/sandbox.ts:94-96`, `sandboxStatePath`). `top` must show the sessions of all of them.
+
+### 6.1 Server discovery
+
+`top` lists the host server plus every sandbox state file, probes each URL once, and subscribes only to the ones that answer. Proposed function (new, in `src/sandbox.ts`):
+
+```ts
+/** One known server: which project it belongs to, and its base URL. */
+export type KnownServer = { project: string; url: string; sandbox: boolean };
+
+/** The host server plus every project sandbox with a valid state file. Pure: no network. */
+export function listServers(env: Env): KnownServer[] {
+  const servers = [{ project: "", url: resolveServerUrl(undefined, env), sandbox: false }];
+  // Same listing loop as `usedSandboxPorts` (src/sandbox.ts:167-183).
+  for (const entry of readdirSync(stateDir(env))) {
+    if (!entry.startsWith("sandbox-") || !entry.endsWith(".json")) continue;
+    const state = readSandboxState(path.join(stateDir(env), entry));
+    if (state === null) continue; // missing, unreadable, or invalid: skip
+    servers.push({
+      project: entry.slice("sandbox-".length, -".json".length),
+      url: `http://127.0.0.1:${state.port}`,
+      sandbox: true,
+    });
+  }
+  return servers;
+}
+```
+
+Reused pieces of `src/sandbox.ts`: `stateDir` (re-exported from `src/state.ts`), `readSandboxState`/`parseSandboxState` (src/sandbox.ts:102-126) — they already tolerate a missing or invalid file by returning `null` — and the port-in-URL form of `sandboxUrlFor` (src/sandbox.ts:138-145). `usedSandboxPorts` (src/sandbox.ts:167-183) shows the exact `readdirSync` + filename-filter pattern; `listServers` is the same loop without the `own` exclusion. The host URL comes from `resolveServerUrl` in `src/config.ts` (the same default 8767 that `status.ts:139` uses).
+
+**A server that does not answer.** Probe each URL with `probeServer(url, env, timeout)` (`src/client.ts`, as `status.ts:141-145` already does). `probeServer` returns `{state: "down"}` instead of throwing, so a stopped sandbox is a normal state: `top` keeps one dim row per known server with state `down` (and the project name from the state file), starts no event subscription for it, and re-probes it on the periodic reconciliation tick (section 5) — when `sbx` has restarted the sandbox and the port answers again, `top` subscribes and the row fills in. Guess on the UI detail (dim row + re-probe); the mechanism (`probeServer` returning `down`) is fact.
+
+### 6.2 Event streams: one `/global/event` per server
+
+Confirmed in the opencode source at tag v1.18.32:
+
+- **`GET /global/event` exists and has no directory filter.** It is registered as `handleRaw("event", ...)` on the root API group (packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts:60-124, `handleRaw` at line 120). Its stream is `GlobalBus.on("event", ...)` wrapped in a `Stream.callback`, plus a 10-second `server.heartbeat` (handlers/global.ts:28-42) — nothing filters by directory.
+- **The GlobalBus is server-wide.** It is a plain process-wide `EventEmitter` (packages/opencode/src/bus/global.ts:11-22); `GlobalEvent = { directory?, project?, workspace?, payload }` (bus/global.ts:4-9).
+- **`question.asked` and `permission.asked` reach the GlobalBus.** The publish path is `EventV2Bridge`: it attaches the instance location on publish (event-v2-bridge.ts:19-32) and a single `events.listen` forwards *every* event to `GlobalBus.emit("event", { directory: event.location?.directory ?? ..., payload: { type, properties } })` (event-v2-bridge.ts:35-44). Both asked events are published through that bridge:
+  - `question.asked` — type string in packages/schema/src/v1/question.ts:58; published in packages/opencode/src/question/index.ts:104 (`events.publish(Event.Asked, info)` with `Event = QuestionV1.Event`, index.ts:25).
+  - `permission.asked` — type string in packages/schema/src/v1/permission.ts:61; published in packages/opencode/src/permission/index.ts:100.
+- So the wire names on `/global/event` are exactly the v1 strings `question.asked`/`permission.asked` that `src/events.ts:70-73` already reads; this also answers open question 2 of the first report. (The v2 names `question.v2.asked`/`permission.v2.asked` in packages/schema/src/question.ts:70 and permission.ts:43 are separate definitions, not what these servers publish.) The global stream is per *server*, not per project: `top` opens one subscription per discovered server and buckets by the `directory` field of each `GlobalEvent`.
+
+### 6.3 Paths inside a sandbox are host paths
+
+Yes — the session directory inside a sandbox is the same absolute path as on the host, so `top` can map every event's `directory` to a project and worktree across all servers with plain path comparison:
+
+- Step 9a creates the sandbox with the project root as workspace: `sbx create --name NAME opencode ROOT ./opencode:ro` (src/sandbox.ts:465-470, PLAN.md step 9a design). The `sbx` test on 2026-09-29 recorded: "The workspace appears under the same absolute path as on the host" (docs/research/SANDBOX.md, section 7, line 115).
+- The plugin mount keeps its host path on purpose, so `OPENCODE_CONFIG_DIR` has the same value inside and outside (src/sandbox.ts:459-463 comment; PLAN.md:134).
+- Consequence: a worktree session of a sandboxed project carries a `directory` that is identical on the host, so `top` can reuse `worktreesOf` (src/status.ts:46-53) and `displayFolder` (src/status.ts:39-43) unchanged, keyed by directory per server. Caveat: two servers never see the same directory, because a sandboxed project no longer reaches the host server (PLAN.md:121), so project→server is unambiguous.
+
+### 6.4 `opencode attach` for a sandbox session
+
+The key `o` prints `opencode attach http://127.0.0.1:<published-host-port> --session <id> --dir <worktree>` — the **published host port** from the sandbox state file, the same URL that `sandboxUrlFor` returns, not the internal port 4096. `opencode attach` takes a positional server URL (`command: "attach <url>"`, default example `http://localhost:4096`, packages/opencode/src/cli/cmd/attach.ts:7-16) plus `--session`/`-s` and `--dir` options (attach.ts:17-30); the host publishes the sandbox's 4096 on the fixed port (src/sandbox.ts:537-545), so attaching to `127.0.0.1:<host-port>` reaches the server inside the sandbox. This matches the Docker variant of SANDBOX.md section 5: "the user's `opencode attach http://127.0.0.1:<port>` ... just points at the published port".
+
 ## Open questions
 
-1. Does Ink 7.1.1 + React 19.3 run cleanly under bun 1.4.2 (raw mode, `useInput`, alternate screen)? Needs a smoke test; bun issues in Ink are closed but none documents bun 1.4.
-2. Do `question.asked`/`permission.asked` events arrive on `/global/event` exactly as on `/event`? Verify with a live run.
-3. Does `ink-select-input` work with Ink 7 in practice (peer range says yes)?
-4. Should `top` import `@opencode-ai/sdk/v2` in parallel for the typed `Session.cost`/`tokens` and `session.next.*` events, or stay v1-only and accumulate? Decide during implementation.
+Revisited 2026-09-30:
+
+1. OPEN. Does Ink 7.1.1 + React 19.3 run cleanly under bun 1.4.2 (raw mode, `useInput`, alternate screen)? Needs a smoke test; still the latest release as of 2026-09-30, no new bun issue since July 2026 (section 1).
+2. ANSWERED by source: `question.asked`/`permission.asked` are published through the EventV2Bridge, which forwards every event to the GlobalBus, so they arrive on `/global/event` (section 6.2). A first live run should still confirm it end to end.
+3. OPEN. Does `ink-select-input` work with Ink 7 in practice (peer range says yes)?
+4. OPEN. Should `top` import `@opencode-ai/sdk/v2` in parallel for the typed `Session.cost`/`tokens` and `session.next.*` events, or stay v1-only and accumulate? Decide during implementation.
+5. OPEN (new). Do the sandbox state files of stopped sandboxes age out? A project that left sandbox mode leaves a state file whose port may later be reused by something else; `listServers` would show a wrong server. A down-probe plus an entry in the UI is tolerable for the first version, but a `down --sandbox` that keeps the file (by design, src/sandbox.ts:628-631) makes stale entries likely.

@@ -165,3 +165,21 @@ Concrete shape for oc-sub: create the project sandbox with `--clone` from the **
 - Do Unix sockets cross the Docker Sandboxes file-sharing boundary into the microVM? Untested; assumed no **[guess]**.
 - Disk use of a `--clone` sandbox versus a direct-mount sandbox over many runs, and the cleanup story (`sbx rm` removes the remote, but the writable disk layer goes only with the sandbox).
 - Whether the read-only `/run/sandbox/source` view of the main checkout is acceptable to the user, or must be removed (it is part of clone mode; no documented flag turns it off).
+
+## 8. Test of the main thread on the host (2026-09-30)
+
+The main thread tested `sbx create --clone` on the host with a scratch repository (branch `alpha`, one commit). Commands: `sbx create --clone --name oc-clone-spike opencode <repo>`, then `sbx exec` for the steps inside.
+
+| Test | Result |
+|---|---|
+| Time of `sbx create --clone` (image cached) | 6 s |
+| Path of the clone inside the sandbox | the same absolute path as on the host, with its own `.git` folder |
+| Remote on the host | `sandbox-oc-clone-spike git://127.0.0.1:<port>/clone-spike` |
+| `git worktree add -b feature/x .worktrees/x` inside, then a commit | works |
+| Write to `/run/sandbox/source` inside | `Read-only file system` |
+| Host `alpha` after the agent moved its own `alpha` | unchanged (the agent only changes its clone) |
+| `git fetch sandbox-<name>` on the host, then `git diff alpha...sandbox-<name>/feature/x` | works, shows the commit of the agent |
+| A host commit after create, then `git fetch /run/sandbox/source alpha` inside | works: the remote `origin` of the clone is `/run/sandbox/source` |
+| `sbx rm` | removes the sandbox and the remote on the host |
+
+Open questions 1 and 2 of section 7 are answered for a scratch repository. The end-to-end test with the oc-sub kit remains for the implementation step.

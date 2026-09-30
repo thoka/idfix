@@ -212,26 +212,35 @@ export async function startLive(
     notify();
   };
 
-  // Start: probe and seed every known server; a down server waits for the
-  // probe timer.
+  // Start: probe and seed every known server, all at the same time, so that
+  // a down server (which waits for the probe timeout) does not delay the
+  // others. A down server waits for the probe timer. The entries keep the
+  // order of `listServers`.
+  const startEntries: ServerEntry[] = [];
   for (const server of listServers(env, args.url)) {
     const scope = args.all ? undefined : new Set(await directoriesOf(server.url));
     const entry: ServerEntry = { server, state: "down", controller: undefined, scope };
     entries.set(server.url, entry);
-    const probe = await probeServer(server.url, env, 2000);
-    if (probe.state !== "up") {
-      if (probe.state === "unauthorized") {
-        try {
-          assertUsable(probe, server.url, env);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : errorMessage(error);
-          console.error(`warning: ${server.url}: ${message}`);
-        }
-      }
-      continue;
-    }
-    await openServer(entry);
+    startEntries.push(entry);
   }
+  await Promise.all(
+    startEntries.map(async (entry) => {
+      const url = entry.server.url;
+      const probe = await probeServer(url, env, 2000);
+      if (probe.state !== "up") {
+        if (probe.state === "unauthorized") {
+          try {
+            assertUsable(probe, url, env);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : errorMessage(error);
+            console.error(`warning: ${url}: ${message}`);
+          }
+        }
+        return;
+      }
+      await openServer(entry);
+    }),
+  );
 
   // The tick: age the rows and re-run the stall detection. The timer
   // repeats by itself, so the handler must not start another one.

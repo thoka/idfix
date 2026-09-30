@@ -76,21 +76,26 @@ describe("formatTopTable", () => {
     expect(lines[1]).toContain("10%");
   });
 
-  test("shows the folder relative to the scope directory where possible", () => {
-    const lines = formatTopTable([row({ sessionId: "ses_1" })], NOW, { scopeDir: "/repo" });
-    expect(lines[1]).toContain(" .worktrees/8d ");
-    const absolute = formatTopTable([row({ sessionId: "ses_1" })], NOW);
-    expect(absolute[1]).toContain(" /repo/.worktrees/8d ");
+  test("shows the CODE, the worktree, and the project only with showProject", () => {
+    const rows = [
+      row({ sessionId: "ses_abcdef123456", directory: "/home/u/dv/opencode-subagents/.worktrees/8d" }),
+      row({ sessionId: "ses_zzzzzz654321", directory: "/home/u/dv/opencode-subagents" }),
+    ];
+    const hidden = formatTopTable(rows, NOW);
+    expect(hidden[0]?.startsWith("session  worktree  agent")).toBe(true);
+    expect(hidden[1]?.startsWith("123456   8d        coder")).toBe(true);
+    expect(hidden[2]?.startsWith("654321   -         coder")).toBe(true);
+    expect(hidden.join("\n")).not.toContain("opsub");
+    const shown = formatTopTable(rows, NOW, { showProject: true });
+    expect(shown[0]?.startsWith("session  project  worktree  agent")).toBe(true);
+    expect(shown[1]?.startsWith("123456   opsub    8d        coder")).toBe(true);
   });
 
-  test("replaces the home directory with ~ and keeps a minimum title with a long folder", () => {
-    const home = "/home/user";
-    const longFolder = `${home}/dv/a-very-long-project-name/.worktrees/an-even-longer-worktree-name`;
+  test("keeps a minimum title with a long worktree name", () => {
+    const longFolder = `/repo/.worktrees/${"w".repeat(100)}`;
     const lines = formatTopTable([row({ sessionId: "ses_1", directory: longFolder, title: "t".repeat(80) })], NOW, {
-      home,
       width: 120,
     });
-    expect(lines[1]).toContain(" ~/dv/a-very-long-project-name/.worktrees/an-even-longer-worktree-name ");
     // The title keeps at least 24 characters, even when the line gets wider.
     expect(lines[1]?.length).toBeGreaterThan(120);
     expect(lines[1]).toContain("t".repeat(24));
@@ -113,6 +118,7 @@ describe("formatTopTable", () => {
     // The title gets exactly the space between the padded prefix and the width.
     const header = lines[0] as string;
     const prefix = header.length - "title".length;
+    expect(header.endsWith("title")).toBe(true);
     const xCount = (lines[1]?.match(/x+$/) ?? [""])[0]?.length ?? 0;
     expect(xCount).toBe(160 - prefix);
   });

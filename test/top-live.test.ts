@@ -45,6 +45,8 @@ type FakeServer = {
   push: (event: unknown) => void;
   /** End every open stream, like a server restart. */
   closeStreams: () => void;
+  /** How many event streams are open now. */
+  openStreams: () => number;
   stop: () => void;
 };
 
@@ -114,6 +116,7 @@ function startFakeServer(options: {
         }
       }
     },
+    openStreams: () => controllers.length,
     closeStreams: () => {
       while (controllers.length > 0) {
         try {
@@ -315,6 +318,8 @@ const emptyStateHome = () => mkdtempSync(path.join(tmpdir(), "oc-sub-top-live-")
  * reject an `AbortError` that no one can handle).
  */
 async function stopLive(live: LiveHandle, host: FakeServer): Promise<void> {
+  // An `up` server may not have opened its stream yet; wait for it first.
+  await until(() => host.openStreams() > 0 || live.servers().every((server) => server.state !== "up"));
   host.closeStreams();
   await until(() => live.servers().every((server) => server.state !== "up"));
   live.stop();
@@ -401,7 +406,9 @@ describe("top live", () => {
     let live: LiveHandle | undefined;
     try {
       live = await startLive({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url }, testDeps, clock.deps);
-      await until(() => live!.servers()[0]?.state === "up");
+      // The state is `up` before the SSE fetch reaches the server; wait for
+      // the open stream, or `closeStreams` would find nothing to close.
+      await until(() => live!.servers()[0]?.state === "up" && host.openStreams() > 0);
 
       // The stream ends, like after a server restart. While it is down, a
       // new session appears on the server, so the reseed can prove itself.

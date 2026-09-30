@@ -150,6 +150,21 @@ With `--all`, it lists the running sessions of all projects, each as `<id> <stat
 
 A directory that fails to list does not stop the listing. It prints `warning: <directory>: <message>` to stderr, and the command continues with the next directory. This covers a project whose configuration references a missing key file.
 
+### oc-sub top
+
+```
+bun run src/cli.ts top [--dir DIR | --all]
+bun run src/cli.ts top --once [--dir DIR | --all] [--json]
+```
+
+A live view of the sessions, like `htop`. Without `--all`, it covers the directory of `--dir` (default: the current directory) and its git worktrees. With `--all`, it covers every directory of every known server (the host server and every sandbox). It shows the sessions that are not idle and the sessions with activity in the last 60 minutes.
+
+One line per session: `session` (the CODE for `oc-sub attach CODE`, the last 6 characters of the session ID), `project` (only with `--all`, as a short name: a name of at most 8 characters stays, a longer one keeps the first 2 characters of its first part and the first 3 characters of each later part, split at `-`, `_`, and `.`, so `opencode-subagents` gives `opsub`; two projects with the same short name both show their full name), `worktree` (the folder name under `.worktrees/`, or `-` for the main folder), agent, state, elapsed time, time since the last event, steps, tool calls, context tokens, cost, reasoning share, and title. The cost and the tokens include the subagent sessions.
+
+Without `--once`, it opens a full-screen view in the alternate screen. It follows `GET /global/event` of every server, reconnects after an error, and redraws on each change and once per second. `j`/`k` or the arrow keys select a session. A detail pane shows its pending requests, its subagent sessions as a tree, and its last 20 events. The footer shows the servers with their state, the totals, and the keys. `o` shows the attach command of the selected session, `a` switches between the scope of `--dir` and `--all`, and `q` or Ctrl-C quit. The view has no keys that act on a session. When stdin or stdout is not a terminal, it prints the `--once` snapshot and a one-line hint to stderr.
+
+With `--once`, it prints one text snapshot and exits: a header line, one line per session, and the pending requests indented below their session. `--json` prints the rows as JSON. It prints `no sessions` when nothing matches and `no server on <url>` when no server answers, both with exit code 0.
+
 ### oc-sub ping
 
 ```
@@ -311,6 +326,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 - `src/state.ts` — per-user state files of the server (PID, log, folders with runs)
 - `src/attach.ts` — the `attach` command
 - `src/doctor.ts` — the health checks, the fast gate for `up` and `run`, and the `doctor` command
+- `src/top/` — `oc-sub top`: `model.ts` (the pure session model), `load.ts` (the REST seed and `--once`), `live.ts` (the event streams), `columns.ts` and `format.ts` (the columns and the text table, pure), `view-model.ts` (the pure view logic), `view.tsx` and `app.tsx` (the Ink view)
 - `src/up.ts`, `src/down.ts`, `src/run.ts`, `src/status.ts`, `src/ping.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts`, `src/answer.ts` — the commands
 
 ## License

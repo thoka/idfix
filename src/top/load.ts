@@ -10,9 +10,7 @@
  * that is down is skipped. A server that rejects the password or fails
  * prints `warning: <url>: <message>` to stderr and is skipped.
  */
-import { homedir } from "node:os";
 import path from "node:path";
-import { projectRootOfRun } from "../keys";
 import type { Session, SessionStatus } from "@opencode-ai/sdk";
 import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "../client";
 import type { Env } from "../config";
@@ -216,12 +214,46 @@ export function treePending(detail: SessionDetail): PendingRequest[] {
 
 export type TopArgs = { url?: string; dir?: string; all: boolean; once: boolean; json: boolean };
 
-/** `oc-sub top [--once] [--dir DIR | --all] [--json]`: one text snapshot, or a hint for now. */
-export async function top(args: TopArgs, env: Env = process.env, deps: StatusDeps = defaultDeps): Promise<number> {
+/** The terminal parts of `top` that the tests replace. */
+export type TopUi = {
+  /** Whether stdin and stdout are a terminal, so that the full-screen view can run. */
+  interactive(): boolean;
+  /** Run the full-screen view until the user quits; returns the exit code. */
+  runView(args: TopArgs, env: Env, deps: StatusDeps): Promise<number>;
+};
+
+export const defaultUi: TopUi = {
+  interactive: () => process.stdout.isTTY === true && process.stdin.isTTY === true,
+  // The view loads Ink and React only when it runs, so `--once` stays light.
+  runView: async (args, env, deps) => (await import("./app")).runTopView(args, env, deps),
+};
+
+/** The hint that `top` prints to stderr when it has no terminal for the view. */
+export const NO_TERMINAL_HINT = "oc-sub top: no terminal, printed one snapshot instead of the live view (use --once to skip this hint)";
+
+/**
+ * `oc-sub top [--once] [--dir DIR | --all] [--json]`. With `--once`, one text
+ * snapshot. Without it, the full-screen live view of `src/top/view.tsx`. When
+ * stdin or stdout is not a terminal, it prints the snapshot and a one-line
+ * hint to stderr instead of the view.
+ */
+export async function top(
+  args: TopArgs,
+  env: Env = process.env,
+  deps: StatusDeps = defaultDeps,
+  ui: TopUi = defaultUi,
+): Promise<number> {
   if (!args.once) {
-    console.error("oc-sub top: the live view comes in a later step, use --once");
-    return 2;
+    if (ui.interactive()) return ui.runView(args, env, deps);
+    const code = await snapshot(args, env, deps);
+    console.error(NO_TERMINAL_HINT);
+    return code;
   }
+  return snapshot(args, env, deps);
+}
+
+/** Print one text snapshot, or the rows as JSON with `--json`. */
+async function snapshot(args: TopArgs, env: Env, deps: StatusDeps): Promise<number> {
   const { model, answered, hostUrl } = await loadTopAll(args, env, deps);
   if (!answered) {
     // No server means no sessions. That is a normal state, not an error.
@@ -241,10 +273,10 @@ export async function top(args: TopArgs, env: Env = process.env, deps: StatusDep
     console.log("no sessions");
     return 0;
   }
-  const scopeDir = args.all ? undefined : path.resolve(args.dir ?? process.cwd());
   // Without a terminal, `stdout.columns` is undefined; use a fixed width.
   const width = process.stdout.columns ?? DEFAULT_WIDTH;
-  const options: TopTableOptions = { scopeDir, width, home: homedir() };
+  // Without --all, every row belongs to one project, so its column is hidden.
+  const options: TopTableOptions = { showProject: args.all, width };
   for (const line of formatTopTable(rows, nowMs, options)) console.log(line);
   return 0;
 }

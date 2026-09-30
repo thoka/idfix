@@ -30,6 +30,7 @@ Usage:
   oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T]
   oc-sub attach CODE [--url URL]
   oc-sub status [--dir DIR | --all]
+  oc-sub top [--dir DIR | --all]
   oc-sub top --once [--dir DIR | --all] [--json]
   oc-sub ping [--dir DIR]
   oc-sub ping --rules [--dir DIR]

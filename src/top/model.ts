@@ -18,7 +18,7 @@
  * `src/events.ts`.
  */
 import type { Event, Message, Part, Session, SessionStatus } from "@opencode-ai/sdk";
-import { createGuard, type Finding, type GuardOptions } from "../detect";
+import { createGuard, REASONING_LIMIT, type Finding, type GuardOptions } from "../detect";
 import { eventSessionId, watchEventLine, type WatchLine } from "../events";
 import type { PendingRequest, PermissionRequest, QuestionRequest } from "../requests";
 import {
@@ -30,8 +30,12 @@ import {
   type UsageSummary,
 } from "../summary";
 
-/** The state of a session, in priority order. */
-export type SessionRowState = "waiting" | "looping" | "stalled" | "retry" | "busy" | "idle";
+/**
+ * The state of a session, in priority order. `reasoning` means a busy
+ * session whose last step used more reasoning tokens than the limit of the
+ * guard (`REASONING_LIMIT` of `src/detect.ts`, or `reasoningLimit`).
+ */
+export type SessionRowState = "waiting" | "looping" | "stalled" | "reasoning" | "retry" | "busy" | "idle";
 
 /** One line of the session table: the session and all of its descendants. */
 export type SessionRow = {
@@ -166,6 +170,7 @@ export type TopModel = {
 
 export function createTopModel(options: TopModelOptions = {}): TopModel {
   const logLines = options.logLines ?? 20;
+  const reasoningLimit = options.reasoningLimit ?? REASONING_LIMIT;
   const guard = createGuard(options);
   const sessions = new Map<string, SessionRecord>();
   let lastNowMs = 0;
@@ -199,20 +204,26 @@ export function createTopModel(options: TopModelOptions = {}): TopModel {
     if (record !== undefined) record.stalled = true;
   };
 
-  /** Pending, looping, and stalled over one session and its descendants. */
-  const treeFlags = (id: string): { pending: boolean; looping: boolean; stalled: boolean } => {
+  type TreeFlags = { pending: boolean; looping: boolean; stalled: boolean; reasoning: boolean };
+
+  /** Pending, looping, stalled, and reasoning over one session and its descendants. */
+  const treeFlags = (id: string): TreeFlags => {
     const record = sessions.get(id);
-    if (record === undefined) return { pending: false, looping: false, stalled: false };
+    if (record === undefined) return { pending: false, looping: false, stalled: false, reasoning: false };
+    const working = record.status?.type === "busy" || record.status?.type === "retry";
     const flags = {
       pending: record.pending.length > 0,
       looping: record.looping,
       stalled: record.stalled,
+      // Only a working session reasons; an idle one has finished its step.
+      reasoning: working && record.lastStepReasoning > reasoningLimit,
     };
     for (const child of childrenOf(id)) {
       const next = treeFlags(child);
       flags.pending ||= next.pending;
       flags.looping ||= next.looping;
       flags.stalled ||= next.stalled;
+      flags.reasoning ||= next.reasoning;
     }
     return flags;
   };
@@ -222,6 +233,7 @@ export function createTopModel(options: TopModelOptions = {}): TopModel {
     if (flags.pending) return "waiting";
     if (flags.looping) return "looping";
     if (flags.stalled) return "stalled";
+    if (flags.reasoning) return "reasoning";
     if (status?.type === "retry") return "retry";
     if (status?.type === "busy") return "busy";
     return "idle";

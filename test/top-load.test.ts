@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Message, Part, Session } from "@opencode-ai/sdk";
-import { top, scopeDirectories } from "../src/top/load";
+import { NO_TERMINAL_HINT, scopeDirectories, top, type TopArgs, type TopUi } from "../src/top/load";
 import type { MessageEntry } from "../src/summary";
 import type { StatusDeps } from "../src/status";
 
@@ -333,8 +333,9 @@ describe("top", () => {
           testDeps,
         );
         expect(code).toBe(0);
-        expect(captured.lines[0]).toMatch(/^session +folder +agent +state +elapsed +last +steps +tools +ctx +cost +reason +title$/);
-        expect(captured.lines).toContainEqual(expect.stringContaining("ses_parent"));
+        expect(captured.lines[0]).toMatch(/^session +project +worktree +agent +state +elapsed +last +steps +tools +ctx +cost +reason +title$/);
+        // The session column shows the CODE, the last 6 characters of the ID.
+        expect(captured.lines).toContainEqual(expect.stringMatching(/^parent /));
         const requestLines = captured.lines.filter((line) => line.startsWith("  "));
         expect(requestLines).toEqual([
           "  question que_2 in ses_parent",
@@ -342,7 +343,7 @@ describe("top", () => {
         ]);
         // Every non-request line starts in the first column, like the header.
         for (const line of captured.lines.slice(1)) {
-          if (!line.startsWith(" ")) expect(line.split(/\s{2,}/)[0]).toMatch(/^ses_/);
+          if (!line.startsWith(" ")) expect(line.split(/\s{2,}/)[0]).toMatch(/^\S{1,6}$/);
         }
       } finally {
         captured.restore();
@@ -397,21 +398,45 @@ describe("top", () => {
     }
   });
 
-  test("without --once it prints a hint and exits with 2", async () => {
+  test("without --once and without a terminal it prints the snapshot and a hint", async () => {
     const stateHome = emptyStateHome();
     const captured = captureLog();
+    let viewRuns = 0;
+    const ui: TopUi = {
+      interactive: () => false,
+      runView: async () => {
+        viewRuns++;
+        return 0;
+      },
+    };
     try {
       const code = await top(
         { all: false, once: false, json: false },
         { XDG_STATE_HOME: stateHome, OC_SUB_URL: "http://127.0.0.1:9" },
         testDeps,
+        ui,
       );
-      expect(code).toBe(2);
-      expect(captured.errors).toEqual(["oc-sub top: the live view comes in a later step, use --once"]);
-      expect(captured.lines).toEqual([]);
+      expect(code).toBe(0);
+      expect(viewRuns).toBe(0);
+      expect(captured.lines).toEqual(["no server on http://127.0.0.1:9"]);
+      expect(captured.errors).toEqual([NO_TERMINAL_HINT]);
     } finally {
       captured.restore();
       rmSync(stateHome, { recursive: true, force: true });
     }
+  });
+
+  test("without --once and with a terminal it runs the view", async () => {
+    const seen: TopArgs[] = [];
+    const ui: TopUi = {
+      interactive: () => true,
+      runView: async (args) => {
+        seen.push(args);
+        return 0;
+      },
+    };
+    const args = { all: true, once: false, json: false };
+    expect(await top(args, { OC_SUB_URL: "http://127.0.0.1:9" }, testDeps, ui)).toBe(0);
+    expect(seen).toEqual([args]);
   });
 });

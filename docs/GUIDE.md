@@ -126,6 +126,17 @@ It prints one short line per tool call. When the run ends, it prints a summary l
 
 `watch` also warns early when a run goes wrong, for example when the agent repeats the same tool call five times in a row. Then it prints a block that names the problem and the session, and it ends with exit code 4. The run itself keeps running. Claude reads the block and then aborts the run or sends a correction. You do not need to act yourself.
 
+### See all runs at once: `oc-sub top`
+
+`oc-sub top` opens a full-screen live view of the runs, like `htop`. It shows the runs of the current project and its worktrees. `oc-sub top --all` shows the runs of all projects and all known servers.
+
+- The table has one line per run: the CODE for `oc-sub attach CODE`, the project (only with `--all`), the worktree (`-` is the main folder), the agent, the state, the elapsed time, the time since the last event, the steps, the tool calls, the context size, the cost, the reasoning share, and the title.
+- The state has a color: `busy` green, `waiting` yellow (the run waits for an answer), `stalled`, `looping` red, `reasoning` magenta (the last step used too many reasoning tokens), `retry` yellow, and `idle` gray.
+- Below the table, the detail pane shows the selected run: a pending question or permission request, the subagent sessions as a tree, and the last events.
+- The footer shows each server and its state (`up`, `down`, or `reconnecting`), the number of runs, their cost, and the keys.
+
+Keys: `j`/`k` or the arrow keys select a run. `o` shows the attach command of the selected run. `a` switches between this project and all projects. `q` or Ctrl-C quit. The view only shows. Claude still answers, aborts, and follows up.
+
 ## Follow up, abort, and read the cost
 
 - **Follow up**: tell Claude what to change. Claude sends the message into the same session with `oc-sub say <session-id> --dir <worktree> "<message>"`. The command returns at once and does not block. You can also type into the attached opencode interface yourself.

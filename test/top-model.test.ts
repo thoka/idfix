@@ -325,6 +325,21 @@ describe("apply", () => {
     expect(rowOf(model.rows(NOW), "ses_st").state).toBe("idle");
   });
 
+  test("a busy session with too many reasoning tokens in its last step is reasoning", () => {
+    const model = createTopModel({ reasoningLimit: 100 });
+    model.apply(SERVER, DIR, sessionEvent("session.created", sessionInfo({ id: "ses_r" })), NOW);
+    model.apply(SERVER, DIR, statusEvent("ses_r", { type: "busy" }), NOW);
+    model.apply(SERVER, DIR, stepFinishEvent("ses_r", { input: 10, output: 5, reasoning: 101, cacheRead: 0 }, 0.001), NOW);
+    expect(rowOf(model.rows(NOW), "ses_r").state).toBe("reasoning");
+    // A later step under the limit ends the state.
+    model.apply(SERVER, DIR, stepFinishEvent("ses_r", { input: 10, output: 5, reasoning: 100, cacheRead: 0 }, 0.001), NOW);
+    expect(rowOf(model.rows(NOW), "ses_r").state).toBe("busy");
+    model.apply(SERVER, DIR, stepFinishEvent("ses_r", { input: 10, output: 5, reasoning: 500, cacheRead: 0 }, 0.001), NOW);
+    // An idle session has finished its step, so it is not reasoning.
+    model.apply(SERVER, DIR, { type: "session.idle", properties: { sessionID: "ses_r" } } as unknown as Event, NOW);
+    expect(rowOf(model.rows(NOW), "ses_r").state).toBe("idle");
+  });
+
   test("session.deleted removes the row", () => {
     const model = createTopModel();
     model.apply(SERVER, DIR, sessionEvent("session.created", sessionInfo({ id: "ses_del" })), NOW);

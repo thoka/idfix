@@ -287,11 +287,12 @@ describe("parseArgs", () => {
   });
 
   test("worktree takes a STEP with --dir and --base, and rm", () => {
-    expect(parseArgs(["worktree", "14b"])).toEqual({ command: "worktree", step: "14b", remove: false });
+    expect(parseArgs(["worktree", "14b"])).toEqual({ command: "worktree", step: "14b", noSetup: false, remove: false });
     expect(parseArgs(["worktree", "14b", "--dir", "/repo"])).toEqual({
       command: "worktree",
       step: "14b",
       dir: "/repo",
+      noSetup: false,
       remove: false,
     });
     expect(parseArgs(["worktree", "14b", "--dir=/repo", "--base=main"])).toEqual({
@@ -299,12 +300,20 @@ describe("parseArgs", () => {
       step: "14b",
       dir: "/repo",
       base: "main",
+      noSetup: false,
+      remove: false,
+    });
+    expect(parseArgs(["worktree", "14b", "--no-setup"])).toEqual({
+      command: "worktree",
+      step: "14b",
+      noSetup: true,
       remove: false,
     });
     expect(parseArgs(["worktree", "rm", "14b", "--dir", "/repo"])).toEqual({
       command: "worktree",
       step: "14b",
       dir: "/repo",
+      noSetup: false,
       remove: true,
     });
     expect(() => parseArgs(["worktree"])).toThrow(/STEP/);

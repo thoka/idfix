@@ -1,8 +1,9 @@
 /**
  * The per-project configuration of oc-sub: the file `.opencode/oc-sub.json`
- * in the project root (step 8i). It currently holds one setting, the
- * `shortName` that the project column of `oc-sub top` shows. Without the
- * file, or with an invalid one, there is no setting; nothing fails.
+ * in the project root (step 8i). It holds two settings: the `shortName`
+ * that the project column of `oc-sub top` shows, and the `setup` shell
+ * command that `oc-sub worktree` runs inside a new run worktree. Without
+ * the file, or with an invalid one, there is no setting; nothing fails.
  *
  * The reader is sync and injectable, and reads each project root at most
  * once per process, so the live view can call it per row and per frame.
@@ -36,6 +37,24 @@ export function shortNameFromConfigText(text: string | null): string | undefined
   if (typeof parsed !== "object" || parsed === null) return undefined;
   const shortName = (parsed as { shortName?: unknown }).shortName;
   return typeof shortName === "string" && shortName.length > 0 ? shortName : undefined;
+}
+
+/**
+ * The `setup` of an `oc-sub.json` text, or undefined. The text must be a
+ * JSON object with a non-empty string `setup`; anything else gives
+ * undefined.
+ */
+export function setupFromConfigText(text: string | null): string | undefined {
+  if (text === null) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const setup = (parsed as { setup?: unknown }).setup;
+  return typeof setup === "string" && setup.length > 0 ? setup : undefined;
 }
 
 /** The file reads that the tests replace. */
@@ -73,6 +92,18 @@ export function projectShortName(
   const shortName = shortNameFromConfigText(deps.readTextSync(projectConfigFile(root)));
   cache.set(root, shortName);
   return shortName;
+}
+
+/**
+ * The configured `setup` command of a project root, or undefined. It reads
+ * the file of the root each time; no cache is needed, because `oc-sub
+ * worktree` calls it at most once per process.
+ */
+export function projectSetupCommand(
+  root: string,
+  deps: ProjectConfigDeps = defaultProjectConfigDeps,
+): string | undefined {
+  return setupFromConfigText(deps.readTextSync(projectConfigFile(root)));
 }
 
 /**

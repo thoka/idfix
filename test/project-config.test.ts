@@ -3,7 +3,9 @@ import { describe, expect, test } from "bun:test";
 import {
   makeProjectNameResolver,
   projectConfigFile,
+  projectSetupCommand,
   projectShortName,
+  setupFromConfigText,
   shortNameFromConfigText,
   type ProjectConfigDeps,
 } from "../src/project-config";
@@ -41,6 +43,38 @@ describe("shortNameFromConfigText", () => {
 
   test("a valid shortName comes through", () => {
     expect(shortNameFromConfigText('{"shortName": "opsub"}')).toBe("opsub");
+  });
+});
+
+describe("setupFromConfigText", () => {
+  test("a missing file gives undefined", () => {
+    expect(setupFromConfigText(null)).toBeUndefined();
+  });
+
+  test("invalid JSON gives undefined", () => {
+    expect(setupFromConfigText("{ not json")).toBeUndefined();
+  });
+
+  test("an empty or non-string setup gives undefined", () => {
+    expect(setupFromConfigText("{}")).toBeUndefined();
+    expect(setupFromConfigText('{"setup": ""}')).toBeUndefined();
+    expect(setupFromConfigText('{"setup": 3}')).toBeUndefined();
+    expect(setupFromConfigText('{"setup": null}')).toBeUndefined();
+  });
+
+  test("a valid setup comes through", () => {
+    expect(setupFromConfigText('{"setup": "bun install"}')).toBe("bun install");
+  });
+});
+
+describe("projectSetupCommand", () => {
+  test("no file gives undefined", () => {
+    expect(projectSetupCommand("/p", depsWith({}))).toBeUndefined();
+  });
+
+  test("a valid file gives the setup command", () => {
+    const deps = depsWith({ [projectConfigFile("/p")]: '{"setup": "bun install --frozen-lockfile"}' });
+    expect(projectSetupCommand("/p", deps)).toBe("bun install --frozen-lockfile");
   });
 });
 

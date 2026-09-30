@@ -39,7 +39,7 @@ Usage:
   oc-sub abort SESSION [--dir DIR]
   oc-sub answer REQUEST_ID [--dir DIR] (--reply once|always|reject | --reject | ANSWER...)
   oc-sub say SESSION [--dir DIR] [--agent NAME] TEXT
-  oc-sub worktree STEP [--dir ROOT] [--base BRANCH]
+  oc-sub worktree STEP [--dir ROOT] [--base BRANCH] [--no-setup]
   oc-sub worktree rm STEP [--dir ROOT]
   oc-sub fetch [--dir ROOT]
   oc-sub doctor [--dir DIR] [--json]

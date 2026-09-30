@@ -29,7 +29,7 @@ export type ParsedArgs =
       answers: string[];
     }
   | { command: "say"; url?: string; session: string; dir?: string; agent?: string; text: string }
-  | { command: "worktree"; step: string; dir?: string; base?: string; remove: boolean }
+  | { command: "worktree"; step: string; dir?: string; base?: string; noSetup: boolean; remove: boolean }
   | { command: "fetch"; dir?: string }
   | { command: "doctor"; dir?: string; json: boolean };
 
@@ -349,7 +349,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       };
     }
     case "worktree": {
-      const { flags, positionals } = collectFlags(rest, new Set(["dir", "base"]), new Set<string>());
+      const { flags, positionals } = collectFlags(rest, new Set(["dir", "base", "no-setup"]), new Set(["no-setup"]));
       const remove = positionals[0] === "rm";
       const step = remove ? positionals[1] : positionals[0];
       if (step === undefined || step.trim().length === 0) {
@@ -364,6 +364,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         step,
         dir: optionalString(flags, "dir"),
         base: optionalString(flags, "base"),
+        noSetup: flags.get("no-setup") === true,
         remove,
       };
     }

@@ -1,1 +1,1 @@
-{ "shortName": "opsub" }
+{ "shortName": "opsub", "setup": "bun install --frozen-lockfile" }

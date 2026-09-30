@@ -294,6 +294,15 @@ export function shellQuote(value: string): string {
 }
 
 /**
+ * The PATH entry that puts the tool folders of the project in front of the
+ * sandbox PATH. `upSandbox` (the holder command) and `worktree` (the setup
+ * command) use it, so both find the mise tools of the project.
+ */
+export function sandboxToolPathEntry(toolPath: string): string {
+  return `PATH=${toolPath ? `${toolPath}:` : ""}${SANDBOX_PATH}`;
+}
+
+/**
  * A relative mount path for `:ro`, because `sbx` 0.45.1 rejects an absolute
  * path with `:ro`.
  */
@@ -775,7 +784,7 @@ export async function upSandbox(
       "-e",
       // The tool folders of the project come first, so that the versions of
       // `mise.toml` win over the tools of the sandbox image.
-      `PATH=${toolPath ? `${toolPath}:` : ""}${SANDBOX_PATH}`,
+      sandboxToolPathEntry(toolPath),
       name,
       "opencode",
       "serve",

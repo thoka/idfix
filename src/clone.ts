@@ -14,7 +14,20 @@
 import path from "node:path";
 import type { Env } from "./config";
 import { projectRootOfRun, projectNameOf } from "./keys";
-import { defaultRunner, readSandboxState, sandboxStatePath, sbxBin, type Runner, type SandboxState } from "./sandbox";
+import { projectSetupCommand } from "./project-config";
+import {
+  defaultRunner,
+  miseBin,
+  miseInstallsDir,
+  projectToolPath,
+  readSandboxState,
+  sandboxStatePath,
+  sandboxToolPathEntry,
+  shellQuote,
+  sbxBin,
+  type Runner,
+  type SandboxState,
+} from "./sandbox";
 
 /** The parts of the worktree and fetch commands that the tests replace. */
 export type CloneDeps = {
@@ -24,12 +37,15 @@ export type CloneDeps = {
   sandboxState: (project: string) => SandboxState | null;
   /** The project name of a directory. */
   projectName: (directory: string) => string;
+  /** The `setup` command of a project root, or undefined without one. */
+  setupCommand: (root: string) => string | undefined;
 };
 
 export const defaultCloneDeps: CloneDeps = {
   runner: defaultRunner,
   sandboxState: (project) => readSandboxState(sandboxStatePath(process.env as Env, project)),
   projectName: projectNameOf,
+  setupCommand: projectSetupCommand,
 };
 
 function mergeDeps(overrides: Partial<CloneDeps>): CloneDeps {
@@ -74,18 +90,25 @@ export const HOST_SOURCE = "/run/sandbox/source";
 export const HOST_REMOTE = "host";
 
 /**
- * `oc-sub worktree STEP [--dir ROOT] [--base BRANCH]`: create the worktree
- * of a run inside the sandbox clone. It makes sure that the remote `host`
- * of the clone points to the read-only host repository at
+ * `oc-sub worktree STEP [--dir ROOT] [--base BRANCH] [--no-setup]`: create
+ * the worktree of a run inside the sandbox clone. It makes sure that the
+ * remote `host` of the clone points to the read-only host repository at
  * `/run/sandbox/source`, fetches new host commits from it, sets the git
  * identity of the host repository in the clone (a fresh clone has none),
  * and creates `feature/STEP` from `host/BASE`. It does not fetch `origin`:
  * the clone copies the remotes of the host, so `origin` can be an SSH URL
  * that the sandbox cannot reach (RUN_ISOLATION.md section 9). When the
  * worktree already exists, it says so and exits 0.
+ *
+ * When the project sets a `setup` command in `.opencode/oc-sub.json`, it
+ * runs that command inside the new worktree after a successful `git
+ * worktree add` (for example `bun install`, because the worktree holds
+ * only tracked files and no `node_modules`). `--no-setup` skips it. On a
+ * failing setup it prints the output, tells how to run the command by
+ * hand, keeps the worktree, and exits 1.
  */
 export function worktree(
-  args: { step: string; dir?: string; base?: string },
+  args: { step: string; dir?: string; base?: string; noSetup?: boolean },
   env: Env = process.env,
   depsOverrides: Partial<CloneDeps> = {},
 ): number {
@@ -95,7 +118,7 @@ export function worktree(
   const { root, state } = found;
   const bin = sbxBin(env);
   const { name } = state;
-  const run = (cmd: readonly string[]) => deps.runner(cmd);
+  const run = (cmd: readonly string[], opts?: { cwd?: string }) => deps.runner(cmd, opts);
   const sbxGit = (...gitArgs: readonly string[]) => run([bin, "exec", name, "git", "-C", root, ...gitArgs]);
   const worktreePath = runWorktreePath(root, args.step);
 
@@ -127,6 +150,39 @@ export function worktree(
   const base = args.base ?? "alpha";
   const add = sbxGit("worktree", "add", "-b", `feature/${args.step}`, worktreePath, `${HOST_REMOTE}/${base}`);
   if (add.exitCode !== 0) return fail(`git worktree add failed in the clone of ${name}`);
+
+  // The worktree holds only tracked files, so it has no `node_modules`. The
+  // project can set a setup command in `.opencode/oc-sub.json`; run it once
+  // inside the new worktree, with the PATH of the sandbox server, so that
+  // the mise tools of the project (bun) are found. `mise install` already
+  // ran in `upSandbox`, so `worktree` only reads the tool folders here.
+  const setup = args.noSetup === true ? undefined : deps.setupCommand(root);
+  if (setup !== undefined) {
+    console.log(`setup: ${setup}`);
+    const toolPath = projectToolPath(
+      run([miseBin(env), "env", "-C", root, "--json"], { cwd: root }).stdout,
+      miseInstallsDir(env),
+    );
+    const setupCmd = [
+      bin,
+      "exec",
+      "-w",
+      worktreePath,
+      "-e",
+      sandboxToolPathEntry(toolPath),
+      name,
+      "sh",
+      "-c",
+      `exec 2>&1; ${setup}`,
+    ];
+    const setupRun = run(setupCmd);
+    if (setupRun.exitCode !== 0) {
+      if (setupRun.stdout.length > 0) console.error(setupRun.stdout);
+      console.error(`error: the setup command failed in ${worktreePath} (exit ${setupRun.exitCode})`);
+      console.error(`run it again by hand: ${setupCmd.map(shellQuote).join(" ")}`);
+      return 1;
+    }
+  }
 
   console.log(`worktree: ${worktreePath}`);
   console.log(`start the run with: oc-sub run --dir ${worktreePath} ...`);

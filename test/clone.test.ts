@@ -33,13 +33,13 @@ const STATE: SandboxState = { name: NAME, root: ROOT, port: 18768 };
 async function makeDeps(overrides: Partial<CloneDeps> = {}): Promise<{ env: Record<string, string> } & CloneDeps> {
   const env = { XDG_STATE_HOME: tempDir() };
   await writeSandboxState(sandboxStatePath(env as never, "test"), STATE);
-  return {
-    env,
+  const deps: CloneDeps = {
     runner: () => ({ stdout: "", exitCode: 0 }),
     sandboxState: () => STATE,
     projectName: () => "test",
-    ...overrides,
+    setupCommand: () => undefined,
   };
+  return { env, ...deps, ...overrides };
 }
 
 function isSbxGit(cmd: readonly string[], gitArgs: readonly string[]): boolean {
@@ -219,6 +219,110 @@ describe("worktree", () => {
     expect(code).toBe(0);
     // No fetch, no config, no add after the existence test.
     expect(callsOf(calls, (c) => c[3] === "git").length).toBe(0);
+  });
+
+  test("runs the setup command with the sandbox PATH after the worktree add", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
+      // A faked `mise env --json` with one tool folder inside the installs dir.
+      if (cmd[0] === "mise" && cmd[1] === "env") {
+        return { stdout: JSON.stringify({ PATH: "/home/u/.local/share/mise/installs/bun/bin:/usr/bin" }) };
+      }
+      return {};
+    });
+    const code = worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+      ...deps,
+      runner,
+      setupCommand: (root) => (root === ROOT ? "bun install --frozen-lockfile" : undefined),
+    });
+    expect(code).toBe(0);
+    // The setup runs after the worktree add.
+    const indexOf = (predicate: (c: readonly string[]) => boolean) =>
+      calls.findIndex((call) => predicate(call.cmd));
+    const addIndex = indexOf((c) => c.includes("worktree") && c.includes("add"));
+    const setupIndex = indexOf((c) => c.includes("sh") && c.includes("-c"));
+    expect(addIndex).toBeGreaterThanOrEqual(0);
+    expect(setupIndex).toBeGreaterThan(addIndex);
+    // The exact setup command, with the tool path from the faked mise env.
+    expect(calls[setupIndex]!.cmd).toEqual([
+      "sbx",
+      "exec",
+      "-w",
+      runWorktreePath(ROOT, "14b"),
+      "-e",
+      "PATH=/home/u/.local/share/mise/installs/bun/bin:/home/agent/.local/bin:/usr/local/share/npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      NAME,
+      "sh",
+      "-c",
+      "exec 2>&1; bun install --frozen-lockfile",
+    ]);
+  });
+
+  test("runs no setup without a setup command", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 1 } : {}));
+    const code = worktree({ step: "14b" }, deps.env as never, { ...deps, runner, setupCommand: () => undefined });
+    expect(code).toBe(0);
+    expect(callsOf(calls, (c) => c.includes("sh") && c.includes("-c")).length).toBe(0);
+    expect(callsOf(calls, (c) => c[0] === "mise").length).toBe(0);
+  });
+
+  test("runs no setup with --no-setup", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 1 } : {}));
+    const code = worktree({ step: "14b", noSetup: true }, deps.env as never, {
+      ...deps,
+      runner,
+      setupCommand: () => "bun install",
+    });
+    expect(code).toBe(0);
+    expect(callsOf(calls, (c) => c.includes("sh") && c.includes("-c")).length).toBe(0);
+    expect(callsOf(calls, (c) => c[0] === "mise").length).toBe(0);
+  });
+
+  test("runs no setup when the worktree already exists", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 0 } : {}));
+    const code = worktree({ step: "14b" }, deps.env as never, {
+      ...deps,
+      runner,
+      setupCommand: () => "bun install",
+    });
+    expect(code).toBe(0);
+    expect(callsOf(calls, (c) => c.includes("sh") && c.includes("-c")).length).toBe(0);
+  });
+
+  test("fails with exit 1 and keeps the worktree when the setup command fails", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
+      if (cmd.includes("sh") && cmd.includes("-c")) return { stdout: "some setup output\n", exitCode: 7 };
+      return {};
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let code: number;
+    try {
+      code = worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+        ...deps,
+        runner,
+        setupCommand: () => "bun install",
+      });
+    } finally {
+      console.error = err;
+    }
+    expect(code).toBe(1);
+    // The output, the error, and the exact command to run it again by hand.
+    expect(errors).toContain("some setup output\n");
+    expect(errors).toContain(`error: the setup command failed in ${runWorktreePath(ROOT, "14b")} (exit 7)`);
+    const rerun = errors.find((line) => line.startsWith("run it again by hand: "));
+    // Every argument is shell-quoted, so the user can paste the line as it is.
+    expect(rerun).toStartWith(`run it again by hand: 'sbx' 'exec' '-w' '${runWorktreePath(ROOT, "14b")}'`);
+    expect(rerun).toEndWith(`'sh' '-c' 'exec 2>&1; bun install'`);
+    // The worktree stays: no `worktree remove` runs.
+    expect(callsOf(calls, (c) => c.includes("worktree") && c.includes("remove")).length).toBe(0);
   });
 
   test("stops with a clear error in host mode (no sandbox state)", async () => {

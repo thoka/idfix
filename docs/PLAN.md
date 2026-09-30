@@ -240,11 +240,21 @@ Open follow-ups of step 14:
 - 14e, done on 2026-09-30. `oc-sub restart` in sandbox mode failed with "not in clone mode". Root cause: `sbx stop` removes the `sandbox-<name>` remote from the host repository, and `upSandbox` checked that remote before anything started the sandbox again. Any start adds the remote again, also the `sbx exec` of the clone check. `upSandbox` and the `sandbox-mounts` check of `doctor` now run the clone check first and the remote check after it. A test in each file fakes a remote that appears only after the first `sbx exec`. The main thread ran `oc-sub restart` for this project end to end, and the remote came back with a new port.
 - The other project sandboxes (arch-helper, grata, meta) are still in direct-mount mode. Their next `oc-sub up` stops and names `sbx rm --force`.
 
+## Step 15: `oc-sub doctor --fix` brings the setup up to date
+
+Goal: one command brings the plugin, the server, and the sandbox of a project up to date. Today `oc-sub doctor` only prints a fix text for each problem, and the user or the agent must type each command by hand. The user asked for this step on 2026-09-30.
+
+- 15a, open: research first. How do established tools split "diagnose" from "repair" (for example `brew doctor`, `flutter doctor`, `eslint --fix`, `npm audit fix`, `rustup update`)? Which fixes run without a question, and how do they guard a destructive fix? First search the lessons and `research-index.md` in meta. The report goes to `docs/research/DOCTOR_FIX.md` and extends [DOCTOR.md](research/DOCTOR.md).
+- 15b, open: the safe fixes. Each check gets an optional fix action next to its fix text, and `--fix` runs the action of each check that fails or warns, then runs the checks again. The first candidates: the plugin update (`PLUGIN_UPDATE_FIX`), then `oc-sub restart` of an idle server, so that it loads the new plugin folder. A global rule file that is a copy becomes a symlink only when its content equals the shared file; otherwise `--fix` reports it and changes nothing.
+- 15c, open: the recreate of a sandbox that is not in clone mode or lacks a mount. It ends the sessions of the sandbox, so it runs only with `--fix --force` and only when the busy check of `down` finds no running session. It runs `sbx rm --force NAME` and `oc-sub up`.
+
+Default decisions, open for a change by the user: the command is a flag of `doctor` and not a new `update` command, because the fixes belong to the checks. Every fix that can end a session or lose a local change needs `--force`, because the goal of the step is to repair and not to destroy.
+
 ## Hand-off on 2026-09-30
 
 State for the next thread. Everything above is on `alpha` and pushed.
 
-No run is active. Step 14e finished on 2026-09-30: `oc-sub restart` works again in sandbox mode. Step 8j finished on 2026-09-30 and is on `alpha`: `oc-sub worktree` runs the `setup` command of `.opencode/oc-sub.json` inside the new run worktree. This repository sets `bun install --frozen-lockfile`, so a coder starts with `node_modules`.
+No run is active. The installed Claude Code plugin is at `a555fd5`, the fix of 14e. Step 14e finished on 2026-09-30: `oc-sub restart` works again in sandbox mode. Step 8j finished on 2026-09-30 and is on `alpha`: `oc-sub worktree` runs the `setup` command of `.opencode/oc-sub.json` inside the new run worktree. This repository sets `bun install --frozen-lockfile`, so a coder starts with `node_modules`.
 
 The workflow in this project now (clone mode):
 
@@ -255,14 +265,14 @@ The workflow in this project now (clone mode):
 
 Next steps of the plan, in this order:
 
-1. 8h: `oc-sub status --json`.
-2. The known gaps of 8g: new worktrees appear in the live view only after `a` twice, the footer lacks the day totals and the key usage per project, and the title is cut below about 110 columns.
-3. Step 12: a working mise inside the sandbox (open, decided with the user).
-4. `oc-sub say` warns when the session waits for an answer to a `question` (open follow-up of step 10b).
+1. Step 15: `oc-sub doctor --fix`, starting with the research 15a.
+2. 8h: `oc-sub status --json`.
+3. The known gaps of 8g: new worktrees appear in the live view only after `a` twice, the footer lacks the day totals and the key usage per project, and the title is cut below about 110 columns.
+4. Step 12: a working mise inside the sandbox (open, decided with the user).
+5. `oc-sub say` warns when the session waits for an answer to a `question` (open follow-up of step 10b).
 
 Open tasks of the user:
 
-- Update the installed Claude Code plugin, which is still at 039f9f4. `oc-sub doctor` warns about it. Command: `claude plugin marketplace update opencode-subagents && claude plugin update opencode-subagents@opencode-subagents`.
 - Recreate the sandboxes of arch-helper, grata, and meta in clone mode when no session runs there: `sbx rm --force oc-sub-<project>`, then `oc-sub up` in the project. This ends their sessions. grata had active sessions on 2026-09-30.
 - Decide from [DEPLOY_ACCESS.md](research/DEPLOY_ACCESS.md) section 8: whether Tailscale runs on the servers, and how long a debugging window lasts.
 - Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.

@@ -25,7 +25,8 @@ import { DEFAULT_WIDTH, formatTopTable, type TopTableOptions, type TopTableRow }
 /** A session counts as recent when its last update is at most this old. */
 const RECENT_MS = 60 * 60 * 1000;
 
-const defaultDeps: StatusDeps = { worktreesOf, exists: existsSync };
+/** The default worktree and existence checks, overridable in the tests. */
+export const defaultDeps: StatusDeps = { worktreesOf, exists: existsSync };
 
 /** One listed session with the directory it came from. */
 type Listed = { session: Session; directory: string };
@@ -37,8 +38,12 @@ type ServerList = {
   pendingByDirectory: Map<string, PendingRequest[]>;
 };
 
-/** The directories that one run of `top` covers on one server. */
-function scopeDirectories(args: { dir?: string; all: boolean }, env: Env, deps: StatusDeps): (url: string) => Promise<string[]> {
+/**
+ * The directories that one run of `top` covers on one server: with `--all`
+ * the directories that the server knows, else the directory of `--dir` and
+ * its git worktrees. `startLive` in `src/top/live.ts` shares this scope.
+ */
+export function scopeDirectories(args: { dir?: string; all: boolean }, env: Env, deps: StatusDeps): (url: string) => Promise<string[]> {
   const directory = path.resolve(args.dir ?? process.cwd());
   if (!args.all) {
     const dirs = uniqueDirectories(deps.worktreesOf(directory));
@@ -107,8 +112,13 @@ function seedIds(list: ServerList, nowMs: number): Set<string> {
   return seeds;
 }
 
-/** Load one server into the model. One broken directory does not stop the others. */
-async function loadServer(model: TopModel, baseUrl: string, directories: string[], env: Env, nowMs: number): Promise<void> {
+/**
+ * Load one server into the model: list its scope, then seed the sessions
+ * from the REST data. One broken directory does not stop the others. The
+ * live view of `src/top/live.ts` calls this again after every reconnect,
+ * because events can be lost in the gap.
+ */
+export async function seedServer(model: TopModel, baseUrl: string, directories: string[], env: Env, nowMs: number): Promise<void> {
   const client = makeClient(baseUrl, env);
   const list: ServerList = { listed: new Map(), states: new Map(), pendingByDirectory: new Map() };
   for (const directory of directories) {
@@ -170,7 +180,7 @@ export async function loadTopAll(
     answered = true;
     // One broken server must not stop the loading of the others.
     try {
-      await loadServer(model, server.url, await directoriesOf(server.url), env, nowMs);
+      await seedServer(model, server.url, await directoriesOf(server.url), env, nowMs);
     } catch (error) {
       const message = error instanceof Error ? error.message : errorMessage(error);
       console.error(`warning: ${server.url}: ${message}`);

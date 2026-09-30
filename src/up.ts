@@ -1,11 +1,19 @@
 /** `oc-sub up`: make sure an opencode server answers, start one if needed. */
-import { existsSync, openSync, closeSync } from "node:fs";
+import { existsSync, openSync, closeSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { resolveTarget, type Env } from "./config";
-import { assertUsable, probeServer } from "./client";
+import { assertUsable, probeServer, type ServerState } from "./client";
 import { sharedAgentsFile, sharedConfigEntries, sharedAgentsDir } from "./shared";
-import { removeFiles, serveDirsPath, serveLogPath, servePidPath } from "./state";
+import {
+  miseInstallsDir,
+  bunBinFromInstalls,
+  proxyBaseUrl,
+  proxyLoopScript,
+  spawnDetached,
+  type ServeProcess,
+} from "./sandbox";
+import { removeFiles, proxyLogPath, proxyPidPath, serveDirsPath, serveLogPath, servePidPath } from "./state";
 
 const HEALTH_TIMEOUT_MS = 60_000;
 const HEALTH_INTERVAL_MS = 300;
@@ -20,6 +28,14 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 export const PLUGIN_CONFIG_DIR = path.resolve(import.meta.dir, "..", "opencode");
 
 /**
+ * The single-file bundle of the cost proxy, committed inside the plugin
+ * config directory. opencode 1.18.32 loads `.js` files only from the direct
+ * `plugin(s)/` and `tool(s)/` children of a config directory, so the file is
+ * neither a plugin nor a tool for opencode.
+ */
+export const PROXY_BUNDLE = path.join(PLUGIN_CONFIG_DIR, "cost-proxy", "cost-proxy.js");
+
+/**
  * The environment for the `opencode serve` child. Sets `OPENCODE_CONFIG_DIR`
  * to the plugin config directory, so that the server loads the research
  * agents of the plugin for every project. opencode loads that directory after
@@ -31,7 +47,8 @@ export const PLUGIN_CONFIG_DIR = path.resolve(import.meta.dir, "..", "opencode")
  * opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever
  * `OPENCODE_CONFIG_DIR` is set (see docs/research/OPENCODE_RULES.md). So the
  * serve environment also sets `OPENCODE_CONFIG_CONTENT` with the shared rules
- * file in `instructions` and the shared skills folder in `skills.paths`. An
+ * file in `instructions` and the shared skills folder in `skills.paths`. With
+ * `proxyUrl`, it also points the openrouter provider at the cost proxy. An
  * existing `OPENCODE_CONFIG_CONTENT` stays and gives a warning, because the
  * shared entries are then not added.
  *
@@ -44,6 +61,7 @@ export function serveEnv(
   env: Env,
   pluginConfigDir: string = PLUGIN_CONFIG_DIR,
   sharedDir: string = sharedAgentsDir(env),
+  opts: { proxyUrl?: string } = {},
 ): { env: Env; warnings: string[] } {
   const exa = { OPENCODE_ENABLE_EXA: env.OPENCODE_ENABLE_EXA ?? "1" };
   const warnings: string[] = [];
@@ -66,15 +84,65 @@ export function serveEnv(
       "OPENCODE_CONFIG_CONTENT is already set on the host. The shared rules and skills are not added to it.",
     );
   } else {
-    withConfigDir.OPENCODE_CONFIG_CONTENT = JSON.stringify(sharedConfigEntries(sharedDir));
+    const content = sharedConfigEntries(sharedDir);
+    withConfigDir.OPENCODE_CONFIG_CONTENT = JSON.stringify(
+      opts.proxyUrl !== undefined
+        ? { ...content, provider: { openrouter: { options: { baseURL: opts.proxyUrl } } } }
+        : content,
+    );
   }
   return { env: { ...withConfigDir, ...exa }, warnings };
 }
 
-export async function up(args: { url?: string; port?: number }, env: Env = process.env): Promise<number> {
+/** Everything that `up` reaches outside this module; the tests replace it. */
+export type UpDeps = {
+  /** Probes a server URL. */
+  probe: (url: string) => Promise<ServerState>;
+  /** The absolute bun binary that runs the proxy, or null without one. */
+  bunBin: () => string | null;
+  /** Starts the detached server process. */
+  spawnServe: (cmd: readonly string[], logPath: string, pidPath: string, env: Env) => ServeProcess;
+  /** Starts the detached proxy process. */
+  spawnProxy: (cmd: readonly string[], logPath: string, pidPath: string) => ServeProcess;
+};
+
+/** The default dependencies, with the real bun from PATH and real spawns. */
+export const defaultUpDeps: UpDeps = {
+  probe: (url) => probeServer(url, process.env),
+  bunBin: () => Bun.which("bun"),
+  spawnServe: (cmd, logPath, pidPath, env) => {
+    // The server keeps running after this process exits, so its output goes
+    // to a file: fd numbers are inherited by the child and closed here again.
+    const logFd = openSync(logPath, "w");
+    let proc: Bun.Subprocess;
+    try {
+      proc = Bun.spawn({
+        cmd: [...cmd],
+        cwd: process.cwd(),
+        env: { ...env },
+        stdin: "ignore",
+        stdout: logFd,
+        stderr: logFd,
+        detached: true,
+      });
+    } finally {
+      closeSync(logFd);
+    }
+    proc.unref();
+    writeFileSync(pidPath, `${proc.pid}\n`);
+    return { pid: proc.pid, exitCode: () => proc.exitCode };
+  },
+  spawnProxy: spawnDetached,
+};
+
+export async function up(
+  args: { url?: string; port?: number; noCostProxy?: boolean },
+  env: Env = process.env,
+  deps: UpDeps = defaultUpDeps,
+): Promise<number> {
   const target = resolveTarget(args.url, args.port, env);
   const targetUrl = target.url;
-  const existing = await probeServer(targetUrl, env);
+  const existing = await deps.probe(targetUrl);
   if (existing.state === "up") {
     console.log(`${targetUrl} version ${existing.version}`);
     return 0;
@@ -91,10 +159,30 @@ export async function up(args: { url?: string; port?: number }, env: Env = proce
     return 1;
   }
 
-  const serve = serveEnv(env);
+  // The cost proxy runs next to the server on the port of the server plus
+  // one, on 127.0.0.1. Its bun comes from PATH. `--no-cost-proxy` turns the
+  // proxy off for the case that it breaks runs.
+  const port = target.port;
+  const proxyPort = port + 1;
+  let bunBin: string | null = null;
+  if (!args.noCostProxy) {
+    bunBin = deps.bunBin() ?? fallbackBunBin(env);
+    if (bunBin === null) {
+      console.error("error: no bun on the PATH; the cost proxy needs it.");
+      console.error("Install bun (mise use -g bun), or start without the proxy: oc-sub up --no-cost-proxy.");
+      return 1;
+    }
+    if (proxyPort > 65535) {
+      console.error(`error: the cost proxy needs the port ${proxyPort}, above the port of the server ${port}.`);
+      return 1;
+    }
+  }
+
+  const serve = serveEnv(env, PLUGIN_CONFIG_DIR, sharedAgentsDir(env), {
+    proxyUrl: args.noCostProxy ? undefined : proxyBaseUrl(proxyPort),
+  });
   for (const warning of serve.warnings) console.error(`warning: ${warning}`);
 
-  const port = target.port;
   const serveUrl = `http://127.0.0.1:${port}`;
   const logPath = serveLogPath(env, port);
   const pidPath = servePidPath(env, port);
@@ -102,44 +190,60 @@ export async function up(args: { url?: string; port?: number }, env: Env = proce
   await mkdir(path.dirname(logPath), { recursive: true });
   // A new server has no runs yet. A list left by a crashed server is stale.
   await removeFiles(serveDirsPath(env, port));
-  // The server keeps running after this process exits, so its output goes to
-  // a file: fd numbers are inherited by the child and closed here again.
-  const logFd = openSync(logPath, "w");
-  let proc: Bun.Subprocess;
+
+  // The proxy starts first, so that it listens before the first request of
+  // the server. Its log and pid live next to the ones of the server.
+  if (bunBin !== null) {
+    try {
+      deps.spawnProxy(
+        ["sh", "-c", proxyLoopScript(bunBin, PROXY_BUNDLE, proxyPort, "127.0.0.1")],
+        proxyLogPath(env, port),
+        proxyPidPath(env, port),
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.error(`warning: cannot start the cost proxy: ${reason}. Model calls will fail until it runs.`);
+    }
+  }
+
+  let proc: ServeProcess;
   try {
-    proc = Bun.spawn({
-      cmd: ["opencode", "serve", "--port", String(port), "--hostname", "127.0.0.1"],
-      cwd: process.cwd(),
-      env: { ...serve.env },
-      stdin: "ignore",
-      stdout: logFd,
-      stderr: logFd,
-      detached: true,
-    });
+    proc = deps.spawnServe(
+      ["opencode", "serve", "--port", String(port), "--hostname", "127.0.0.1"],
+      logPath,
+      pidPath,
+      serve.env,
+    );
   } catch (error) {
-    closeSync(logFd);
     const reason = error instanceof Error ? error.message : String(error);
     console.error(`error: cannot start "opencode serve": ${reason} (is opencode on PATH?)`);
     return 1;
   }
-  proc.unref();
-  await Bun.write(pidPath, `${proc.pid}\n`);
 
   const deadline = Date.now() + HEALTH_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await sleep(HEALTH_INTERVAL_MS);
     // Short per-attempt timeout: one hung fetch must not eat the deadline.
-    const health = await probeServer(serveUrl, env, 2000);
+    const health = await deps.probe(serveUrl);
     if (health.state === "up") {
       console.log(`${serveUrl} version ${health.version}`);
       console.log(`log: ${logPath}`);
       return 0;
     }
-    if (proc.exitCode !== null) {
-      console.error(`error: opencode serve exited with code ${proc.exitCode}, see ${logPath}`);
+    if (proc.exitCode() !== null) {
+      console.error(`error: opencode serve exited with code ${proc.exitCode()}, see ${logPath}`);
       return 1;
     }
   }
   console.error(`error: opencode serve did not become healthy on ${serveUrl} within ${HEALTH_TIMEOUT_MS / 1000}s, see ${logPath}`);
   return 1;
+}
+
+/**
+ * The bun for the proxy without a bun on the PATH: the newest bun in the
+ * shared mise installs folder, like the sandbox mode finds it. Null without
+ * one. `up` prefers `Bun.which("bun")` and uses this only as a fallback.
+ */
+function fallbackBunBin(env: Env): string | null {
+  return bunBinFromInstalls(miseInstallsDir(env));
 }

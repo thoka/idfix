@@ -19,6 +19,7 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:proxy": "bun build src/proxy/main.ts --target bun --outfile opencode/cost-proxy/cost-proxy.js"
   }
 }

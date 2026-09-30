@@ -1,7 +1,7 @@
 /** `oc-sub down`: stop the opencode server that `oc-sub up` started. */
 import { resolveTarget, type Env } from "./config";
 import { assertUsable, makeClient, probeServer, unwrap } from "./client";
-import { readDirs, readPid, removeFiles, serveDirsPath, servePidPath } from "./state";
+import { readDirs, readPid, removeFiles, proxyPidPath, serveDirsPath, servePidPath } from "./state";
 
 const STOP_TIMEOUT_MS = 15_000;
 const STOP_INTERVAL_MS = 200;
@@ -66,17 +66,54 @@ export async function waitUntilGone(pid: number): Promise<boolean> {
   return !isAlive(pid);
 }
 
-export async function down(args: { url?: string; port?: number; force: boolean }, env: Env = process.env): Promise<number> {
+/**
+ * The injectable process calls of `down`. The tests replace `commandLineOf`
+ * and `kill`, so that no real process is needed.
+ */
+export type DownDeps = {
+  commandLineOf: (pid: number) => string | null;
+  /** Signals the process group of a detached process of `up`. */
+  killGroup: (pid: number) => void;
+};
+
+export const defaultDownDeps: DownDeps = {
+  commandLineOf,
+  killGroup: (pid) => process.kill(-pid, "SIGTERM"),
+};
+
+/**
+ * Stops the cost proxy of the server on `port` and removes its PID file.
+ * Returns false when the proxy did not stop in time. A missing or stale PID
+ * file is fine: the proxy of an older oc-sub version has none.
+ */
+async function stopProxy(env: Env, port: number, deps: DownDeps): Promise<void> {
+  const pidPath = proxyPidPath(env, port);
+  const pid = await readPid(pidPath);
+  if (pid !== null && isAlive(pid)) {
+    deps.killGroup(pid);
+    if (!(await waitUntilGone(pid))) {
+      throw new Error(`the cost proxy (PID ${pid}) did not stop within ${STOP_TIMEOUT_MS / 1000}s`);
+    }
+  }
+  await removeFiles(pidPath);
+}
+
+export async function down(
+  args: { url?: string; port?: number; force: boolean },
+  env: Env = process.env,
+  depsOverrides: Partial<DownDeps> = {},
+): Promise<number> {
+  const deps = { ...defaultDownDeps, ...depsOverrides };
   const { port } = resolveTarget(args.url, args.port, env);
   const serveUrl = `http://127.0.0.1:${port}`;
   const pidPath = servePidPath(env, port);
   const dirsPath = serveDirsPath(env, port);
 
   const pid = await readPid(pidPath);
-  const commandLine = pid === null ? null : commandLineOf(pid);
+  const commandLine = pid === null ? null : deps.commandLineOf(pid);
   if (pid === null || commandLine === null || !isOpencodeServe(commandLine, port)) {
     // No server of ours: the PID file is missing or stale.
-    await removeFiles(pidPath, dirsPath);
+    await removeFiles(pidPath, dirsPath, proxyPidPath(env, port));
     if ((await probeServer(serveUrl, env, 2000)).state !== "down") {
       console.error(`error: a server answers on ${serveUrl}, but oc-sub up did not start it. Stop it yourself.`);
       return 1;
@@ -101,9 +138,15 @@ export async function down(args: { url?: string; port?: number; force: boolean }
   // `oc-sub up` starts the server detached, so it leads its own process
   // group. Signal the group, so that child processes (for example language
   // servers) stop, too.
-  process.kill(-pid, "SIGTERM");
+  deps.killGroup(pid);
   if (!(await waitUntilGone(pid))) {
     console.error(`error: opencode serve (PID ${pid}) did not stop within ${STOP_TIMEOUT_MS / 1000}s`);
+    return 1;
+  }
+  try {
+    await stopProxy(env, port, deps);
+  } catch (error) {
+    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   }
   await removeFiles(pidPath, dirsPath);

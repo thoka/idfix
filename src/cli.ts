@@ -21,12 +21,12 @@ import { fetch, worktree, worktreeRm } from "./clone";
 const HELP = `oc-sub - drive an opencode server for subagent runs
 
 Usage:
-  oc-sub up [--dir DIR]
-  oc-sub up --no-sandbox [--port N]
+  oc-sub up [--dir DIR] [--no-cost-proxy]
+  oc-sub up --no-sandbox [--port N] [--no-cost-proxy]
   oc-sub down [--dir DIR] [--force]
   oc-sub down --no-sandbox [--port N] [--force]
-  oc-sub restart [--dir DIR] [--force]
-  oc-sub restart --no-sandbox [--port N] [--force]
+  oc-sub restart [--dir DIR] [--force] [--no-cost-proxy]
+  oc-sub restart --no-sandbox [--port N] [--force] [--no-cost-proxy]
   oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T] [--model PROVIDER/MODEL]
   oc-sub attach CODE [--url URL]
   oc-sub status [--dir DIR | --all]
@@ -60,6 +60,9 @@ Sandbox mode:
   --dir DIR       the project directory (only in sandbox mode; default: the
                   current folder). Not allowed with --no-sandbox, --url, or
                   --port.
+  --no-cost-proxy run without the cost proxy, in both modes. The server then
+                  calls OpenRouter directly. Use it when the proxy breaks
+                  runs.
 
   worktree and fetch run only in sandbox mode: in clone mode, the worktree
   of a run lives inside the sandbox clone, not on the host.

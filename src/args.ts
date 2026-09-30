@@ -8,8 +8,16 @@ export class UsageError extends Error {
 }
 
 export type ParsedArgs =
-  | { command: "up"; url?: string; port?: number; sandbox: boolean; dir?: string }
-  | { command: "down" | "restart"; url?: string; port?: number; force: boolean; sandbox: boolean; dir?: string }
+  | { command: "up"; url?: string; port?: number; sandbox: boolean; dir?: string; noCostProxy: boolean }
+  | {
+      command: "down" | "restart";
+      url?: string;
+      port?: number;
+      force: boolean;
+      sandbox: boolean;
+      dir?: string;
+      noCostProxy: boolean;
+    }
   | { command: "run"; url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string; model?: string }
   | { command: "status"; url?: string; dir?: string; all: boolean }
   | { command: "top"; url?: string; dir?: string; all: boolean; once: boolean; json: boolean }
@@ -157,8 +165,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "up": {
       const { flags, positionals, globals } = collectFlags(
         rest,
-        new Set(["port", "url", "sandbox", "no-sandbox", "dir"]),
-        new Set(["sandbox", "no-sandbox"]),
+        new Set(["port", "url", "sandbox", "no-sandbox", "dir", "no-cost-proxy"]),
+        new Set(["sandbox", "no-sandbox", "no-cost-proxy"]),
       );
       if (positionals.length > 0) {
         throw new UsageError(`up takes no positional arguments, got "${positionals.join(" ")}"`);
@@ -168,14 +176,15 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         url: globals.url,
         port: parsePort(flags),
         ...parseSandboxFlags(flags, globals),
+        noCostProxy: flags.get("no-cost-proxy") === true,
       };
     }
     case "down":
     case "restart": {
       const { flags, positionals, globals } = collectFlags(
         rest,
-        new Set(["port", "force", "url", "sandbox", "no-sandbox", "dir"]),
-        new Set(["force", "sandbox", "no-sandbox"]),
+        new Set(["port", "force", "url", "sandbox", "no-sandbox", "dir", "no-cost-proxy"]),
+        new Set(["force", "sandbox", "no-sandbox", "no-cost-proxy"]),
       );
       if (positionals.length > 0) {
         throw new UsageError(`${head} takes no positional arguments, got "${positionals.join(" ")}"`);
@@ -186,6 +195,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         port: parsePort(flags),
         force: flags.get("force") === true,
         ...parseSandboxFlags(flags, globals),
+        noCostProxy: flags.get("no-cost-proxy") === true,
       };
     }
     case "run": {

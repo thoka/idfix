@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   placeholderKeyScript,
+  bunBinFromInstalls,
+  bunBinFromToolPath,
   listsOpenRouterSecret,
   listsPublishedPort,
   deniesNetwork,
@@ -19,10 +21,14 @@ import {
   pickPort,
   projectRoot,
   projectToolPath,
+  proxyBaseUrl,
+  proxyLoopScript,
   readSandboxState,
   relativeMount,
   resolveCommandUrl,
+  SANDBOX_PROXY_PORT,
   sandboxConfigContent,
+  sandboxHolderScript,
   sandboxName,
   sandboxRecreateFix,
   sandboxMountPlan,
@@ -45,12 +51,26 @@ import {
 import { sharedAgentsDir } from "../src/shared";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
 
+/** The bundle of the cost proxy, at its fixed path inside the plugin folder. */
+const BUNDLE_PATH = path.join(PLUGIN_CONFIG_DIR, "cost-proxy", "cost-proxy.js");
+
 function tempDir(): string {
   return mkdtempSync(path.join(tmpdir(), "oc-sub-sandbox-"));
 }
 
 function makeEnv(): Record<string, string> {
-  return { XDG_STATE_HOME: tempDir(), XDG_CONFIG_HOME: tempDir(), HOME: tempDir() };
+  // The cost proxy needs a bun in the mise installs folder. A fake file is
+  // enough, because the tests never execute it.
+  const home = tempDir();
+  const bunBin = path.join(home, ".local/share/mise/installs/bun/1.4.2/bin/bun");
+  mkdirSync(path.dirname(bunBin), { recursive: true });
+  writeFileSync(bunBin, "");
+  return { XDG_STATE_HOME: tempDir(), XDG_CONFIG_HOME: tempDir(), HOME: home };
+}
+
+/** The absolute bun path that the tests hand to the holder command. */
+function bunBinOf(env: Record<string, string>): string {
+  return `${miseInstallsDir(env)}/bun/1.4.2/bin/bun`;
 }
 
 type Call = { cmd: string[]; cwd?: string };
@@ -501,7 +521,9 @@ describe("sandboxConfigContent", () => {
     expect(holderCommands).toHaveLength(1);
     const cmd = holderCommands[0] ?? [];
     const nameIndex = cmd.indexOf("oc-sub-test");
-    const contentFlag = cmd.indexOf(`OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedAgentsDir(env))}`);
+    const contentFlag = cmd.indexOf(
+      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedAgentsDir(env), proxyBaseUrl(SANDBOX_PROXY_PORT))}`,
+    );
     const sshFlag = cmd.indexOf("SSH_AUTH_SOCK=");
     expect(sshFlag).toBe(contentFlag + 2);
     expect(contentFlag).toBeLessThan(nameIndex);
@@ -530,6 +552,154 @@ describe("sandboxConfigContent", () => {
       console.error = err;
     }
     expect(errors.some((line) => line.includes("OPENCODE_CONFIG_CONTENT") && line.includes("sandbox"))).toBe(true);
+  });
+});
+
+describe("cost proxy wiring (sandbox mode)", () => {
+  test("proxyBaseUrl points at loopback and /v1", () => {
+    expect(proxyBaseUrl(4097)).toBe("http://127.0.0.1:4097/v1");
+  });
+
+  test("sandboxConfigContent adds the openrouter baseURL only with a proxy URL", () => {
+    const without = JSON.parse(sandboxConfigContent("/srv/agents")) as Record<string, unknown>;
+    expect(without.provider).toBeUndefined();
+    const withProxy = JSON.parse(sandboxConfigContent("/srv/agents", proxyBaseUrl(SANDBOX_PROXY_PORT))) as {
+      provider: { openrouter: { options: { baseURL: string } } };
+    };
+    expect(withProxy.provider.openrouter.options.baseURL).toBe("http://127.0.0.1:4097/v1");
+  });
+
+  test("proxyLoopScript runs the bundle in a restart loop with quoted arguments", () => {
+    const script = proxyLoopScript("/installs/bun/1.4.2/bin/bun", "/srv/agents/cost-proxy/cost-proxy.js", 4097, "127.0.0.1");
+    expect(script).toBe(
+      `while :; do '/installs/bun/1.4.2/bin/bun' '/srv/agents/cost-proxy/cost-proxy.js' --port 4097 --hostname '127.0.0.1' ; sleep 1; done`,
+    );
+  });
+
+  test("proxyLoopScript quotes shell metacharacters in every argument", () => {
+    const script = proxyLoopScript("/a b'c/d", "/e'f", 4097, "127.0.0.1");
+    expect(script).toContain(`'/a b'\\''c/d'`);
+    expect(script).toContain(`'/e'\\''f'`);
+    // A quote can never close early: every `'` inside an argument is escaped.
+    expect(script.startsWith("while :; do '/a b")).toBe(true);
+  });
+
+  test("sandboxHolderScript runs the proxy loop in the background and execs the server in the front", () => {
+    const script = sandboxHolderScript("/bun", "/proxy.js", 4097, 4096);
+    expect(script).toBe(
+      `while :; do '/bun' '/proxy.js' --port 4097 --hostname '127.0.0.1' ; sleep 1; done & exec opencode serve --hostname 0.0.0.0 --port 4096`,
+    );
+  });
+
+  test("bunBinFromToolPath picks the bun entry of the project tool PATH", () => {
+    const installs = "/home/u/.local/share/mise/installs";
+    const toolPath = `${installs}/node/22/bin:${installs}/bun/1.4.2/bin:/usr/local/bin`;
+    expect(bunBinFromToolPath(toolPath, installs)).toBe(`${installs}/bun/1.4.2/bin/bun`);
+    expect(bunBinFromToolPath(`${installs}/bun/1.4.2/bin`, installs)).toBe(`${installs}/bun/1.4.2/bin/bun`);
+  });
+
+  test("bunBinFromToolPath returns null without a bun entry or outside the installs folder", () => {
+    const installs = "/home/u/.local/share/mise/installs";
+    expect(bunBinFromToolPath("/usr/local/bin", installs)).toBeNull();
+    expect(bunBinFromToolPath("", installs)).toBeNull();
+    expect(bunBinFromToolPath("/other/installs/bun/1.0.0/bin", installs)).toBeNull();
+    expect(bunBinFromToolPath(`${installs}/bun/1.4.2/bin/bun`, installs)).toBeNull();
+  });
+
+  test("bunBinFromInstalls finds the newest installed bun as a fallback", () => {
+    const installs = path.join(tempDir(), "installs");
+    mkdirSync(path.join(installs, "bun", "1.4.2", "bin"), { recursive: true });
+    writeFileSync(path.join(installs, "bun", "1.4.2", "bin", "bun"), "");
+    mkdirSync(path.join(installs, "bun", "1.5.0", "bin"), { recursive: true });
+    writeFileSync(path.join(installs, "bun", "1.5.0", "bin", "bun"), "");
+    expect(bunBinFromInstalls(installs)).toBe(path.join(installs, "bun", "1.5.0", "bin", "bun"));
+  });
+
+  test("bunBinFromInstalls returns null without an installs folder or without bun", () => {
+    expect(bunBinFromInstalls(path.join(tempDir(), "missing"))).toBeNull();
+    const installs = tempDir();
+    mkdirSync(path.join(installs, "bun", "1.4.2"), { recursive: true });
+    expect(bunBinFromInstalls(installs)).toBeNull();
+  });
+
+  test("up runs the holder as sh -c with the loop, the bundle, and the bun of the installs folder", async () => {
+    const env = makeEnv();
+    const { runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return DENIED;
+    });
+    // The project has no bun in its mise.toml (empty PATH from mise env), so
+    // the bun comes from the shared installs folder.
+    const holderCommands: string[][] = [];
+    let probes = 0;
+    const result = await upSandbox({}, env, makeDeps({
+      runner,
+      probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
+      spawnServe: (cmd) => {
+        holderCommands.push([...cmd]);
+        return { pid: 4242, exitCode: () => null };
+      },
+    }));
+    expect(result).toBe(0);
+    const cmd = holderCommands[0] ?? [];
+    const shIndex = cmd.indexOf("sh");
+    expect(cmd.slice(shIndex, shIndex + 2)).toEqual(["sh", "-c"]);
+    expect(cmd[shIndex + 2]).toBe(sandboxHolderScript(bunBinOf(env), BUNDLE_PATH, SANDBOX_PROXY_PORT, 4096));
+  });
+
+  test("--no-cost-proxy keeps the plain serve holder and no baseURL", async () => {
+    const env = makeEnv();
+    const { runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return DENIED;
+    });
+    const holderCommands: string[][] = [];
+    let probes = 0;
+    const result = await upSandbox({ noCostProxy: true }, env, makeDeps({
+      runner,
+      probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
+      spawnServe: (cmd) => {
+        holderCommands.push([...cmd]);
+        return { pid: 4242, exitCode: () => null };
+      },
+    }));
+    expect(result).toBe(0);
+    const cmd = holderCommands[0] ?? [];
+    expect(cmd.slice(-6)).toEqual(["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]);
+    expect(cmd).not.toContain("sh");
+    const contentFlag = cmd.find((arg) => arg.startsWith("OPENCODE_CONFIG_CONTENT=")) ?? "";
+    expect(JSON.parse(contentFlag.slice("OPENCODE_CONFIG_CONTENT=".length))).not.toHaveProperty("provider");
+  });
+
+  test("without any bun in the installs folder, up stops and names --no-cost-proxy", async () => {
+    // A plain env without the fake bun of makeEnv.
+    const env = { XDG_STATE_HOME: tempDir(), XDG_CONFIG_HOME: tempDir(), HOME: tempDir() };
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return DENIED;
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, env, makeDeps({ runner, spawnServe: () => { throw new Error("no server may start"); } }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    expect(errors.join("\n")).toContain("no bun in the mise installs folder");
+    expect(errors.join("\n")).toContain("--no-cost-proxy");
+    // The bun check runs right after `mise env`, before any sandbox call.
+    expect(subcommands(calls)).toEqual(["mise", "mise"]);
   });
 });
 
@@ -769,7 +939,7 @@ describe("upSandbox", () => {
       "-e",
       `OPENCODE_CONFIG_DIR=${PLUGIN_CONFIG_DIR}`,
       "-e",
-      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedAgentsDir(env))}`,
+      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedAgentsDir(env), proxyBaseUrl(SANDBOX_PROXY_PORT))}`,
       "-e",
       "SSH_AUTH_SOCK=",
       "-e",
@@ -777,12 +947,9 @@ describe("upSandbox", () => {
       "-e",
       `PATH=${toolBin}:${SANDBOX_PATH}`,
       "oc-sub-test",
-      "opencode",
-      "serve",
-      "--hostname",
-      "0.0.0.0",
-      "--port",
-      "4096",
+      "sh",
+      "-c",
+      sandboxHolderScript(`${toolBin}/bun`, BUNDLE_PATH, SANDBOX_PROXY_PORT, 4096),
     ]]);
     // The state file holds the name, the root, and the port.
     const state = readSandboxState(sandboxStatePath(env, "test"));

@@ -29,6 +29,20 @@ export function serveDirsPath(env: Env, port: number): string {
   return path.join(stateDir(env), `serve-${port}.dirs`);
 }
 
+/**
+ * The PID file of the cost proxy that `oc-sub up` starts next to the server
+ * on the port of the server plus one (host mode only; in sandbox mode the
+ * proxy lives in the holder process).
+ */
+export function proxyPidPath(env: Env, port: number): string {
+  return path.join(stateDir(env), `proxy-${port}.pid`);
+}
+
+/** The log file of the cost proxy of the server on `port` (host mode only). */
+export function proxyLogPath(env: Env, port: number): string {
+  return path.join(stateDir(env), `proxy-${port}.log`);
+}
+
 /** The PID from a PID file, or null when the file is missing or invalid. */
 export async function readPid(file: string): Promise<number | null> {
   let text: string;

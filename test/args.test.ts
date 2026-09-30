@@ -13,11 +13,11 @@ function usage(fn: () => unknown): UsageError {
 
 describe("parseArgs", () => {
   test("up defaults to sandbox mode, and --port implies host mode", () => {
-    expect(parseArgs(["up"])).toEqual({ command: "up", sandbox: true });
-    expect(parseArgs(["up", "--port", "8767"])).toEqual({ command: "up", port: 8767, sandbox: false });
-    expect(parseArgs(["up", "--port=1234"])).toEqual({ command: "up", port: 1234, sandbox: false });
-    expect(parseArgs(["up", "--no-sandbox"])).toEqual({ command: "up", sandbox: false });
-    expect(parseArgs(["up", "--url", "http://h:1"])).toEqual({ command: "up", url: "http://h:1", sandbox: false });
+    expect(parseArgs(["up"])).toEqual({ command: "up", sandbox: true, noCostProxy: false });
+    expect(parseArgs(["up", "--port", "8767"])).toEqual({ command: "up", port: 8767, sandbox: false, noCostProxy: false });
+    expect(parseArgs(["up", "--port=1234"])).toEqual({ command: "up", port: 1234, sandbox: false, noCostProxy: false });
+    expect(parseArgs(["up", "--no-sandbox"])).toEqual({ command: "up", sandbox: false, noCostProxy: false });
+    expect(parseArgs(["up", "--url", "http://h:1"])).toEqual({ command: "up", url: "http://h:1", sandbox: false, noCostProxy: false });
   });
 
   test("up rejects bad ports and positionals", () => {
@@ -28,39 +28,43 @@ describe("parseArgs", () => {
   });
 
   test("down and restart default to sandbox mode, host flags imply host mode", () => {
-    expect(parseArgs(["down"])).toEqual({ command: "down", force: false, sandbox: true });
+    expect(parseArgs(["down"])).toEqual({ command: "down", force: false, sandbox: true, noCostProxy: false });
     expect(parseArgs(["down", "--no-sandbox", "--port", "8790", "--force"])).toEqual({
       command: "down",
       port: 8790,
       force: true,
       sandbox: false,
+      noCostProxy: false,
     });
     expect(parseArgs(["restart", "--no-sandbox", "--port=8790"])).toEqual({
       command: "restart",
       port: 8790,
       force: false,
       sandbox: false,
+      noCostProxy: false,
     });
   });
 
   test("--sandbox stays the explicit form of the default", () => {
-    expect(parseArgs(["up", "--sandbox"])).toEqual({ command: "up", sandbox: true });
-    expect(parseArgs(["down", "--sandbox", "--force"])).toEqual({ command: "down", force: true, sandbox: true });
+    expect(parseArgs(["up", "--sandbox"])).toEqual({ command: "up", sandbox: true, noCostProxy: false });
+    expect(parseArgs(["down", "--sandbox", "--force"])).toEqual({ command: "down", force: true, sandbox: true, noCostProxy: false });
   });
 
   test("--dir works with the explicit sandbox flag and in default sandbox mode", () => {
-    expect(parseArgs(["up", "--dir", "/w"])).toEqual({ command: "up", sandbox: true, dir: "/w" });
+    expect(parseArgs(["up", "--dir", "/w"])).toEqual({ command: "up", sandbox: true, dir: "/w", noCostProxy: false });
     expect(parseArgs(["down", "--dir=/w", "--force"])).toEqual({
       command: "down",
       sandbox: true,
       dir: "/w",
       force: true,
+      noCostProxy: false,
     });
     expect(parseArgs(["restart", "--dir", "/w"])).toEqual({
       command: "restart",
       sandbox: true,
       dir: "/w",
       force: false,
+      noCostProxy: false,
     });
   });
 
@@ -259,7 +263,7 @@ describe("parseArgs", () => {
   });
 
   test("--url is accepted by every command", () => {
-    expect(parseArgs(["up", "--url", "http://h:1"])).toEqual({ command: "up", url: "http://h:1", sandbox: false });
+    expect(parseArgs(["up", "--url", "http://h:1"])).toEqual({ command: "up", url: "http://h:1", sandbox: false, noCostProxy: false });
     expect(parseArgs(["status", "--url=http://h:1"])).toEqual({ command: "status", url: "http://h:1", all: false });
     expect(parseArgs(["watch", "s", "--url", "http://h:1"])).toEqual({ command: "watch", session: "s", json: false, url: "http://h:1" });
   });

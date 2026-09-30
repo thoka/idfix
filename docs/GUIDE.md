@@ -179,7 +179,7 @@ Details:
 - A folder inside the project root (or equal to it) gets no mount, because `sbx create --clone` then exits 0 but makes no clone. The clone holds the tracked files of that folder at the same absolute path, so the paths in the configuration still work. This applies to the plugin repository itself (its `opencode/` folder) and to the project `meta` (the shared agents folder `~/dv/meta/agents`). `up` prints a note for each such folder. Known gap: the sandbox then uses the committed copy in the clone, not the live host folder. A change on the host reaches the sandbox only after a commit and a new clone, and untracked files of that folder are missing.
 - After the create, and on every `up` of an existing sandbox, `up` checks that the clone exists: `sbx exec NAME git -C <root> rev-parse --git-dir` must succeed. If not, `up` stops with the error `the sandbox NAME has no git clone at <root> (git -C <root> rev-parse --git-dir fails inside it)` and names the fix `sbx rm --force NAME`, then `oc-sub up`.
 - If the sandbox exists but lacks one of the required mounts (for example after an update of this plugin), or it is an old sandbox without clone mode (no `sandbox-<name>` git remote), `up` stops with an error. It names the fix: remove the sandbox with `sbx rm --force NAME`, then run `oc-sub up` again, which creates it in clone mode with all required mounts. `sbx rm` without a terminal needs `--force`. Clone mode and the mounts are create-time flags and cannot be changed on an existing sandbox. `up` does not remove the sandbox itself, because it holds the sessions. Note that `sbx rm` ends the sessions of the sandbox.
-- The server inside the sandbox starts with the tool folders of the project at the front of `PATH`, read from `mise env`, in front of the PATH of the sandbox. So `bun`, `node`, and `python` inside the sandbox are the versions of `mise.toml`.
+- The server inside the sandbox starts with the tool folders of the project at the front of `PATH`, read from `mise env`, in front of the PATH of the sandbox. So `bun`, `node`, and `python` inside the sandbox are the versions of `mise.toml`. The holder process is a `sh -c` script: it starts the cost proxy (see above) in a restart loop in the background and `exec`s `opencode serve` in the front. With `--no-cost-proxy`, it runs `opencode serve` directly.
 - Every `up` checks the network rules before the server starts: `sbx policy check network` must deny `host.docker.internal:8767` and `localhost:8767`. If one is allowed, `up` stops and names the deny command. This protects the host server of an old sandbox without the rules.
 - Inside the sandbox, `up` passes `OPENCODE_CONFIG_CONTENT` into the server. It turns bash into `allow` for `coder` and `researcher`, and it also sets `external_directory: allow` for them: inside the sandbox the host files are not visible, so the deny rule of the agent files protects nothing, but it blocked an agent from creating a scratch folder in `/tmp`. The sandbox, not the rule, is the boundary. It also turns the MCP gateway of the `sbx` kit off. It also lists the shared rules file under `instructions` and the shared skills folder under `skills.paths`, because opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever `OPENCODE_CONFIG_DIR` is set (see `docs/research/OPENCODE_RULES.md`). The agent files stay the same, and the host server keeps their rules. The other permissions still apply, for example `edit` of `researcher`.
 - Before `up` starts the server, it checks that the shared rules and skills are in place. When `<shared>/AGENTS.md` is missing on the host, `up` stops with an error that names the path and `OC_SUB_SHARED_DIR`, before anything changes state. Before the server starts, `up` runs `sbx exec NAME test -r <shared>/AGENTS.md` and stops with an error when the sandbox cannot read the file. After `up`, run `oc-sub ping --rules --dir <project>` once to check that the agent really sees the rules.
@@ -209,7 +209,26 @@ The module `src/proxy/` holds a small pass-through HTTP proxy between opencode a
 
 The log lines carry the tag `"source":"oc-sub-cost-proxy"`. The proxy never logs the `Authorization` header or any request body, so the key stays out of the log in host mode. For a manual test run: `bun src/proxy/main.ts --port 4097`.
 
-`oc-sub up` does not start the proxy yet. A later step points `provider.openrouter.options.baseURL` at it inside the sandbox and reads its log from the serve log file.
+`oc-sub up` starts the proxy by default, next to the server, and points opencode at it:
+
+- The proxy runs from a committed single-file bundle, `opencode/cost-proxy/cost-proxy.js`, built with `bun run build:proxy`. It needs a `bun` binary, nothing else.
+- **Sandbox mode**: the holder process runs `sh -c` with a restart loop for the proxy in the background and `exec opencode serve` in the front, for example:
+
+  ```
+  while :; do '<bun>' '<plugin>/opencode/cost-proxy/cost-proxy.js' --port 4097 --hostname '127.0.0.1' ; sleep 1; done & exec opencode serve --hostname 0.0.0.0 --port 4096
+  ```
+
+  `<bun>` is the absolute path of a bun inside the read-only mounted mise installs folder: first the bun of the project `mise.toml`, else the newest bun installed for any project (a project may have no bun in its own `mise.toml`). Without any bun, `up` stops and names `--no-cost-proxy`. The proxy listens on `127.0.0.1:4097` inside the sandbox; loopback traffic stays in the microVM, so the deny rules do not catch it. Its stdout lands in the host file `serve-<port>.log` next to the server output. `OPENCODE_CONFIG_CONTENT` sets `provider.openrouter.options.baseURL` to `http://127.0.0.1:4097/v1`, so the model calls of opencode go through the proxy. The real key still never enters the sandbox: the proxy forwards only the placeholder key, and the proxy of `sbx` injects the real one.
+- **Host mode**: `up` starts the proxy as a second detached process on `127.0.0.1:<port+1>` with the host bun, in the same restart loop. Its log is `proxy-<port>.log` and its PID file is `proxy-<port>.pid`, in the same state folder as the server files. The serve environment merges `provider.openrouter.options.baseURL` (`http://127.0.0.1:<port+1>/v1`) into `OPENCODE_CONFIG_CONTENT`. In host mode the real key travels in the `Authorization` header through the proxy; the proxy never logs it.
+- `oc-sub down` stops the proxy process (host mode). In sandbox mode, the proxy ends with the holder process.
+- A crash of the proxy stops the model calls of the server. The restart loop bounds it: the proxy starts again after one second. If the proxy breaks your runs, start without it:
+
+  ```
+  oc-sub up --no-cost-proxy
+  oc-sub restart --no-cost-proxy
+  ```
+
+  The flag works in sandbox mode and in host mode, and the server then calls OpenRouter directly.
 
 ## Security
 

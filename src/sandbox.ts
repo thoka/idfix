@@ -55,6 +55,14 @@ const HEALTH_INTERVAL_MS = 300;
 /** The port inside the sandbox that `opencode serve` listens on. */
 const SERVE_PORT = 4096;
 
+/** The port inside the sandbox that the cost proxy listens on. */
+export const SANDBOX_PROXY_PORT = 4097;
+
+/** The base URL that points the openrouter provider of opencode at the proxy. */
+export function proxyBaseUrl(port: number): string {
+  return `http://127.0.0.1:${port}/v1`;
+}
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -73,8 +81,11 @@ export const SANDBOX_BASH_AGENTS = ["coder", "researcher"] as const;
  * so the deny rule of the agent file protects nothing, but it blocked a
  * coder from creating a scratch folder in /tmp. The sandbox, not the rule,
  * is the boundary.
+ *
+ * With `proxyUrl`, it also points the openrouter provider at the cost
+ * proxy that runs next to the server in the sandbox (step 11c).
  */
-export function sandboxConfigContent(sharedDir: string): string {
+export function sandboxConfigContent(sharedDir: string, proxyUrl?: string): string {
   const agents: Record<string, { permission: { bash: string; external_directory: string } }> = {};
   for (const agent of SANDBOX_BASH_AGENTS) {
     agents[agent] = { permission: { bash: "allow", external_directory: "allow" } };
@@ -87,6 +98,7 @@ export function sandboxConfigContent(sharedDir: string): string {
   return JSON.stringify({
     agent: agents,
     mcp: { "mcp-gateway": { enabled: false } },
+    ...(proxyUrl !== undefined ? { provider: { openrouter: { options: { baseURL: proxyUrl } } } } : {}),
     ...sharedConfigEntries(sharedDir),
   });
 }
@@ -300,6 +312,83 @@ export function shellQuote(value: string): string {
  */
 export function sandboxToolPathEntry(toolPath: string): string {
   return `PATH=${toolPath ? `${toolPath}:` : ""}${SANDBOX_PATH}`;
+}
+
+/**
+ * The absolute path of a `bun` binary inside the mise installs folder, taken
+ * from the tool PATH entries that `projectToolPath` built, in their order.
+ * The entry must sit in the installs folder under a `bun` tool folder and end
+ * in `/bin`. Pure: no file system access. Null when no entry matches, for
+ * example when the project has no bun in its own `mise.toml`.
+ */
+export function bunBinFromToolPath(toolPath: string, installsDir: string): string | null {
+  const prefix = installsDir.endsWith("/") ? installsDir : `${installsDir}/`;
+  for (const entry of toolPath.split(":")) {
+    if (!entry.startsWith(prefix) || !entry.endsWith("/bin")) continue;
+    // The entry shape is `<installs>/bun/<version>/bin`.
+    const relative = entry.slice(prefix.length).split("/");
+    if (relative[0] === "bun" && relative.length === 3) return `${entry}/bun`;
+  }
+  return null;
+}
+
+/**
+ * The newest installed `bun` inside the mise installs folder, as a fallback
+ * for a project without bun in its own `mise.toml`: the installs folder is
+ * shared across projects, so the bun of the oc-sub `mise.toml` is usually
+ * there. Scans `installs/bun/<version>/bin/bun` and picks the last version
+ * in lexicographic order. Null when no bun is installed.
+ */
+export function bunBinFromInstalls(installsDir: string): string | null {
+  let versions: string[];
+  try {
+    versions = readdirSync(path.join(installsDir, "bun"));
+  } catch {
+    return null;
+  }
+  const sorted = versions.sort();
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const candidate = path.join(installsDir, "bun", sorted[i] as string, "bin", "bun");
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * A shell loop that keeps the cost proxy running: when the proxy exits, it
+ * starts again after one second, so a crash does not end the model calls of
+ * the server (C7 in docs/research/COST_PROXY.md). Every argument is quoted,
+ * so no string from the user reaches the shell unquoted.
+ */
+export function proxyLoopScript(bunBin: string, bundlePath: string, port: number, hostname: string): string {
+  return [
+    "while :;",
+    "do",
+    shellQuote(bunBin),
+    shellQuote(bundlePath),
+    "--port",
+    String(port),
+    "--hostname",
+    shellQuote(hostname),
+    ";",
+    "sleep 1;",
+    "done",
+  ].join(" ");
+}
+
+/**
+ * The holder command script of sandbox mode: the proxy loop in the
+ * background, then `exec opencode serve` in the front, so the holder PID
+ * stays the server PID that `down` knows. With `noProxy`, the plain serve
+ * command of the older steps.
+ */
+export function sandboxHolderScript(
+  bunBin: string,
+  bundlePath: string,
+  proxyPort: number,
+  servePort: number,
+): string {
+  return `${proxyLoopScript(bunBin, bundlePath, proxyPort, "127.0.0.1")} & exec opencode serve --hostname 0.0.0.0 --port ${servePort}`;
 }
 
 /**
@@ -547,7 +636,7 @@ function printUp(serveUrl: string, name: string, logPath: string, version: strin
  * answers, set the sandbox up and start one if needed.
  */
 export async function upSandbox(
-  args: { dir?: string },
+  args: { dir?: string; noCostProxy?: boolean },
   env: Env = process.env,
   depsOverrides: Partial<SandboxDeps> = {},
 ): Promise<number> {
@@ -603,6 +692,27 @@ export async function upSandbox(
   }
   const installsDir = miseInstallsDir(env);
   const toolPath = projectToolPath(deps.runner([mise, "env", "-C", root, "--json"], { cwd: root }).stdout, installsDir);
+
+  // The cost proxy runs next to the server in the sandbox, from the bundle
+  // inside the mounted plugin folder. Its bun comes from the mounted mise
+  // installs folder: first the bun of the project tool PATH, then the newest
+  // bun installed for any project (the project itself may have no bun in its
+  // `mise.toml`). Without any bun, up stops: the proxy is on by default, and
+  // `--no-cost-proxy` turns it off for the case that it breaks runs.
+  const bundlePath = path.join(PLUGIN_CONFIG_DIR, "cost-proxy", "cost-proxy.js");
+  let bunBin: string | null = null;
+  if (!args.noCostProxy) {
+    bunBin = bunBinFromToolPath(toolPath, installsDir) ?? bunBinFromInstalls(installsDir);
+    if (bunBin === null) {
+      console.error(`error: no bun in the mise installs folder ${installsDir}; the cost proxy needs it.`);
+      console.error("Install bun (mise use bun), or start without the proxy: oc-sub up --no-cost-proxy.");
+      return 1;
+    }
+  }
+  const configContent = sandboxConfigContent(
+    sharedDir,
+    args.noCostProxy ? undefined : proxyBaseUrl(SANDBOX_PROXY_PORT),
+  );
 
   // `sbx create` accepts read-only mounts only with relative paths, so the
   // working directory is `/` and all mounts are relative from there. The
@@ -770,7 +880,19 @@ export async function upSandbox(
   // replaces the bash rules of the sandbox agents with `allow` and allows
   // paths outside the project (the sandbox has no host files anyway), and
   // an empty `SSH_AUTH_SOCK` hides the SSH agent of the host from the
-  // commands of the agent.
+  // commands of the agent. With the cost proxy (the default), the holder
+  // script starts the proxy in a restart loop in the background and execs
+  // the server in the front, so the holder PID stays the server PID.
+  const holderArgs: string[] = args.noCostProxy
+    ? [
+        "opencode",
+        "serve",
+        "--hostname",
+        "0.0.0.0",
+        "--port",
+        String(SERVE_PORT),
+      ]
+    : ["sh", "-c", sandboxHolderScript(bunBin as string, bundlePath, SANDBOX_PROXY_PORT, SERVE_PORT)];
   const holder = deps.spawnServe(
     [
       bin,
@@ -778,7 +900,7 @@ export async function upSandbox(
       "-e",
       `OPENCODE_CONFIG_DIR=${PLUGIN_CONFIG_DIR}`,
       "-e",
-      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedDir)}`,
+      `OPENCODE_CONFIG_CONTENT=${configContent}`,
       "-e",
       "SSH_AUTH_SOCK=",
       "-e",
@@ -790,12 +912,7 @@ export async function upSandbox(
       // `mise.toml` win over the tools of the sandbox image.
       sandboxToolPathEntry(toolPath),
       name,
-      "opencode",
-      "serve",
-      "--hostname",
-      "0.0.0.0",
-      "--port",
-      String(SERVE_PORT),
+      ...holderArgs,
     ],
     logPath,
     pidPath,

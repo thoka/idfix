@@ -3,15 +3,18 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  cloneDirectories,
   displayFolder,
   formatStatusLine,
   parseWorktreeList,
+  serverDirectories,
   sessionState,
   status,
   uniqueDirectories,
   worktreesOf,
   type StatusDeps,
 } from "../src/status";
+import type { Runner } from "../src/sandbox";
 
 const DIR = "/repo";
 
@@ -89,7 +92,12 @@ function startFakeServer(options: {
   return { url, port: Number(new URL(url).port), stop: () => server.stop(true) };
 }
 
-const testDeps: StatusDeps = { worktreesOf: (directory) => [directory], exists: () => true };
+const testDeps: StatusDeps = {
+  worktreesOf: (directory) => [directory],
+  exists: () => true,
+  // The sandbox servers of the tests serve their root as the only folder.
+  cloneDirectoriesOf: (project) => (project === "sbx" ? ["/sbxproj"] : project === "dup" ? ["/proj"] : []),
+};
 
 async function runStatus(options: {
   server: FakeServer;
@@ -228,6 +236,92 @@ describe("worktreesOf", () => {
   });
 });
 
+describe("cloneDirectories", () => {
+  const porcelain = "worktree /repo\n\nworktree /repo/.worktrees/x\n\n";
+
+  function runnerFor(result: { stdout: string; exitCode: number }): Runner {
+    return (cmd) => {
+      (runnerFor as unknown as { lastCmd: readonly string[] }).lastCmd = cmd;
+      return result;
+    };
+  }
+
+  test("lists the root first, then the worktrees of the clone, through sbx exec", () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-clone-"));
+    try {
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-proj.json");
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-proj", root: "/repo", port: 18768 }));
+      let cmd: readonly string[] = [];
+      const runner: Runner = (call) => {
+        cmd = call;
+        return { stdout: porcelain, exitCode: 0 };
+      };
+      const dirs = cloneDirectories("proj", { XDG_STATE_HOME: stateHome }, runner);
+      expect(cmd).toEqual(["sbx", "exec", "oc-sub-proj", "git", "-C", "/repo", "worktree", "list", "--porcelain"]);
+      expect(dirs).toEqual(["/repo", "/repo/.worktrees/x"]);
+    } finally {
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("returns an empty list when the command fails, for example a stopped sandbox", () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-clone-"));
+    try {
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-proj.json");
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-proj", root: "/repo", port: 18768 }));
+      expect(cloneDirectories("proj", { XDG_STATE_HOME: stateHome }, runnerFor({ stdout: "", exitCode: 1 }))).toEqual(
+        [],
+      );
+      // Without a state file the list is empty as well.
+      expect(cloneDirectories("other", { XDG_STATE_HOME: stateHome }, runnerFor({ stdout: "", exitCode: 0 }))).toEqual(
+        [],
+      );
+    } finally {
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("serverDirectories", () => {
+  test("a sandbox server lists the clone directories without the host filters", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-dirs-"));
+    const server = startFakeServer({
+      sessions: [{ id: "ses_sbx", directory: "/repo/.worktrees/x", title: "Clone run" }],
+      states: { ses_sbx: { type: "busy" } },
+      projects: [{ id: "p1", worktree: "/repo" }],
+    });
+    try {
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-sbx.json");
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-sbx", root: "/repo", port: server.port }));
+      const calls: string[] = [];
+      const deps: StatusDeps = {
+        worktreesOf: (directory) => {
+          calls.push(`worktreesOf ${directory}`);
+          return [directory];
+        },
+        exists: (file) => {
+          calls.push(`exists ${file}`);
+          return false;
+        },
+        cloneDirectoriesOf: (project) => {
+          calls.push(`cloneDirectoriesOf ${project}`);
+          return ["/repo", "/repo/.worktrees/x"];
+        },
+      };
+      const dirs = await serverDirectories(server.url, { XDG_STATE_HOME: stateHome }, deps);
+      expect(dirs).toEqual(["/repo", "/repo/.worktrees/x"]);
+      // No host git and no host exists filter for a sandbox server.
+      expect(calls).toEqual(["cloneDirectoriesOf sbx"]);
+    } finally {
+      server.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("sessionState", () => {
   test("shows a busy session with a pending request as waiting", () => {
     expect(sessionState("busy", new Set(["ses_1"]), "ses_1")).toBe("waiting");
@@ -294,6 +388,47 @@ describe("status", () => {
       ]);
     } finally {
       server.stop();
+    }
+  });
+
+  test("lists the clone directories when --dir is a run folder of a sandboxed project", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-run-"));
+    const server = startFakeServer({
+      sessions: [
+        { id: "ses_root", directory: "/repo", title: "Root run" },
+        { id: "ses_wt", directory: "/repo/.worktrees/x", title: "Clone run" },
+      ],
+      states: { ses_wt: { type: "busy" } },
+    });
+    try {
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-repo.json");
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-repo", root: "/repo", port: server.port }));
+      const calls: string[] = [];
+      const { code, lines } = await runStatus({
+        server,
+        dir: "/repo/.worktrees/x",
+        env: { XDG_STATE_HOME: stateHome },
+        deps: {
+          // The run folder exists only inside the sandbox, the root on the host.
+          exists: (file) => file === "/repo",
+          worktreesOf: (directory) => {
+            calls.push(`worktreesOf ${directory}`);
+            return [directory];
+          },
+          cloneDirectoriesOf: (project) => {
+            calls.push(`cloneDirectoriesOf ${project}`);
+            return ["/repo", "/repo/.worktrees/x"];
+          },
+        },
+      });
+      expect(code).toBe(0);
+      expect(lines).toEqual(["ses_root idle Root run (/repo)", "ses_wt busy Clone run"]);
+      // No host git for a project with a sandbox state file.
+      expect(calls).toEqual(["cloneDirectoriesOf repo"]);
+    } finally {
+      server.stop();
+      rmSync(stateHome, { recursive: true, force: true });
     }
   });
 
@@ -390,28 +525,34 @@ describe("status", () => {
 
   test("--all warns about a server whose listing fails and lists the others", async () => {
     const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-state-"));
-    const host = startFakeServer({
-      sessions: [{ id: "ses_host", directory: "/hostproj", title: "Host run" }],
-      states: { ses_host: { type: "busy" } },
-      projects: [{ id: "p1", worktree: "/hostproj" }],
-    });
+    // The host server has the broken project listing. A sandbox server never
+    // reads the projects of the server: its folders are the clone directories.
     const broken = startFakeServer({ brokenProjects: true });
+    const sandbox = startFakeServer({
+      sessions: [{ id: "ses_sbx", directory: "/sbxproj", title: "Sandbox run" }],
+      states: { ses_sbx: { type: "busy" } },
+      projects: [{ id: "p2", worktree: "/sbxproj" }],
+    });
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-broken.json");
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-sbx.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
-      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-broken", root: "/broken", port: broken.port }));
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-sbx", root: "/sbxproj", port: sandbox.port }));
       const captured = captureLog();
       try {
-        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url }, testDeps);
+        const code = await status(
+          { all: true },
+          { XDG_STATE_HOME: stateHome, OC_SUB_URL: broken.url },
+          { ...testDeps, cloneDirectoriesOf: (project) => (project === "sbx" ? ["/sbxproj"] : []) },
+        );
         expect(code).toBe(0);
-        expect(captured.lines).toEqual(["ses_host busy Host run (/hostproj)"]);
+        expect(captured.lines).toEqual(["ses_sbx busy Sandbox run (/sbxproj)"]);
         expect(captured.errors.join("\n")).toContain(`warning: ${broken.url}:`);
       } finally {
         captured.restore();
       }
     } finally {
-      host.stop();
       broken.stop();
+      sandbox.stop();
       rmSync(stateHome, { recursive: true, force: true });
     }
   });

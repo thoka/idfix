@@ -233,5 +233,5 @@ Root cause: the sandbox mounts the whole project root read-write, so a run reach
 
 Open follow-ups of step 14:
 
-- `oc-sub top --once` and `oc-sub status` with `--dir <root>` or `--all` do not list the sessions of a clone-mode run. They add only the git worktrees of the host, and the run worktree exists only inside the sandbox. `status --dir <run folder>` works. The fix: list the worktrees of the clone through `sbx exec NAME git -C <root> worktree list`.
+- 14d, done on 2026-09-30. `oc-sub status --all` and `oc-sub top` now see the run folders of clone mode: for a sandbox server they list the project root plus the worktrees that `sbx exec NAME git -C <root> worktree list --porcelain` shows inside the clone, and without `--all` a `--dir` project with a sandbox state file gets the same list (`--dir` is mapped with `projectRootOfRun` first). The clone listing goes through the injectable `cloneDirectoriesOf` dependency of `StatusDeps` and returns an empty list when the sandbox does not answer.
 - The other project sandboxes (arch-helper, grata, meta) are still in direct-mount mode. Their next `oc-sub up` stops and names `sbx rm --force`.

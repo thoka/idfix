@@ -238,7 +238,11 @@ function messagesOf(sessionId: string, cost: number): MessageEntry[] {
   return [{ info, parts: [] as Part[] }];
 }
 
-const testDeps: StatusDeps = { worktreesOf: (directory) => [directory], exists: () => true };
+const testDeps: StatusDeps = {
+  worktreesOf: (directory) => [directory],
+  exists: () => true,
+  cloneDirectoriesOf: () => [],
+};
 
 type FakeClock = {
   now: () => number;

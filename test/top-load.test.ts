@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Message, Part, Session } from "@opencode-ai/sdk";
-import { top } from "../src/top/load";
+import { top, scopeDirectories } from "../src/top/load";
 import type { MessageEntry } from "../src/summary";
 import type { StatusDeps } from "../src/status";
 
@@ -139,7 +139,12 @@ function messagesOf(sessionId: string, directory: string, cost: number): Message
   return [userMessage(sessionId, directory), assistantMessage(sessionId, directory, cost)];
 }
 
-const testDeps: StatusDeps = { worktreesOf: (directory) => [directory], exists: () => true };
+const testDeps: StatusDeps = {
+  worktreesOf: (directory) => [directory],
+  exists: () => true,
+  // The sandbox server of the tests serves its root as the only folder.
+  cloneDirectoriesOf: (project) => (project === "sbx" ? [SBX_DIR] : []),
+};
 
 function captureLog(): { lines: string[]; errors: string[]; restore: () => void } {
   const lines: string[] = [];
@@ -157,6 +162,62 @@ function captureLog(): { lines: string[]; errors: string[]; restore: () => void 
 function emptyStateHome(): string {
   return mkdtempSync(path.join(tmpdir(), "oc-sub-top-state-"));
 }
+
+describe("scopeDirectories", () => {
+  test("without a sandbox state it lists the host worktrees of --dir", async () => {
+    const stateHome = emptyStateHome();
+    try {
+      const worktrees: string[] = [];
+      const deps: StatusDeps = {
+        worktreesOf: (directory) => {
+          worktrees.push(directory);
+          return ["/proj", "/proj/.worktrees/y"];
+        },
+        exists: () => true,
+        cloneDirectoriesOf: (project) => {
+          worktrees.push(`clone ${project}`);
+          return [];
+        },
+      };
+      const dirs = await scopeDirectories({ dir: "/proj", all: false }, { XDG_STATE_HOME: stateHome }, deps)("");
+      expect(dirs).toEqual(["/proj", "/proj/.worktrees/y"]);
+      expect(worktrees).toEqual(["/proj"]);
+    } finally {
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("with a sandbox state it maps a clone-mode run folder to the root and lists the clone directories", async () => {
+    const stateHome = emptyStateHome();
+    try {
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-repo.json");
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-repo", root: "/repo", port: 18768 }));
+      const worktrees: string[] = [];
+      const deps: StatusDeps = {
+        worktreesOf: (directory) => {
+          worktrees.push(`host ${directory}`);
+          return [directory];
+        },
+        // The run folder exists only inside the sandbox, the root on the host.
+        exists: (file) => file === "/repo",
+        cloneDirectoriesOf: (project) => {
+          worktrees.push(`clone ${project}`);
+          return ["/repo", "/repo/.worktrees/14d"];
+        },
+      };
+      const dirs = await scopeDirectories(
+        { dir: "/repo/.worktrees/14d", all: false },
+        { XDG_STATE_HOME: stateHome },
+        deps,
+      )("");
+      expect(dirs).toEqual(["/repo", "/repo/.worktrees/14d"]);
+      expect(worktrees).toEqual(["clone repo"]);
+    } finally {
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("top", () => {
   test("--once --json loads both servers, counts the child in its parent, and keeps the pending requests of the tree", async () => {

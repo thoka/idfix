@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { resolvePort, resolveServerUrl, type Env } from "./config";
-import { resolveCommandUrl } from "./sandbox";
+import { defaultRunner, readSandboxState, readSandboxStates, resolveCommandUrl, sandboxStatePath, sbxBin, type Runner } from "./sandbox";
+import { projectRootOfRun, projectNameOf } from "./keys";
 import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "./client";
 import { listPendingRequests } from "./requests";
 import { listServers } from "./servers";
@@ -36,6 +37,40 @@ export function uniqueDirectories(directories: readonly string[]): string[] {
   return [...new Set(directories)];
 }
 
+/**
+ * The directories of the sandbox clone of a project: the project root first,
+ * then the worktrees that `git worktree list` shows inside the clone. The
+ * worktree of a run in clone mode exists only inside the sandbox, so git runs
+ * through `sbx exec NAME git -C ROOT ...`, with ROOT and NAME from the sandbox
+ * state of the project. Without a state file, and when the command fails (for
+ * example a stopped sandbox), the list is empty.
+ */
+export function cloneDirectories(project: string, env: Env, runner: Runner): string[] {
+  const state = readSandboxState(sandboxStatePath(env, project));
+  if (state === null) return [];
+  const proc = runner([sbxBin(env), "exec", state.name, "git", "-C", state.root, "worktree", "list", "--porcelain"]);
+  if (proc.exitCode !== 0) return [];
+  return uniqueDirectories([state.root, ...parseWorktreeList(proc.stdout)]);
+}
+
+/**
+ * The directories that one run covers for one directory: without a sandbox
+ * state for the project, the directory and its host git worktrees. With one,
+ * the project root plus the worktrees of the clone, which exist only inside
+ * the sandbox. The directory is mapped with `projectRootOfRun` first, so a
+ * clone-mode run folder `<root>/.worktrees/<name>` that is missing on the
+ * host maps to its project root. `oc-sub status` without `--all` and
+ * `scopeDirectories` of `top` share this helper, so they never differ.
+ */
+export function projectDirectories(directory: string, env: Env, deps: StatusDeps): string[] {
+  const root = projectRootOfRun(directory, deps.exists);
+  const project = projectNameOf(root);
+  if (readSandboxState(sandboxStatePath(env, project)) !== null) {
+    return uniqueDirectories(deps.cloneDirectoriesOf(project));
+  }
+  return uniqueDirectories(deps.worktreesOf(root));
+}
+
 /** The folder shown for a worktree session: relative inside the directory, else absolute. */
 export function displayFolder(folder: string, directory: string): string {
   const relative = path.relative(directory, folder);
@@ -59,9 +94,17 @@ export type StatusDeps = {
   worktreesOf: (directory: string) => string[];
   /** Whether a directory exists. */
   exists: (file: string) => boolean;
+  /** The directories of the sandbox clone of a project: the root first, then the worktrees in the clone. Empty without a state file or when the sandbox does not answer. */
+  cloneDirectoriesOf: (project: string) => string[];
 };
 
-const defaultDeps: StatusDeps = { worktreesOf, exists: existsSync };
+const defaultDeps: StatusDeps = {
+  worktreesOf,
+  exists: existsSync,
+  cloneDirectoriesOf: (project) => cloneDirectories(project, process.env as Env, defaultRunner),
+};
+
+export { defaultDeps };
 
 /** A session as status shows it: ID, title, whether it is a child, and its state. */
 type ListedSession = { id: string; title: string; child: boolean; state: string };
@@ -129,14 +172,19 @@ async function listSessionsSafe(
 }
 
 /**
- * The directories that one server knows: the folders of past runs on its
- * port, the projects of the server, and the git worktrees of both. A
- * directory that does not exist on this machine is dropped. `oc-sub status
- * --all` and `oc-sub top --all` share this listing.
+ * The directories that one server knows. For a sandbox server (a project
+ * with a valid state file whose port this server serves): the project root
+ * and the worktrees of the clone, which exist only inside the sandbox. No
+ * host `exists` filter and no host git apply there. For the host server: the
+ * folders of past runs on its port, the projects of the server, and the git
+ * worktrees of both, without a directory that does not exist on this
+ * machine. `oc-sub status --all` and `oc-sub top --all` share this listing.
  */
 export async function serverDirectories(baseUrl: string, env: Env, deps: StatusDeps): Promise<string[]> {
   const client = makeClient(baseUrl, env);
   const port = resolvePort(undefined, baseUrl);
+  const sandbox = readSandboxStates(env).find((entry) => entry.state.port === port);
+  if (sandbox !== undefined) return deps.cloneDirectoriesOf(sandbox.project);
   const fromDirsFile = await readDirs(serveDirsPath(env, port));
   const projects = unwrap(await client.project.list({}), "list projects");
   const projectDirs = projects.map((project) => project.worktree).filter((dir) => dir !== "/");
@@ -231,7 +279,7 @@ export async function status(
   const client = makeClient(baseUrl, env);
 
   const directory = path.resolve(args.dir ?? process.cwd());
-  for (const dir of deps.worktreesOf(directory)) {
+  for (const dir of projectDirectories(directory, env, deps)) {
     for (const session of await listSessionsSafe(client, baseUrl, dir, env)) {
       // Child sessions are internal subagent runs, not first-class sessions.
       if (session.child) continue;

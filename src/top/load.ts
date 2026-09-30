@@ -10,15 +10,20 @@
  * that is down is skipped. A server that rejects the password or fails
  * prints `warning: <url>: <message>` to stderr and is skipped.
  */
-import path from "node:path";
-import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import path from "node:path";
+import { projectRootOfRun } from "../keys";
 import type { Session, SessionStatus } from "@opencode-ai/sdk";
 import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "../client";
 import type { Env } from "../config";
 import { listPendingRequests, type PendingRequest } from "../requests";
 import { listServers } from "../servers";
-import { serverDirectories, uniqueDirectories, worktreesOf, type StatusDeps } from "../status";
+import {
+  defaultDeps as defaultStatusDeps,
+  projectDirectories,
+  serverDirectories,
+  type StatusDeps,
+} from "../status";
 import { createTopModel, type SessionDetail, type TopModel } from "./model";
 import { DEFAULT_WIDTH, formatTopTable, type TopTableOptions, type TopTableRow } from "./format";
 
@@ -26,7 +31,7 @@ import { DEFAULT_WIDTH, formatTopTable, type TopTableOptions, type TopTableRow }
 const RECENT_MS = 60 * 60 * 1000;
 
 /** The default worktree and existence checks, overridable in the tests. */
-export const defaultDeps: StatusDeps = { worktreesOf, exists: existsSync };
+export const defaultDeps: StatusDeps = { ...defaultStatusDeps };
 
 /** One listed session with the directory it came from. */
 type Listed = { session: Session; directory: string };
@@ -40,13 +45,15 @@ type ServerList = {
 
 /**
  * The directories that one run of `top` covers on one server: with `--all`
- * the directories that the server knows, else the directory of `--dir` and
- * its git worktrees. `startLive` in `src/top/live.ts` shares this scope.
+ * the directories that the server knows, else the directories of `--dir`
+ * through the shared `projectDirectories` of `status` (host worktrees, or the
+ * root plus the clone worktrees when the project has a sandbox state file).
+ * `startLive` in `src/top/live.ts` shares this scope.
  */
 export function scopeDirectories(args: { dir?: string; all: boolean }, env: Env, deps: StatusDeps): (url: string) => Promise<string[]> {
-  const directory = path.resolve(args.dir ?? process.cwd());
   if (!args.all) {
-    const dirs = uniqueDirectories(deps.worktreesOf(directory));
+    const directory = path.resolve(args.dir ?? process.cwd());
+    const dirs = projectDirectories(directory, env, deps);
     return async () => dirs;
   }
   return (url) => serverDirectories(url, env, deps);

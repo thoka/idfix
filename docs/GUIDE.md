@@ -184,6 +184,7 @@ In clone mode, the worktree of a run lives only inside the sandbox clone, at `<r
 - `oc-sub run --dir <root>/.worktrees/STEP ...` starts the run in that worktree. The folder exists only inside the sandbox, and the commands resolve it to the project root on the host.
 - `oc-sub fetch` fetches the branches of the sandbox clone on the host through the `sandbox-<name>` remote. It prints every `feature/*` branch with its commit count over `alpha` and the review commands. Review with `git diff alpha...sandbox-<name>/feature/STEP`.
 - `oc-sub worktree rm STEP` removes the worktree and deletes the branch `feature/STEP` inside the clone. `rm` deletes work that was not fetched. Run `oc-sub fetch` before you remove a worktree whose work you want to keep.
+- `oc-sub status` and `oc-sub top` also see the run worktrees in clone mode: for a sandbox server, and for a `--dir` project with a sandbox state file, they list the project root plus the worktrees that `git worktree list` shows inside the clone, so the sessions of clone-mode runs appear there.
 
 ## Security
 

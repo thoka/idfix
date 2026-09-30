@@ -43,6 +43,7 @@ Usage:
   oc-sub worktree rm STEP [--dir ROOT]
   oc-sub fetch [--dir ROOT]
   oc-sub doctor [--dir DIR] [--json]
+  oc-sub doctor --fix [--force] [--dir DIR] [--json]
 
 Every command accepts:
   --url URL   opencode server URL (default: $OC_SUB_URL or http://127.0.0.1:8767)
@@ -69,7 +70,9 @@ Environment:
                              (default: $HOME/dv/meta/agents)
   OPENCODE_SERVER_PASSWORD   enables basic auth (never printed)
   OPENCODE_SERVER_USERNAME   basic-auth user (default: opencode)
-  SBX_BIN                    the sbx binary (default: sbx on PATH)`;
+  SBX_BIN                    the sbx binary (default: sbx on PATH)
+  CLAUDE_BIN                 the claude binary for doctor --fix
+                             (default: claude on PATH)`;
 
 const HELP_EXIT_HINT = "run `oc-sub --help` for usage";
 

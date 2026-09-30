@@ -7,7 +7,7 @@
  * Every dependency is injected, so the tests use fakes like in
  * `test/sandbox.test.ts`.
  */
-import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
@@ -37,7 +37,7 @@ export type DoctorDeps = {
   readdir: (folder: string) => string[] | null;
   /** Whether a path exists. Never reads content. */
   exists: (file: string) => boolean;
-  /** The content of a text file, or null. Used only for agent files. */
+  /** The content of a text file, or null. Used for agent files and the global rule files. */
   readText: (file: string) => string | null;
   /** The real path of a path with all symlinks resolved, or null. */
   realpath: (file: string) => string | null;
@@ -63,6 +63,16 @@ export type DoctorDeps = {
   sandboxBin: string;
   /** The runner for the `sbx` calls. */
   runner: Runner;
+  /** The name of the `claude` binary, for the plugin update commands. */
+  claudeBin: string;
+  /** The runner for the `claude` calls of the fix actions. */
+  claudeRunner: Runner;
+  /**
+   * Replace the file at `file` with a symlink to `target`. Writes the new
+   * link under a temp name in the same folder and renames it over the old
+   * file, so the swap is atomic.
+   */
+  replaceWithSymlink: (file: string, target: string) => void;
 };
 
 /** The check of `installed_plugins.json` and the fix for an old install. */
@@ -78,6 +88,16 @@ export function defaultOriginAlphaSha(repoRoot: string): string | null {
   });
   const sha = proc.stdout.toString().trim();
   return proc.exitCode === 0 && sha.length > 0 ? sha : null;
+}
+
+/**
+ * The real atomic symlink swap: write the new link under a temp name in the
+ * same folder, then rename it over the old file.
+ */
+export function defaultReplaceWithSymlink(file: string, target: string): void {
+  const tmp = `${file}.oc-sub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  symlinkSync(target, tmp);
+  renameSync(tmp, file);
 }
 
 /** The default dependencies, with the real file system, git, and `sbx`. */
@@ -133,12 +153,31 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     sandboxState: () => readSandboxState(sandboxStatePath(env, path.basename(root))),
     sandboxBin: env.SBX_BIN !== undefined && env.SBX_BIN.length > 0 ? env.SBX_BIN : "sbx",
     runner: defaultRunner,
+    claudeBin: env.CLAUDE_BIN !== undefined && env.CLAUDE_BIN.length > 0 ? env.CLAUDE_BIN : "claude",
+    claudeRunner: defaultRunner,
+    replaceWithSymlink: defaultReplaceWithSymlink,
   };
   return { ...deps, ...overrides };
 }
 
-/** One named check. */
-export type Check = { name: string; run: (deps: DoctorDeps) => CheckResult };
+/** The outcome of one fix action. */
+export type FixOutcome = { ok: boolean; note: string };
+
+/** One fix run of the `--fix` pass, for the JSON output. */
+export type FixRecord = { name: string; ok: boolean; note: string };
+
+/** One named check, with an optional safe fix action. */
+export type Check = {
+  name: string;
+  run: (deps: DoctorDeps) => CheckResult;
+  /**
+   * Runs only when `--fix` is set and the check result is `warn` or `fail`.
+   * `ctx.force` is the `--force` flag; no fix in this step uses it, a later
+   * step will for the sandbox recreate. The action is synchronous and
+   * returns the outcome; a throw counts as a failed fix.
+   */
+  fix?: (deps: DoctorDeps, result: CheckResult, ctx: { force: boolean }) => FixOutcome;
+};
 
 function result(name: string, status: CheckResult["status"], message: string, fix?: string): CheckResult {
   return { name, status, message, fix };
@@ -216,12 +255,17 @@ function agentsMdCheck(deps: DoctorDeps): CheckResult {
   );
 }
 
-function globalRulesCheck(deps: DoctorDeps): CheckResult {
-  const paths = [
+/** The three global rule paths that must be symlinks to the shared file. */
+export function globalRulePaths(deps: DoctorDeps): string[] {
+  return [
     path.join(deps.home, ".claude", "CLAUDE.md"),
     path.join(deps.home, ".config", "opencode", "AGENTS.md"),
     path.join(deps.home, ".codex", "AGENTS.md"),
   ];
+}
+
+function globalRulesCheck(deps: DoctorDeps): CheckResult {
+  const paths = globalRulePaths(deps);
   const sharedFile = path.join(deps.sharedDir, "AGENTS.md");
   const sharedReal = deps.realpath(sharedFile);
   if (sharedReal === null) {
@@ -356,6 +400,69 @@ function pluginFreshCheck(deps: DoctorDeps): CheckResult {
   );
 }
 
+/**
+ * The fix of `plugin-fresh`: update the marketplace metadata, then update the
+ * plugin from it. The second command runs only when the first exited 0. A
+ * non-zero exit is a failed fix, with the command in the note.
+ */
+export function pluginFreshFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): FixOutcome {
+  const marketplaceUpdate = [deps.claudeBin, "plugin", "marketplace", "update", "opencode-subagents"];
+  const first = deps.claudeRunner(marketplaceUpdate);
+  if (first.exitCode !== 0) {
+    return { ok: false, note: `${marketplaceUpdate.join(" ")} exited with code ${first.exitCode}` };
+  }
+  const pluginUpdate = [deps.claudeBin, "plugin", "update", PLUGIN_KEY];
+  const second = deps.claudeRunner(pluginUpdate);
+  if (second.exitCode !== 0) {
+    return { ok: false, note: `${pluginUpdate.join(" ")} exited with code ${second.exitCode}` };
+  }
+  return { ok: true, note: pluginUpdate.join(" ") };
+}
+
+/**
+ * The fix of `global-rules`: turn copies and broken or wrong symlinks into
+ * symlinks to the shared AGENTS.md. A copy whose content differs from the
+ * shared file is left alone (the fix fails and names it), so the fix never
+ * destroys unmerged edits. A missing path is not created.
+ */
+export function globalRulesFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): FixOutcome {
+  const sharedFile = path.join(deps.sharedDir, "AGENTS.md");
+  const sharedReal = deps.realpath(sharedFile);
+  const sharedContent = sharedReal === null ? null : deps.readText(sharedFile);
+  if (sharedReal === null || sharedContent === null) {
+    return { ok: false, note: `the shared rules file ${sharedFile} is missing, nothing changed` };
+  }
+  const replaced: string[] = [];
+  const differing: string[] = [];
+  for (const link of globalRulePaths(deps)) {
+    const stat = deps.lstat(link);
+    if (stat === null) continue;
+    if (stat.isSymbolicLink) {
+      // A broken or wrong symlink holds no content, so re-pointing it loses nothing.
+      if (deps.realpath(link) === sharedReal) continue;
+      deps.replaceWithSymlink(link, sharedFile);
+      replaced.push(link);
+      continue;
+    }
+    const content = deps.readText(link);
+    if (content === null || content !== sharedContent) {
+      differing.push(link);
+      continue;
+    }
+    deps.replaceWithSymlink(link, sharedFile);
+    replaced.push(link);
+  }
+  if (differing.length > 0) {
+    let note = `content differs, not changed: ${differing.join(", ")}`;
+    if (replaced.length > 0) note += `; replaced with symlinks: ${replaced.join(", ")}`;
+    return { ok: false, note };
+  }
+  return {
+    ok: true,
+    note: replaced.length > 0 ? `replaced with symlinks to ${sharedFile}: ${replaced.join(", ")}` : "already up to date",
+  };
+}
+
 function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
   const state = deps.sandboxState();
   if (state === null) return result("sandbox-mounts", "skip", "no sandbox state file for this project");
@@ -401,14 +508,14 @@ export const FAST_CHECKS: Check[] = [
   { name: "env-files", run: envFilesCheck },
   { name: "claude-md", run: claudeMdCheck },
   { name: "agents-md", run: agentsMdCheck },
-  { name: "global-rules", run: globalRulesCheck },
+  { name: "global-rules", run: globalRulesCheck, fix: globalRulesFix },
   { name: "skill-links", run: skillLinksCheck },
   { name: "agent-copies", run: agentCopiesCheck },
 ];
 
 /** The slow checks: only `oc-sub doctor` runs them. */
 export const SLOW_CHECKS: Check[] = [
-  { name: "plugin-fresh", run: pluginFreshCheck },
+  { name: "plugin-fresh", run: pluginFreshCheck, fix: pluginFreshFix },
   { name: "sandbox-mounts", run: sandboxMountsCheck },
 ];
 
@@ -500,14 +607,62 @@ export function gateForCommand(
   return gateFastChecks(fast.results, fast.ms);
 }
 
+/**
+ * Run the fix actions of the checks whose result is `warn` or `fail`, in the
+ * order of the given check list. It prints `fixing <name>: <fix text>` before
+ * each action and `fixed <name>: <note>` or `fix failed (<name>): <note>`
+ * after it. An action that throws counts as a failed fix with the error
+ * message as note, and the other actions still run.
+ */
+export function runFixes(
+  checks: readonly Check[],
+  deps: DoctorDeps,
+  results: readonly CheckResult[],
+  ctx: { force: boolean },
+  print: (line: string) => void = console.log,
+): FixRecord[] {
+  const records: FixRecord[] = [];
+  for (let i = 0; i < checks.length; i++) {
+    const check = checks[i];
+    const res = results[i];
+    if (check === undefined || res === undefined) continue;
+    if (check.fix === undefined) continue;
+    if (res.status !== "warn" && res.status !== "fail") continue;
+    print(`fixing ${check.name}: ${res.fix ?? res.message}`);
+    let outcome: FixOutcome;
+    try {
+      outcome = check.fix(deps, res, ctx);
+    } catch (error) {
+      outcome = { ok: false, note: error instanceof Error ? error.message : String(error) };
+    }
+    records.push({ name: check.name, ok: outcome.ok, note: outcome.note });
+    print(outcome.ok ? `fixed ${check.name}: ${outcome.note}` : `fix failed (${check.name}): ${outcome.note}`);
+  }
+  return records;
+}
+
 /** `oc-sub doctor`: run all checks and print the results. */
 export function doctor(
-  args: { dir?: string; json?: boolean },
+  args: { dir?: string; json?: boolean; fix?: boolean; force?: boolean },
   env: Env = process.env,
   overrides: Partial<DoctorDeps> = {},
 ): number {
   const deps = makeDoctorDeps(env, args.dir ?? process.cwd(), overrides);
   const results = runChecks(ALL_CHECKS, deps);
+  if (args.fix === true) {
+    // With --json, stdout holds only the JSON object, so the fix lines go to stderr.
+    const print = args.json === true ? console.error : console.log;
+    const fixes = runFixes(ALL_CHECKS, deps, results, { force: args.force === true }, print);
+    const rerun = runChecks(ALL_CHECKS, deps);
+    if (args.json === true) {
+      console.log(JSON.stringify({ fixes, results: rerun }, null, 2));
+    } else {
+      printResults(rerun);
+    }
+    const anyFail = rerun.some((check) => check.status === "fail");
+    const fixFailed = fixes.some((fix) => !fix.ok);
+    return anyFail || fixFailed ? 1 : 0;
+  }
   if (args.json === true) {
     console.log(JSON.stringify(results, null, 2));
   } else {

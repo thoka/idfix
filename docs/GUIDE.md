@@ -80,7 +80,7 @@ claude plugin marketplace remove opencode-subagents
    oc-sub doctor
    ```
 
-   Every finding names its fix. The first lines should read `pass` for `env-files`, `claude-md`, and `agent-copies`. Then start the server and check the key and the shared rules:
+   Every finding names its fix. The first lines should read `pass` for `env-files`, `claude-md`, and `agent-copies`. With `oc-sub doctor --fix`, the command repairs the safe findings itself (it turns an equal copy of the global rules into a symlink, re-points a broken link, and updates the plugin), then runs the checks again. Then start the server and check the key and the shared rules:
 
    ```
    oc-sub up

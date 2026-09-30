@@ -1,20 +1,27 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gateForCommand } from "../src/doctor";
 import { main } from "../src/cli";
+import { UsageError, parseArgs } from "../src/args";
 import {
   ALL_CHECKS,
   FAST_CHECKS,
   PLUGIN_KEY,
   PLUGIN_UPDATE_FIX,
+  defaultReplaceWithSymlink,
   gateFastChecks,
+  globalRulesFix,
   isPermissionOnlyAgent,
+  doctor,
   makeDoctorDeps,
+  pluginFreshFix,
   runChecks,
   runFastChecksFor,
+  runFixes,
   SLOW_CHECKS,
+  type Check,
   type CheckResult,
   type DoctorDeps,
 } from "../src/doctor";
@@ -63,6 +70,11 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     sandboxState: () => null,
     sandboxBin: "sbx",
     runner: () => ({ stdout: "", exitCode: 0 }),
+    claudeBin: "claude",
+    claudeRunner: () => ({ stdout: "", exitCode: 0 }),
+    // The fake swap turns the file entry into a symlink entry, so a re-run of
+    // the checks sees the fixed state.
+    replaceWithSymlink: (file, target) => files.set(file, { link: target }),
     ...overrides,
   };
   return deps;
@@ -583,6 +595,290 @@ describe("global-rules with the real file system", () => {
       expect(check?.message).toContain(path.join(home, ".config", "opencode"));
     } finally {
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("doctor --fix argument parsing", () => {
+  test("parses --fix", () => {
+    expect(parseArgs(["doctor", "--fix"])).toMatchObject({ command: "doctor", fix: true, force: false });
+  });
+
+  test("parses --fix --force", () => {
+    expect(parseArgs(["doctor", "--fix", "--force"])).toMatchObject({ command: "doctor", fix: true, force: true });
+  });
+
+  test("rejects --force without --fix", () => {
+    expect(() => parseArgs(["doctor", "--force"])).toThrow(UsageError);
+  });
+});
+
+describe("the plugin-fresh fix", () => {
+  const depsWithClaude = (calls: string[], exitCodes: number[]): DoctorDeps =>
+    makeDeps(
+      {},
+      {
+        claudeRunner: (cmd) => {
+          calls.push(cmd.join(" "));
+          return { stdout: "", exitCode: exitCodes.shift() ?? 0 };
+        },
+      },
+    );
+
+  test("runs the marketplace update and then the plugin update", () => {
+    const calls: string[] = [];
+    const outcome = pluginFreshFix(depsWithClaude(calls, [0, 0]), {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.note).toContain(`plugin update ${PLUGIN_KEY}`);
+    expect(calls).toEqual([
+      "claude plugin marketplace update opencode-subagents",
+      `claude plugin update ${PLUGIN_KEY}`,
+    ]);
+  });
+
+  test("fails with the command in the note when the first command fails, and skips the second", () => {
+    const calls: string[] = [];
+    const outcome = pluginFreshFix(depsWithClaude(calls, [3]), {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("marketplace update");
+    expect(calls).toHaveLength(1);
+  });
+
+  test("fails with the command in the note when the second command fails", () => {
+    const calls: string[] = [];
+    const outcome = pluginFreshFix(depsWithClaude(calls, [0, 2]), {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain(`plugin update ${PLUGIN_KEY}`);
+    expect(calls).toHaveLength(2);
+  });
+});
+
+describe("the global-rules fix", () => {
+  const sharedFile = "/home/u/dv/meta/agents/AGENTS.md";
+  const claudeMd = "/home/u/.claude/CLAUDE.md";
+  const opencodeMd = "/home/u/.config/opencode/AGENTS.md";
+  const codexMd = "/home/u/.codex/AGENTS.md";
+  const base = map({ [sharedFile]: { content: "# rules" } });
+
+  test("replaces an equal copy with a symlink", () => {
+    const deps = makeDeps({ files: map({ ...Object.fromEntries(base), [codexMd]: { content: "# rules" } }) });
+    const outcome = globalRulesFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.note).toContain("replaced with symlinks");
+    expect(deps.readlink(codexMd)).toBe(sharedFile);
+  });
+
+  test("leaves a differing copy alone and fails the fix", () => {
+    const deps = makeDeps({ files: map({ ...Object.fromEntries(base), [codexMd]: { content: "# my own rules" } }) });
+    const outcome = globalRulesFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("content differs, not changed");
+    expect(deps.readText(codexMd)).toBe("# my own rules");
+    expect(deps.lstat(codexMd)?.isSymbolicLink).toBe(false);
+  });
+
+  test("re-points a wrong or broken symlink", () => {
+    const wrong = makeDeps({
+      files: map({ ...Object.fromEntries(base), [codexMd]: { link: "/home/u/other/AGENTS.md" }, "/home/u/other/AGENTS.md": { content: "x" } }),
+    });
+    const outcomeWrong = globalRulesFix(wrong, {} as CheckResult, { force: false });
+    expect(outcomeWrong.ok).toBe(true);
+    expect(wrong.readlink(codexMd)).toBe(sharedFile);
+
+    const broken = makeDeps({ files: map({ ...Object.fromEntries(base), [codexMd]: { link: "/nowhere/AGENTS.md" } }) });
+    const outcomeBroken = globalRulesFix(broken, {} as CheckResult, { force: false });
+    expect(outcomeBroken.ok).toBe(true);
+    expect(broken.readlink(codexMd)).toBe(sharedFile);
+  });
+
+  test("does not create a missing path", () => {
+    const deps = makeDeps({ files: base });
+    const outcome = globalRulesFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(true);
+    expect(deps.exists(codexMd)).toBe(false);
+    expect(deps.exists(claudeMd)).toBe(false);
+  });
+
+  test("fails without a shared file and changes nothing", () => {
+    const deps = makeDeps({ files: map({ [codexMd]: { content: "# rules" } }) });
+    const outcome = globalRulesFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("is missing");
+    expect(deps.lstat(codexMd)?.isSymbolicLink).toBe(false);
+  });
+});
+
+describe("runFixes", () => {
+  const lines: string[] = [];
+  const print = (line: string) => lines.push(line);
+
+  test("catches a throwing action as a failed fix and runs the other actions", () => {
+    lines.length = 0;
+    const checks: Check[] = [
+      { name: "boom", run: () => ({ name: "boom", status: "fail", message: "bad" }), fix: () => { throw new Error("boom"); } },
+      { name: "after", run: () => ({ name: "after", status: "warn", message: "meh" }), fix: () => ({ ok: true, note: "did it" }) },
+    ];
+    const deps = makeDeps();
+    const records = runFixes(
+      checks,
+      deps,
+      [
+        { name: "boom", status: "fail", message: "bad" },
+        { name: "after", status: "warn", message: "meh" },
+      ],
+      { force: false },
+      print,
+    );
+    expect(records).toEqual([
+      { name: "boom", ok: false, note: "boom" },
+      { name: "after", ok: true, note: "did it" },
+    ]);
+    expect(lines).toContain("fixing boom: bad");
+    expect(lines).toContain("fix failed (boom): boom");
+    expect(lines).toContain("fixed after: did it");
+  });
+
+  test("skips pass and skip results and checks without a fix action", () => {
+    lines.length = 0;
+    const checks: Check[] = [{ name: "no-fix", run: () => ({ name: "no-fix", status: "fail", message: "bad" }) }];
+    const records = runFixes(checks, makeDeps(), [{ name: "no-fix", status: "fail", message: "bad" }], { force: false }, print);
+    expect(records).toEqual([]);
+    expect(lines).toEqual([]);
+  });
+});
+
+describe("doctor --fix", () => {
+  const sharedFile = "/home/u/dv/meta/agents/AGENTS.md";
+  const codexMd = "/home/u/.codex/AGENTS.md";
+  // The installed plugin commit differs from origin/alpha, so plugin-fresh warns.
+  const installedOld = JSON.stringify({
+    version: 2,
+    plugins: { [PLUGIN_KEY]: [{ scope: "user", gitCommitSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }] },
+  });
+
+  function fixDeps(files: Record<string, { link?: string; content?: string }>, claudeExitCode = 0): DoctorDeps {
+    return makeDeps(
+      {
+        files: map({ [sharedFile]: { content: "# rules" }, ...files }),
+      },
+      {
+        installedPluginsFile: "/home/u/.claude/plugins/installed_plugins.json",
+        claudeRunner: (cmd) => ({ stdout: cmd.join(" "), exitCode: claudeExitCode }),
+      },
+    );
+  }
+
+  test("fixes global-rules and plugin-fresh in registry order and prints the lines", () => {
+    const deps = fixDeps({ [codexMd]: { content: "# rules" }, "/home/u/.claude/plugins/installed_plugins.json": { content: installedOld } });
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    let code: number;
+    try {
+      code = doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(code).toBe(0);
+    const fixingRules = lines.findIndex((line) => line.startsWith("fixing global-rules:"));
+    const fixedRules = lines.findIndex((line) => line.startsWith("fixed global-rules:"));
+    const fixingPlugin = lines.findIndex((line) => line.startsWith("fixing plugin-fresh:"));
+    const fixedPlugin = lines.findIndex((line) => line.startsWith("fixed plugin-fresh:"));
+    expect(fixingRules).toBeGreaterThanOrEqual(0);
+    expect(fixedRules).toBeGreaterThan(fixingRules);
+    expect(fixingPlugin).toBeGreaterThan(fixedRules);
+    expect(fixedPlugin).toBeGreaterThan(fixingPlugin);
+    expect(lines[fixingRules]).toContain("ln -sfn");
+    expect(lines[fixingPlugin]).toContain(PLUGIN_UPDATE_FIX);
+    // The re-run prints the results after the fixes: the fixed copy now links,
+    // the other two rule paths stay missing (a missing path is not created).
+    expect(lines.findIndex((line) => line.startsWith("warn  global-rules"))).toBeGreaterThan(fixedPlugin);
+    expect(lines[lines.length - 1]!).toMatch(/, 0 fail, /);
+    expect(deps.readlink(codexMd)).toBe(sharedFile);
+  });
+
+  test("returns 1 when a fix fails", () => {
+    const deps = fixDeps({ [codexMd]: { content: "# my own rules" } });
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    let code: number;
+    try {
+      code = doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(code).toBe(1);
+  });
+
+  test("returns 1 when the re-run still has a fail", () => {
+    // The claude fix fails, so plugin-fresh stays a warn (not a fail), but a
+    // differing copy keeps global-rules failed in the re-run too.
+    const deps = fixDeps({ [codexMd]: { content: "# my own rules" } });
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    let code: number;
+    try {
+      code = doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(code).toBe(1);
+  });
+
+  test("prints {fixes, results} with --fix --json", () => {
+    const deps = fixDeps({
+      [codexMd]: { content: "# rules" },
+      "/home/u/.claude/plugins/installed_plugins.json": { content: installedOld },
+    });
+    const lines: string[] = [];
+    const errors: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    const errorSpy = spyOn(console, "error").mockImplementation((line) => errors.push(String(line)));
+    try {
+      doctor({ fix: true, json: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+    // stdout holds only the JSON object; the fix lines go to stderr.
+    expect(lines).toHaveLength(1);
+    expect(errors.some((line) => line.startsWith("fixing global-rules:"))).toBe(true);
+    const parsed = JSON.parse(lines[0]!) as { fixes: { name: string; ok: boolean; note: string }[]; results: CheckResult[] };
+    expect(parsed.fixes).toEqual([
+      { name: "global-rules", ok: true, note: expect.any(String) },
+      { name: "plugin-fresh", ok: true, note: expect.any(String) },
+    ]);
+    expect(parsed.results).toHaveLength(ALL_CHECKS.length);
+    expect(parsed.results.every((check) => check.name.length > 0)).toBe(true);
+  });
+
+  test("keeps the plain --json array without --fix", () => {
+    const deps = fixDeps({});
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    try {
+      doctor({ json: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    const jsonLine = lines.find((line) => line.startsWith("["));
+    expect(jsonLine).toBeDefined();
+    const parsed = JSON.parse(jsonLine!) as CheckResult[];
+    expect(parsed).toHaveLength(ALL_CHECKS.length);
+    expect(Object.keys(parsed[0]!)).toContain("name");
+  });
+});
+
+describe("defaultReplaceWithSymlink with the real file system", () => {
+  test("swaps a file for a symlink atomically", () => {
+    const dir = tempDir();
+    try {
+      const target = path.join(dir, "AGENTS.md");
+      const file = path.join(dir, "CLAUDE.md");
+      writeFileSync(target, "# rules\n");
+      writeFileSync(file, "# rules\n");
+      defaultReplaceWithSymlink(file, target);
+      expect(readlinkSync(file)).toBe(target);
+      expect(readFileSync(target, "utf8")).toBe("# rules\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

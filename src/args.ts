@@ -31,7 +31,7 @@ export type ParsedArgs =
   | { command: "say"; url?: string; session: string; dir?: string; agent?: string; text: string }
   | { command: "worktree"; step: string; dir?: string; base?: string; noSetup: boolean; remove: boolean }
   | { command: "fetch"; dir?: string }
-  | { command: "doctor"; dir?: string; json: boolean };
+  | { command: "doctor"; dir?: string; json: boolean; fix: boolean; force: boolean };
 
 /** The reply values of a permission request. */
 export type Reply = "once" | "always" | "reject";
@@ -376,11 +376,20 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       return { command: "fetch", dir: optionalString(flags, "dir") };
     }
     case "doctor": {
-      const { flags, positionals } = collectFlags(rest, new Set(["dir", "json"]), new Set(["json"]));
+      const { flags, positionals } = collectFlags(
+        rest,
+        new Set(["dir", "json", "fix", "force"]),
+        new Set(["json", "fix", "force"]),
+      );
       if (positionals.length > 0) {
         throw new UsageError(`doctor takes no positional arguments, got "${positionals.join(" ")}"`);
       }
-      return { command: "doctor", dir: optionalString(flags, "dir"), json: flags.get("json") === true };
+      const fix = flags.get("fix") === true;
+      const force = flags.get("force") === true;
+      if (force && !fix) {
+        throw new UsageError("--force is only allowed together with --fix");
+      }
+      return { command: "doctor", dir: optionalString(flags, "dir"), json: flags.get("json") === true, fix, force };
     }
     default:
       throw new UsageError(`unknown command "${head}"`);

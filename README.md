@@ -259,9 +259,17 @@ Aborts the session (`POST /session/:id/abort`).
 
 ```
 bun run src/cli.ts doctor [--dir DIR] [--json]
+bun run src/cli.ts doctor --fix [--force] [--dir DIR] [--json]
 ```
 
 Runs the health checks of the project of `--dir` (default: the current folder) and of the host, prints one line per check (status, name, message, and the fix on the next line), and ends with a summary line. `--json` prints the results as one JSON array. Exit code 1 when a check fails, else 0. The slow checks (a git call and one `sbx ls` call) run only here.
+
+With `--fix`, the command first runs the checks, then the fix action of every check in the registry order whose result is `warn` or `fail` and that has a fix action. It prints `fixing <name>: <fix text>` before each action and `fixed <name>: <note>` or `fix failed (<name>): <note>` after it. A failing action does not stop the other actions. Then it runs all checks again and prints their results. With `--json`, the fix lines go to stderr, and stdout holds one object `{ "fixes": [...], "results": [...] }`. Exit code 1 when the re-run has a `fail` or when any fix action failed, else 0. `--fix` never prompts. `--force` is only valid together with `--fix` and is reserved for the destructive fixes of later steps. With `--fix --json`, it prints one object `{ "fixes": [{name, ok, note}], "results": [re-run results] }`; without `--fix`, `--json` still prints the array.
+
+Which checks have a fix action:
+
+- `plugin-fresh`: runs `claude plugin marketplace update opencode-subagents` and, when that exited 0, `claude plugin update opencode-subagents@opencode-subagents`. A non-zero exit is a failed fix.
+- `global-rules`: for each of the three rule paths, a copy whose content equals the shared `AGENTS.md` exactly becomes a symlink to it; a copy with different content is left alone (the fix fails and names it), so no edit is lost. A broken or wrong symlink is re-pointed. A missing path is not created. Without the shared file, the fix fails and changes nothing.
 
 The checks:
 
@@ -270,10 +278,10 @@ The checks:
 | `env-files` | No real `.env` or `.env.*` file in the project root or in any folder of `.worktrees/`, except names that end in `.example` or `.sample`. It never opens the file. | A key file sits in the project. Move the keys to `~/.config/<project>/<provider>.key` and delete the file. |
 | `claude-md` | No `CLAUDE.md` or `CLAUDE.local.md` in the project root. | Claude Code would read the wrong rules file. Rename it to `AGENTS.md`. |
 | `agents-md` | The project root has `AGENTS.md`. | Warn only. The agent misses the rules of the project. |
-| `global-rules` | `~/.claude/CLAUDE.md`, `~/.config/opencode/AGENTS.md`, and `~/.codex/AGENTS.md` are symlinks to `<shared>/AGENTS.md`. | A copy drifts from the source, or a link is broken. Missing paths are a warn, because the tool may not be installed. |
+| `global-rules` | `~/.claude/CLAUDE.md`, `~/.config/opencode/AGENTS.md`, and `~/.codex/AGENTS.md` are symlinks to `<shared>/AGENTS.md`. | A copy drifts from the source, or a link is broken. Missing paths are a warn, because the tool may not be installed. `--fix` replaces an equal copy or a broken link with a symlink; a copy with different content is not changed. |
 | `skill-links` | Every symlink in `~/.claude/skills/` and `~/.agents/skills/` resolves to an existing folder. | A skill is gone. Remove the broken link or point it back. |
 | `agent-copies` | `.opencode/agents/coder.md`, `researcher.md`, and `reader.md` are permission-only files or absent (see `docs/research/AGENT_MERGE.md`). | A project copy overrides the plugin agent. Delete it, or keep only a permission block. |
-| `plugin-fresh` | The installed plugin commit matches `origin/alpha` of the plugin repository. | Warn. Run the plugin update commands that the fix names. |
+| `plugin-fresh` | The installed plugin commit matches `origin/alpha` of the plugin repository. | Warn. `--fix` runs the plugin update commands that the fix names. |
 | `sandbox-mounts` | When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires (a folder inside the project root is not mounted, the clone holds it), the project has the `sandbox-<name>` git remote of clone mode, and the clone exists inside the sandbox (`git -C <root> rev-parse --git-dir`). | Run `sbx rm --force NAME` and then `oc-sub up`, which creates the sandbox again in clone mode. |
 
 The fast checks `env-files` to `agent-copies` also run on every `oc-sub up` and `oc-sub run`. A fail stops the command with exit code 1 before anything changes state and before any paid call, and names the fixes plus the hint `run oc-sub doctor for details`. A warn prints one line and the command continues. The checks take about 1 ms. When they take over 50 ms, the command prints a warning with the time.

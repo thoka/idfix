@@ -245,7 +245,7 @@ Open follow-ups of step 14:
 Goal: one command brings the plugin, the server, and the sandbox of a project up to date. Today `oc-sub doctor` only prints a fix text for each problem, and the user or the agent must type each command by hand. The user asked for this step on 2026-09-30.
 
 - 15a, done on 2026-09-30. The report is [DOCTOR_FIX.md](research/DOCTOR_FIX.md), with the review of the main thread at the end. Established tools apply safe fixes without a question and guard a destructive fix with a flag and with preconditions, never with a prompt. `--fix` never prompts. `doctor` without `--fix` is the dry run. The exit code comes from a second run of the checks after the fixes.
-- 15b, in progress: the fix framework and the two safe fixes. A check gets an optional fix action. `--fix` runs the action of each check that warns or fails, in registry order, prints one line before and one after each action, then runs all checks again. The exit code is 1 when the second run has a fail or when a fix action failed. `--json --fix` prints `{fixes, results}`. The `plugin-fresh` fix runs the two `claude plugin` commands. The `global-rules` fix replaces a copy with a symlink only when its content equals the shared file, and re-points a wrong link.
+- 15b, done on 2026-09-30. A check can have a fix action. `--fix` runs the action of each check that warns or fails, in registry order, prints one line before and one after each action, then runs all checks again. The exit code is 1 when the second run has a fail or when a fix action failed. `--json --fix` prints `{fixes, results}` on stdout and the fix lines on stderr. The `plugin-fresh` fix runs the two `claude plugin` commands. The `global-rules` fix replaces a copy with a symlink only when its content equals the shared file, and re-points a wrong link. `--force` is parsed for 15d. The main thread ran `oc-sub doctor --fix` in this project: it updated the plugin, and all 8 checks passed. Coder run cost 0.1038 USD at OpenRouter.
 - 15c, open: a check for a stale server plugin folder, and the restart of an idle server as its fix. Reason: the server takes its plugin folder from the `oc-sub` that started it. On this machine `~/.local/bin/oc-sub` links to the development checkout, so a plugin update does not change that folder. A restart helps only when the folder of the running server differs from the current one, so the state files must record the folder.
 - 15d, open: the recreate of a sandbox that is not in clone mode or lacks a mount, with `--fix --force` only. A busy session or unfetched `feature/*` commits in the clone always block it, also with `--force`. It runs `sbx rm --force NAME` and `oc-sub up`.
 - 15e, open: `oc-sub doctor --renovate` lifts a project to the current standard. Decided with the user on 2026-09-30. Every best practice is a check, and an old setup gets the new status `outdated`. Plain `doctor` reports it, and `--renovate` acts on it. So the standard lives in the checks, and a new rule is one new check. `--renovate` includes `--fix` and applies every fix, also the ones that end sessions, without `--force`. A busy session or unfetched work in a clone still blocks it. First candidates: a host-mode server (moves to sandbox mode; a missing `sbx` or project key is reported, and nothing changes), a sandbox in direct-mount mode, a project `mise.toml` that pins its own `opencode` (the line is removed and only that file is committed; uncommitted changes in the file block it), and old agent copies. Found on 2026-09-30: nine projects in `~/dv` pin `opencode = "latest"`, so their sandbox server runs another opencode than the tested 1.18.32, and no check reports it. Research first: how `ng update` migrations, Renovate, and similar tools define a standard, detect drift, and apply migrations.
@@ -257,7 +257,7 @@ Default decisions, open for a change by the user: the command is a flag of `doct
 
 State for the next thread. Everything above is on `alpha` and pushed.
 
-No run is active. The installed Claude Code plugin is at `a555fd5`, the fix of 14e. Step 14e finished on 2026-09-30: `oc-sub restart` works again in sandbox mode. Step 8j finished on 2026-09-30 and is on `alpha`: `oc-sub worktree` runs the `setup` command of `.opencode/oc-sub.json` inside the new run worktree. This repository sets `bun install --frozen-lockfile`, so a coder starts with `node_modules`.
+No run is active. `oc-sub doctor --fix` updated the installed Claude Code plugin to the commit of 15b on 2026-09-30. Step 15b is done. Step 14e finished on 2026-09-30: `oc-sub restart` works again in sandbox mode. Step 8j finished on 2026-09-30 and is on `alpha`: `oc-sub worktree` runs the `setup` command of `.opencode/oc-sub.json` inside the new run worktree. This repository sets `bun install --frozen-lockfile`, so a coder starts with `node_modules`.
 
 The workflow in this project now (clone mode):
 
@@ -268,7 +268,7 @@ The workflow in this project now (clone mode):
 
 Next steps of the plan, in this order:
 
-1. Step 15: `oc-sub doctor --fix`, 15b is in progress, then 15c, 15d, and 15e (`--renovate`).
+1. Step 15: `oc-sub doctor --fix`, next is 15c, then 15d and 15e (`--renovate`).
 2. 8h: `oc-sub status --json`.
 3. The known gaps of 8g: new worktrees appear in the live view only after `a` twice, the footer lacks the day totals and the key usage per project, and the title is cut below about 110 columns.
 4. Step 12: a working mise inside the sandbox (open, decided with the user).
@@ -276,8 +276,11 @@ Next steps of the plan, in this order:
 
 Open tasks of the user:
 
+- Decide whether a missing project key becomes a fix too (proposed as 15f): a helper under a separate system user holds the OpenRouter provisioning key and creates project keys with a default limit that the user sets once. Missing `sbx` becomes a mise fix in 15e; `sbx login` stays with the user.
+- Decide on a stable plugin path for the sandbox mount (see the open question of step 15).
+
 - Recreate the sandboxes of arch-helper, grata, and meta in clone mode when no session runs there: `sbx rm --force oc-sub-<project>`, then `oc-sub up` in the project. This ends their sessions. grata had active sessions on 2026-09-30.
 - Decide from [DEPLOY_ACCESS.md](research/DEPLOY_ACCESS.md) section 8: whether Tailscale runs on the servers, and how long a debugging window lasts.
 - Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.
 
-Lessons of this day in `~/dv/meta/agents/lessons/`: `sbx-clone-mode-fails-silently.md`, `opencode-sdk-sse-abort-unhandled.md`, `worktree-needs-setup-command.md`, `compare-failing-test-names.md`, and `sbx-stop-removes-clone-remote.md`.
+Lessons of this day in `~/dv/meta/agents/lessons/`: `sbx-clone-mode-fails-silently.md`, `opencode-sdk-sse-abort-unhandled.md`, `worktree-needs-setup-command.md`, `compare-failing-test-names.md`, and `sbx-stop-removes-clone-remote.md`, `fix-mode-guards-by-flag-not-prompt.md`, and `json-output-test-parses-all-stdout.md`.

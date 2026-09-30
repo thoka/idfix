@@ -6,6 +6,7 @@ This file holds the details for the skill `oc-sub`. [SKILL.md](SKILL.md) has the
 
 - [Setup](#setup)
 - [Commands](#commands)
+- [Doctor checks](#doctor-checks)
 - [Sandbox mode](#sandbox-mode)
 - [Follow-up messages](#follow-up-messages)
 - [Guards](#guards)
@@ -49,9 +50,27 @@ Every command accepts `--url URL`. The URL comes from `--url`, then the environm
 | `oc-sub log SESSION [--dir DIR]` | Prints the last assistant text (the report of the agent), a line with the cost and the tokens, and the real-cost line. The totals cover the session and all of its subagent sessions (see [Cost and tokens](#cost-and-tokens)). |
 | `oc-sub abort SESSION [--dir DIR]` | Stops the session. |
 | `oc-sub answer REQUEST_ID [--dir DIR] (--reply once\|always\|reject \| --reject \| ANSWER...)` | Answers a pending question or permission request of the run in DIR. The command looks the ID up in the two pending lists to learn its kind. A question takes one positional ANSWER per question, in order. An ANSWER is the label of an option or free text. `--reject` rejects a question. A permission request takes `--reply once`, `--reply always`, or `--reply reject`. With `--reply reject`, `--message TEXT` gives the agent the reason. It sees the message as the error of the tool call. A rejected permission request ends the turn of the agent. The command prints a hint to send a follow-up message with `oc-sub say`. `--message` is only allowed with `--reply reject`. An unknown ID, a wrong kind, and a wrong answer count stop with an error before anything is sent. After the answer, start `watch` again. |
+| `oc-sub doctor [--dir DIR] [--json]` | Runs the health checks of the project of `--dir` (default: the current folder) and of the host, and prints one line per check with the status, the name, the message, and the fix. It ends with a summary line and exits with code 1 when a check fails. `--json` prints the results as one JSON array. The checks and their fixes are in [Doctor checks](#doctor-checks). |
 | `oc-sub say SESSION [--dir DIR] [--agent NAME] TEXT` | Sends TEXT as a follow-up message into the session and returns at once. It uses `prompt_async`, so it does not wait for the reply to end. Without `--agent`, it takes the agent from the last user message of the session. A session without a user message needs `--agent NAME`. It prints one line with the session, the agent, and the `watch` command. |
 
-Exit codes: 0 for success, 1 for an error (including a shared OpenRouter key in `run`), 2 for wrong arguments, 3 when `watch` found a pending question or permission request (the run is paused), and 4 when `watch` saw a warning sign in the run (see [Guards](#guards)). If no server runs, `status` and `top --once` print `no server on <url>` and exit with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
+Exit codes: 0 for success, 1 for an error (including a shared OpenRouter key in `run`), 2 for wrong arguments, 3 when `watch` found a pending question or permission request (the run is paused), and 4 when `watch` saw a warning sign in the run (see [Guards](#guards)).
+
+## Doctor checks
+
+`oc-sub doctor` runs all checks. The fast checks also run on every `up` and `run`: a fail stops the command before anything changes state and before any paid call, and the output names the fixes plus the hint `run oc-sub doctor for details`. A warn prints one line and the command continues. The fast checks take about 1 ms. Over 50 ms, the command prints a warning with the time. The slow checks run only in `oc-sub doctor`.
+
+| Check | Status on a problem | What it checks and how to fix it |
+| --- | --- | --- |
+| `env-files` | fail | No real `.env` or `.env.*` file in the project root or in any folder of `<root>/.worktrees/`, except names that end in `.example` or `.sample`. The file is never opened. Fix: move the keys to `~/.config/<project>/<provider>.key` and delete the file. |
+| `claude-md` | fail | No `CLAUDE.md` or `CLAUDE.local.md` in the project root. Fix: rename it to `AGENTS.md`. |
+| `agents-md` | warn | The project root has `AGENTS.md`. Fix: create it with the rules of the project. |
+| `global-rules` | warn or fail | `~/.claude/CLAUDE.md`, `~/.config/opencode/AGENTS.md`, and `~/.codex/AGENTS.md` are symlinks whose target resolves to `<shared>/AGENTS.md` (the folder from `OC_SUB_SHARED_DIR`). A missing path is a warn, because the tool may not be installed. A regular file (a copy) or a broken link is a fail. Fix: replace it with a symlink. |
+| `skill-links` | fail | Every entry of `~/.claude/skills/` and `~/.agents/skills/` that is a symlink resolves to an existing folder. A missing folder skips the check. Fix: remove the broken link or point it back. |
+| `agent-copies` | fail | `.opencode/agents/coder.md`, `researcher.md`, and `reader.md` exist only as permission-only files: the frontmatter has `permission`, no `description`, `model`, or `prompt`, and the body is empty (see [Agent files](#agent-files)). Fix: delete the file, the plugin serves the agent, or keep only a permission block. |
+| `plugin-fresh` | warn | The `gitCommitSha` of the `opencode-subagents@opencode-subagents` entry in `~/.claude/plugins/installed_plugins.json` matches `origin/alpha` of the plugin repository. A missing file or key skips the check. Fix: `claude plugin marketplace update opencode-subagents && claude plugin update opencode-subagents@opencode-subagents`. |
+| `sandbox-mounts` | fail | When a sandbox state file exists for the project, `sbx ls` lists all mounts that `up` requires. Without a state file, or without the sandbox in `sbx ls`, it skips. Fix: `sbx rm NAME`, then `oc-sub up` creates the sandbox again with all three mounts. |
+
+## Sandbox mode If no server runs, `status` and `top --once` print `no server on <url>` and exit with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
 
 ## Sandbox mode
 

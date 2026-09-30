@@ -240,6 +240,29 @@ bun run src/cli.ts abort SESSION [--dir DIR]
 
 Aborts the session (`POST /session/:id/abort`).
 
+### oc-sub doctor
+
+```
+bun run src/cli.ts doctor [--dir DIR] [--json]
+```
+
+Runs the health checks of the project of `--dir` (default: the current folder) and of the host, prints one line per check (status, name, message, and the fix on the next line), and ends with a summary line. `--json` prints the results as one JSON array. Exit code 1 when a check fails, else 0. The slow checks (a git call and one `sbx ls` call) run only here.
+
+The checks:
+
+| Check | What it checks | Fail means |
+| --- | --- | --- |
+| `env-files` | No real `.env` or `.env.*` file in the project root or in any folder of `.worktrees/`, except names that end in `.example` or `.sample`. It never opens the file. | A key file sits in the project. Move the keys to `~/.config/<project>/<provider>.key` and delete the file. |
+| `claude-md` | No `CLAUDE.md` or `CLAUDE.local.md` in the project root. | Claude Code would read the wrong rules file. Rename it to `AGENTS.md`. |
+| `agents-md` | The project root has `AGENTS.md`. | Warn only. The agent misses the rules of the project. |
+| `global-rules` | `~/.claude/CLAUDE.md`, `~/.config/opencode/AGENTS.md`, and `~/.codex/AGENTS.md` are symlinks to `<shared>/AGENTS.md`. | A copy drifts from the source, or a link is broken. Missing paths are a warn, because the tool may not be installed. |
+| `skill-links` | Every symlink in `~/.claude/skills/` and `~/.agents/skills/` resolves to an existing folder. | A skill is gone. Remove the broken link or point it back. |
+| `agent-copies` | `.opencode/agents/coder.md`, `researcher.md`, and `reader.md` are permission-only files or absent (see `docs/research/AGENT_MERGE.md`). | A project copy overrides the plugin agent. Delete it, or keep only a permission block. |
+| `plugin-fresh` | The installed plugin commit matches `origin/alpha` of the plugin repository. | Warn. Run the plugin update commands that the fix names. |
+| `sandbox-mounts` | When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires. | Run `sbx rm NAME` and then `oc-sub up`. |
+
+The fast checks `env-files` to `agent-copies` also run on every `oc-sub up` and `oc-sub run`. A fail stops the command with exit code 1 before anything changes state and before any paid call, and names the fixes plus the hint `run oc-sub doctor for details`. A warn prints one line and the command continues. The checks take about 1 ms. When they take over 50 ms, the command prints a warning with the time.
+
 ### Typical flow
 
 ```
@@ -270,6 +293,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
 - `src/state.ts` — per-user state files of the server (PID, log, folders with runs)
 - `src/attach.ts` — the `attach` command
+- `src/doctor.ts` — the health checks, the fast gate for `up` and `run`, and the `doctor` command
 - `src/up.ts`, `src/down.ts`, `src/run.ts`, `src/status.ts`, `src/ping.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts`, `src/answer.ts` — the commands
 
 ## License

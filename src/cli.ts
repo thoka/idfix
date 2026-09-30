@@ -15,6 +15,7 @@ import { log } from "./log";
 import { abort } from "./abort";
 import { answer } from "./answer";
 import { say } from "./say";
+import { doctor, gateForCommand } from "./doctor";
 
 const HELP = `oc-sub - drive an opencode server for subagent runs
 
@@ -36,6 +37,7 @@ Usage:
   oc-sub abort SESSION [--dir DIR]
   oc-sub answer REQUEST_ID [--dir DIR] (--reply once|always|reject | --reject | ANSWER...)
   oc-sub say SESSION [--dir DIR] [--agent NAME] TEXT
+  oc-sub doctor [--dir DIR] [--json]
 
 Every command accepts:
   --url URL   opencode server URL (default: $OC_SUB_URL or http://127.0.0.1:8767)
@@ -70,6 +72,11 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
   const args = parseArgs(argv);
+  // The fast health checks run once before the dispatch of the commands that
+  // change state or start a paid run. A fail stops the command here.
+  if ((args.command === "up" || args.command === "restart" || args.command === "run") && !gateForCommand(args)) {
+    return 1;
+  }
   switch (args.command) {
     case "up":
       return args.sandbox ? upSandbox(args, process.env) : up(args);
@@ -103,6 +110,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return answer(args);
     case "say":
       return say(args);
+    case "doctor":
+      return doctor(args);
   }
 }
 

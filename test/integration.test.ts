@@ -8,7 +8,7 @@
  */
 import { expect, test } from "bun:test";
 import { createOpencodeClient, type Event, type OpencodeClient } from "@opencode-ai/sdk";
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import net from "node:net";
 import path from "node:path";
@@ -131,6 +131,9 @@ test.skipIf(!hasOpencode)(
   async () => {
     const port = await findFreePort();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-"));
+    // The fast health checks of `up` and `restart` warn without AGENTS.md,
+    // and the test asserts that stderr stays empty.
+    writeFileSync(path.join(workDir, "AGENTS.md"), "# rules\n");
     const dataDir = path.join(workDir, "data"); // isolate opencode storage
     const stateHome = path.join(workDir, "state"); // isolate the oc-sub state
     // The outer shell may set OPENCODE_CONFIG_DIR (for example to another

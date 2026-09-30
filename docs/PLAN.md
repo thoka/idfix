@@ -195,6 +195,17 @@ Root cause: the sandbox gets the tool folders of the host read-only, but no `mis
 4. Open: the feature is experimental upstream. Make sure that it works without `MISE_EXPERIMENTAL=1`, or set it. Find out why `/home/toka/.local/share` belongs to root inside the sandbox, and whether `HOME` points to `/home/toka` there.
 5. Tests for the environment of the server, and one bullet each in `docs/GUIDE.md` and `skills/oc-sub/reference.md`.
 
+## Step 13: oc-sub doctor
+
+Status: done. 2026-09-30. The design is in [DOCTOR.md](research/DOCTOR.md), with the review of the main thread at the end (option A, no cache).
+
+`oc-sub doctor` checks the project and the host for the things that break runs. A registry of named checks lives in `src/doctor.ts`, each with a status (`pass`, `warn`, `fail`, `skip`), a message, and a fix. The fast checks run on every `up` and `run` and stop the command on a fail, before any state change or paid call. The slow checks run only in `oc-sub doctor`.
+
+1. Fast checks: no real `.env` file in the project or its `.worktrees/` folders, no `CLAUDE.md` in the project root, an `AGENTS.md` present, the global rule files are symlinks to the shared `AGENTS.md`, every skill symlink resolves, and the project agent files are permission-only. Stat and readdir only, except the frontmatter read of the agent files. Measured at about 1 ms.
+2. Slow checks: the installed plugin commit matches `origin/alpha`, and the sandbox has the mounts that `up` requires. The list of the required mounts comes from one function that `upSandbox` and the check share, so the two never differ.
+3. `oc-sub doctor [--dir DIR] [--json]` prints one line per check with the fix, then a summary. Exit code 1 on a fail.
+4. If the fast checks ever take over 50 ms, `up` and `run` print a warning with the time.
+
 ## Step 10b: The plugin is the one source of the oc-sub agents
 
 Status: done. 2026-09-30.

@@ -435,6 +435,15 @@ export function placeholderKeyScript(project: string): string {
   return `mkdir -p ${dir} && chmod 700 ${dir} && printf %s ${PLACEHOLDER_KEY} > ${dir}/openrouter.key`;
 }
 
+/**
+ * The mounts that a project sandbox must have, in the `WORKSPACE` column form
+ * of `sbx ls`. `upSandbox` and the health check of step 13 use the same
+ * list, so the two never differ.
+ */
+export function requiredSandboxMounts(pluginDir: string, installsDir: string, sharedDir: string): string[] {
+  return [`${pluginDir}:ro`, `${installsDir}:ro`, `${sharedDir}:ro`];
+}
+
 function printUp(serveUrl: string, name: string, logPath: string, version: string): void {
   console.log(`${serveUrl} version ${version}`);
   console.log(`sandbox: ${name}`);
@@ -544,7 +553,7 @@ export async function upSandbox(
       console.error(`error: sbx policy deny network failed for ${name}`);
       return 1;
     }
-  } else if (!listsMounts(lsStdout, name, [`${PLUGIN_CONFIG_DIR}:ro`, `${installsDir}:ro`, `${sharedDir}:ro`])) {
+  } else if (!listsMounts(lsStdout, name, requiredSandboxMounts(PLUGIN_CONFIG_DIR, installsDir, sharedDir))) {
     // The sandbox holds the sessions, so oc-sub does not remove it itself.
     console.error(`error: the sandbox ${name} lacks the plugin, the mise installs, or the shared agents mount`);
     console.error(`Remove it with: sbx rm ${name}`);

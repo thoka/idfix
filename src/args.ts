@@ -28,7 +28,8 @@ export type ParsedArgs =
       message?: string;
       answers: string[];
     }
-  | { command: "say"; url?: string; session: string; dir?: string; agent?: string; text: string };
+  | { command: "say"; url?: string; session: string; dir?: string; agent?: string; text: string }
+  | { command: "doctor"; dir?: string; json: boolean };
 
 /** The reply values of a permission request. */
 export type Reply = "once" | "always" | "reject";
@@ -344,6 +345,13 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         agent: optionalString(flags, "agent"),
         text,
       };
+    }
+    case "doctor": {
+      const { flags, positionals } = collectFlags(rest, new Set(["dir", "json"]), new Set(["json"]));
+      if (positionals.length > 0) {
+        throw new UsageError(`doctor takes no positional arguments, got "${positionals.join(" ")}"`);
+      }
+      return { command: "doctor", dir: optionalString(flags, "dir"), json: flags.get("json") === true };
     }
     default:
       throw new UsageError(`unknown command "${head}"`);

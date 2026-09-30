@@ -74,7 +74,13 @@ claude plugin marketplace remove opencode-subagents
    }
    ```
 
-   Then start the server and check the key and the shared rules:
+   Then run the health check once. It looks for the things that break runs: a real `.env` file in the project or a worktree, a `CLAUDE.md` instead of `AGENTS.md`, global rule files that are copies instead of symlinks, and old agent file copies:
+
+   ```
+   oc-sub doctor
+   ```
+
+   Every finding names its fix. The first lines should read `pass` for `env-files`, `claude-md`, and `agent-copies`. Then start the server and check the key and the shared rules:
 
    ```
    oc-sub up

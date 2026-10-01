@@ -1807,7 +1807,7 @@ describe("the opencode-version check", () => {
     const res = check(deps);
     expect(res?.status).toBe("pass");
     expect(res?.message).toContain("1.18.32");
-    expect(calls).toEqual([{ cmd: ["mise", "current", "opencode"], cwd: "/repo" }]);
+    expect(calls[0]).toEqual({ cmd: ["mise", "current", "opencode"], cwd: "/repo" });
   });
 
   test("warns and names the project pin when the project mise.toml pins opencode", () => {
@@ -1908,6 +1908,94 @@ describe("the opencode-version check", () => {
 
   test("skips when mise prints no version", () => {
     const { deps } = versionDeps({ "/plugin/mise.toml": TESTED }, "  \n");
+    expect(check(deps)?.status).toBe("skip");
+  });
+});
+
+describe("the opencode-release check", () => {
+  const TESTED = '[tools]\nbun = "1.4.2"\nopencode = "1.18.32"\n';
+  const REVIEW = JSON.stringify({ reviewed: "1.18.33", date: "2026-09-30", decision: "stay on 1.18.32" });
+  const FIX = "read the release notes of opencode <latest>, then either raise the pin in the mise.toml of oc-sub and run the tests, or record the decision in opencode-review.json";
+  const check = (deps: DoctorDeps) => byName(results(deps, SLOW_CHECKS), "opencode-release");
+  /** Fake deps with the given files and a mise runner that prints `stdout` and records its calls. */
+  function reviewDeps(files: Record<string, string>, stdout: string, exitCode = 0) {
+    const calls: { cmd: readonly string[] }[] = [];
+    const entries: Record<string, { content: string }> = {};
+    for (const [file, content] of Object.entries(files)) entries[file] = { content };
+    const deps = makeDeps(
+      { files: map(entries) },
+      {
+        miseRunner: (cmd) => {
+          calls.push({ cmd });
+          return { stdout, exitCode };
+        },
+      },
+    );
+    return { deps, calls };
+  }
+
+  test("is a slow check right after opencode-version, with no fix action", () => {
+    const names = SLOW_CHECKS.map((c) => c.name);
+    expect(names.indexOf("opencode-release")).toBe(names.indexOf("opencode-version") + 1);
+    expect(ALL_CHECKS.find((c) => c.name === "opencode-release")?.fix).toBeUndefined();
+  });
+
+  test("passes when the latest version equals the tested version", () => {
+    const { deps, calls } = reviewDeps({ "/plugin/mise.toml": TESTED, "/plugin/opencode-review.json": REVIEW }, "1.18.32\n");
+    const res = check(deps);
+    expect(res?.status).toBe("pass");
+    expect(res?.message).toContain("1.18.32");
+    expect(calls.filter((call) => call.cmd.includes("latest"))).toEqual([{ cmd: ["mise", "latest", "opencode"] }]);
+  });
+
+  test("passes when the latest version equals the reviewed version", () => {
+    const { deps } = reviewDeps({ "/plugin/mise.toml": TESTED, "/plugin/opencode-review.json": REVIEW }, "1.18.33\n");
+    const res = check(deps);
+    expect(res?.status).toBe("pass");
+    expect(res?.message).toContain("reviewed on 2026-09-30");
+  });
+
+  test("passes when the latest version is older than the reviewed version", () => {
+    const { deps } = reviewDeps({ "/plugin/mise.toml": TESTED, "/plugin/opencode-review.json": REVIEW }, "1.18.33\n");
+    expect(check(deps)?.status).toBe("pass");
+  });
+
+  test("warns when the latest version is newer than both tested and reviewed", () => {
+    const { deps } = reviewDeps({ "/plugin/mise.toml": TESTED, "/plugin/opencode-review.json": REVIEW }, "1.19.0\n");
+    const res = check(deps);
+    expect(res?.status).toBe("warn");
+    expect(res?.message).toContain("opencode 1.19.0 is out");
+    expect(res?.message).toContain("oc-sub is tested with 1.18.32");
+    expect(res?.message).toContain("last review 1.18.33 on 2026-09-30");
+    expect(res?.fix).toBe(`read the release notes of opencode 1.19.0, then either raise the pin in the mise.toml of oc-sub and run the tests, or record the decision in opencode-review.json`);
+  });
+
+  test("warns when the review file is missing and the latest is newer than tested", () => {
+    const { deps } = reviewDeps({ "/plugin/mise.toml": TESTED }, "1.19.0\n");
+    const res = check(deps);
+    expect(res?.status).toBe("warn");
+    expect(res?.message).toContain("last review none");
+  });
+
+  test("treats a broken review file as nothing reviewed", () => {
+    const { deps } = reviewDeps({ "/plugin/mise.toml": TESTED, "/plugin/opencode-review.json": "{ no json" }, "1.19.0\n");
+    expect(check(deps)?.status).toBe("warn");
+  });
+
+  test("skips when mise fails and never treats that as a pass", () => {
+    const { deps } = reviewDeps({ "/plugin/mise.toml": TESTED, "/plugin/opencode-review.json": REVIEW }, "", 1);
+    const res = check(deps);
+    expect(res?.status).toBe("skip");
+    expect(res?.message).toContain("code 1");
+  });
+
+  test("skips when mise prints no version", () => {
+    const { deps } = reviewDeps({ "/plugin/mise.toml": TESTED, "/plugin/opencode-review.json": REVIEW }, "  \n");
+    expect(check(deps)?.status).toBe("skip");
+  });
+
+  test("skips without an opencode pin in the plugin repository", () => {
+    const { deps } = reviewDeps({ "/plugin/mise.toml": '[tools]\nbun = "1.4.2"\n' }, "1.19.0\n");
     expect(check(deps)?.status).toBe("skip");
   });
 });

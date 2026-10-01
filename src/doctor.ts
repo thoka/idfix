@@ -876,6 +876,69 @@ function opencodeVersionCheck(deps: DoctorDeps): CheckResult {
   );
 }
 
+/**
+ * The record of the last opencode release review in `opencode-review.json`
+ * of the plugin repository. Null when the file is missing or broken.
+ */
+type OpencodeReview = { reviewed: string; date: string; decision?: string; notes?: string };
+
+/**
+ * The reviewed version and date of the last opencode release review, or null.
+ * A missing or broken review file counts as "nothing reviewed".
+ */
+export function parseOpencodeReview(text: string | null): OpencodeReview | null {
+  if (text === null) return null;
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    if (typeof parsed.reviewed !== "string" || parsed.reviewed.length === 0) return null;
+    if (typeof parsed.date !== "string" || parsed.date.length === 0) return null;
+    return { reviewed: parsed.reviewed, date: parsed.date };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the latest opencode release needs a review. It returns "pass" when
+ * the latest version is not newer than the tested version, and also when it
+ * is not newer than the reviewed version of the last review (a newer release
+ * than the pin but already reviewed is fine). Without a review file, only a
+ * latest that equals the tested version passes. "warn" means: review the
+ * release, then either move the pin or record the decision.
+ */
+function opencodeReviewCheck(deps: DoctorDeps): CheckResult {
+  const testedFile = path.join(deps.pluginRepoRoot, "mise.toml");
+  const tested = miseToolVersion(deps.readText(testedFile), "opencode");
+  if (tested === null) return result("opencode-release", "skip", `no opencode pin in ${testedFile}`);
+  const review = parseOpencodeReview(deps.readText(path.join(deps.pluginRepoRoot, "opencode-review.json")));
+  const latestRun = deps.miseRunner([deps.miseBin, "latest", "opencode"]);
+  const latest = latestRun.stdout.trim().split(/\s+/)[0] ?? "";
+  if (latestRun.exitCode !== 0) {
+    return result("opencode-release", "skip", `${deps.miseBin} latest opencode exited with code ${latestRun.exitCode}`);
+  }
+  if (latest.length === 0) return result("opencode-release", "skip", `${deps.miseBin} latest opencode printed no version`);
+  // Pass when the latest version is not newer than the tested version, or not
+  // newer than the reviewed version of the last review. Without a review file,
+  // only a latest that equals the tested version passes.
+  if (Bun.semver.order(latest, tested) <= 0 || (review !== null && Bun.semver.order(latest, review.reviewed) <= 0)) {
+    return result("opencode-release", "pass", review === null ? `the latest opencode release is ${latest}, the tested version` : `the latest opencode release is ${latest}, already reviewed on ${review.date}`);
+  }
+  if (review === null) {
+    return result(
+      "opencode-release",
+      "warn",
+      `opencode ${latest} is out; oc-sub is tested with ${tested}, last review none`,
+      `read the release notes of opencode ${latest}, then either raise the pin in the mise.toml of oc-sub and run the tests, or record the decision in opencode-review.json`,
+    );
+  }
+  return result(
+    "opencode-release",
+    "warn",
+    `opencode ${latest} is out; oc-sub is tested with ${tested}, last review ${review.reviewed} on ${review.date}`,
+    `read the release notes of opencode ${latest}, then either raise the pin in the mise.toml of oc-sub and run the tests, or record the decision in opencode-review.json`,
+  );
+}
+
 /** The fast checks: `up` and `run` run them on every invocation. */
 export const FAST_CHECKS: Check[] = [
   { name: "env-files", run: envFilesCheck },
@@ -890,6 +953,7 @@ export const FAST_CHECKS: Check[] = [
 export const SLOW_CHECKS: Check[] = [
   // First: it only spawns mise, and no other check or fix depends on it.
   { name: "opencode-version", run: opencodeVersionCheck },
+  { name: "opencode-release", run: opencodeReviewCheck },
   { name: "plugin-fresh", run: pluginFreshCheck, fix: pluginFreshFix },
   // After plugin-fresh, so a plugin update comes before the sync and the restart.
   { name: "server-plugin", run: serverPluginCheck, fix: serverPluginFix },

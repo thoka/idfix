@@ -4,6 +4,7 @@
  * directories with runs live in one place per user, not in the current
  * directory: `$XDG_STATE_HOME/oc-sub/`, default `~/.local/state/oc-sub/`.
  */
+import { readFileSync } from "node:fs";
 import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -27,6 +28,27 @@ export function serveLogPath(env: Env, port: number): string {
 /** The directories that `oc-sub run` sent sessions to, one per line. */
 export function serveDirsPath(env: Env, port: number): string {
   return path.join(stateDir(env), `serve-${port}.dirs`);
+}
+
+/**
+ * The plugin digest of the server on `port`: the content digest of the
+ * synced plugin folder (`pluginDigest` in `plugin-sync.ts`) at the moment
+ * `up` started the server. Both modes write it, because both keep the PID of
+ * their server process in `serve-<port>.pid`. The `server-plugin` check of
+ * `doctor` compares it with the folder now.
+ */
+export function servePluginPath(env: Env, port: number): string {
+  return path.join(stateDir(env), `serve-${port}.plugin`);
+}
+
+/** The recorded plugin digest of a server, or null without a valid record. */
+export function readServePlugin(file: string): string | null {
+  try {
+    const text = readFileSync(file, "utf8").trim();
+    return text.startsWith("sha256:") ? text : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

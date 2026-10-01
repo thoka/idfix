@@ -13,7 +13,8 @@ import {
   spawnDetached,
   type ServeProcess,
 } from "./sandbox";
-import { removeFiles, proxyLogPath, proxyPidPath, serveDirsPath, serveLogPath, servePidPath } from "./state";
+import { removeFiles, proxyLogPath, proxyPidPath, serveDirsPath, serveLogPath, servePidPath, servePluginPath } from "./state";
+import { pluginDataDir, proxyBundleIn, syncPluginDir } from "./plugin-sync";
 
 const HEALTH_TIMEOUT_MS = 60_000;
 const HEALTH_INTERVAL_MS = 300;
@@ -22,18 +23,17 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 /**
  * The config directory of this plugin: `opencode/` next to `src/`. It holds
- * the research agents in `agents/`. Computed from this source file, not from
- * the working directory, so it stays correct when `up` runs in any project.
+ * the research agents in `agents/` and the committed single-file bundle of
+ * the cost proxy in `cost-proxy/` (opencode 1.18.32 loads `.js` files only
+ * from the direct `plugin(s)/` and `tool(s)/` children of a config
+ * directory, so the bundle is neither a plugin nor a tool for opencode).
+ * Computed from this source file, not from the working directory, so it
+ * stays correct when `up` runs in any project.
+ *
+ * No server uses this folder directly. `up` syncs it into the fixed folder
+ * `pluginDataDir(env)` first, and the server loads that copy (step 15c).
  */
 export const PLUGIN_CONFIG_DIR = path.resolve(import.meta.dir, "..", "opencode");
-
-/**
- * The single-file bundle of the cost proxy, committed inside the plugin
- * config directory. opencode 1.18.32 loads `.js` files only from the direct
- * `plugin(s)/` and `tool(s)/` children of a config directory, so the file is
- * neither a plugin nor a tool for opencode.
- */
-export const PROXY_BUNDLE = path.join(PLUGIN_CONFIG_DIR, "cost-proxy", "cost-proxy.js");
 
 /**
  * The environment for the `opencode serve` child. Sets `OPENCODE_CONFIG_DIR`
@@ -104,6 +104,8 @@ export type UpDeps = {
   spawnServe: (cmd: readonly string[], logPath: string, pidPath: string, env: Env) => ServeProcess;
   /** Starts the detached proxy process. */
   spawnProxy: (cmd: readonly string[], logPath: string, pidPath: string) => ServeProcess;
+  /** The plugin folder that `up` syncs from; the default is `PLUGIN_CONFIG_DIR`. */
+  pluginSource?: string;
 };
 
 /** The default dependencies, with the real bun from PATH and real spawns. */
@@ -178,7 +180,20 @@ export async function up(
     }
   }
 
-  const serve = serveEnv(env, PLUGIN_CONFIG_DIR, sharedAgentsDir(env), {
+  // The server loads the synced copy of the plugin folder, never the folder
+  // of this oc-sub itself. The sync runs right before the start, so the new
+  // server gets the current plugin, and its digest goes into the state.
+  const pluginDir = pluginDataDir(env);
+  let digest: string;
+  try {
+    digest = syncPluginDir(deps.pluginSource ?? PLUGIN_CONFIG_DIR, pluginDir).digest;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(`error: cannot sync the plugin folder into ${pluginDir}: ${reason}`);
+    return 1;
+  }
+
+  const serve = serveEnv(env, pluginDir, sharedAgentsDir(env), {
     proxyUrl: args.noCostProxy ? undefined : proxyBaseUrl(proxyPort),
   });
   for (const warning of serve.warnings) console.error(`warning: ${warning}`);
@@ -188,15 +203,16 @@ export async function up(
   const pidPath = servePidPath(env, port);
 
   await mkdir(path.dirname(logPath), { recursive: true });
-  // A new server has no runs yet. A list left by a crashed server is stale.
-  await removeFiles(serveDirsPath(env, port));
+  // A new server has no runs yet. A list left by a crashed server is stale,
+  // and so is its plugin digest.
+  await removeFiles(serveDirsPath(env, port), servePluginPath(env, port));
 
   // The proxy starts first, so that it listens before the first request of
   // the server. Its log and pid live next to the ones of the server.
   if (bunBin !== null) {
     try {
       deps.spawnProxy(
-        ["sh", "-c", proxyLoopScript(bunBin, PROXY_BUNDLE, proxyPort, "127.0.0.1")],
+        ["sh", "-c", proxyLoopScript(bunBin, proxyBundleIn(pluginDir), proxyPort, "127.0.0.1")],
         proxyLogPath(env, port),
         proxyPidPath(env, port),
       );
@@ -219,6 +235,7 @@ export async function up(
     console.error(`error: cannot start "opencode serve": ${reason} (is opencode on PATH?)`);
     return 1;
   }
+  writeFileSync(servePluginPath(env, port), `${digest}\n`);
 
   const deadline = Date.now() + HEALTH_TIMEOUT_MS;
   while (Date.now() < deadline) {

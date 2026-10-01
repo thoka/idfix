@@ -1,7 +1,7 @@
 /** `oc-sub down`: stop the opencode server that `oc-sub up` started. */
 import { resolveTarget, type Env } from "./config";
 import { assertUsable, makeClient, probeServer, unwrap } from "./client";
-import { readDirs, readPid, removeFiles, proxyPidPath, serveDirsPath, servePidPath } from "./state";
+import { readDirs, readPid, removeFiles, proxyPidPath, serveDirsPath, servePidPath, servePluginPath } from "./state";
 
 const STOP_TIMEOUT_MS = 15_000;
 const STOP_INTERVAL_MS = 200;
@@ -113,7 +113,7 @@ export async function down(
   const commandLine = pid === null ? null : deps.commandLineOf(pid);
   if (pid === null || commandLine === null || !isOpencodeServe(commandLine, port)) {
     // No server of ours: the PID file is missing or stale.
-    await removeFiles(pidPath, dirsPath, proxyPidPath(env, port));
+    await removeFiles(pidPath, dirsPath, proxyPidPath(env, port), servePluginPath(env, port));
     if ((await probeServer(serveUrl, env, 2000)).state !== "down") {
       console.error(`error: a server answers on ${serveUrl}, but oc-sub up did not start it. Stop it yourself.`);
       return 1;
@@ -149,7 +149,7 @@ export async function down(
     console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   }
-  await removeFiles(pidPath, dirsPath);
+  await removeFiles(pidPath, dirsPath, servePluginPath(env, port));
   console.log(`stopped ${serveUrl} (PID ${pid})`);
   return 0;
 }

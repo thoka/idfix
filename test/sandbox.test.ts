@@ -52,9 +52,13 @@ import {
 } from "../src/sandbox";
 import { sharedAgentsDir } from "../src/shared";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
+import { pluginDataDir, pluginDigest, proxyBundleIn } from "../src/plugin-sync";
+import { readServePlugin, servePluginPath } from "../src/state";
 
-/** The bundle of the cost proxy, at its fixed path inside the plugin folder. */
-const BUNDLE_PATH = path.join(PLUGIN_CONFIG_DIR, "cost-proxy", "cost-proxy.js");
+/** The bundle of the cost proxy, inside the synced plugin folder of the env. */
+function bundlePath(env: Record<string, string>): string {
+  return proxyBundleIn(pluginDataDir(env));
+}
 
 function tempDir(): string {
   return mkdtempSync(path.join(tmpdir(), "oc-sub-sandbox-"));
@@ -78,7 +82,9 @@ function bunBinOf(env: Record<string, string>): string {
 type Call = { cmd: string[]; cwd?: string };
 
 /** The mounts of a sandbox of the tests, as the WORKSPACE column shows them. */
-const PLUGIN_MOUNT = `${PLUGIN_CONFIG_DIR}:ro`;
+function pluginMount(env: Record<string, string>): string {
+  return `${pluginDataDir(env)}:ro`;
+}
 
 function sharedMount(env: Record<string, string>): string {
   return `${sharedAgentsDir(env)}:ro`;
@@ -90,7 +96,7 @@ function installsMount(env: Record<string, string>): string {
 
 /** The `sbx ls` output with all mounts, in the real column format. */
 function lsWorkspace(name: string, env: Record<string, string>): string {
-  return `NAME     STATUS     WORKSPACE\n${name}   running   /repo, ${PLUGIN_MOUNT}, ${installsMount(env)}, ${sharedMount(env)}\n`;
+  return `NAME     STATUS     WORKSPACE\n${name}   running   /repo, ${pluginMount(env)}, ${installsMount(env)}, ${sharedMount(env)}\n`;
 }
 
 /** What `sbx policy check network` prints for a denied target. */
@@ -650,7 +656,7 @@ describe("cost proxy wiring (sandbox mode)", () => {
     const cmd = holderCommands[0] ?? [];
     const shIndex = cmd.indexOf("sh");
     expect(cmd.slice(shIndex, shIndex + 2)).toEqual(["sh", "-c"]);
-    expect(cmd[shIndex + 2]).toBe(sandboxHolderScript(bunBinOf(env), BUNDLE_PATH, SANDBOX_PROXY_PORT, 4096));
+    expect(cmd[shIndex + 2]).toBe(sandboxHolderScript(bunBinOf(env), bundlePath(env), SANDBOX_PROXY_PORT, 4096));
   });
 
   test("--no-cost-proxy keeps the plain serve holder and no baseURL", async () => {
@@ -732,7 +738,7 @@ describe("upSandbox", () => {
     const { calls, runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) {
         return {
-          stdout: `NAME     STATUS     WORKSPACE\noc-sub-test   running   /repo, ${PLUGIN_MOUNT}, ${installsMount(env)}\n`,
+          stdout: `NAME     STATUS     WORKSPACE\noc-sub-test   running   /repo, ${pluginMount(env)}, ${installsMount(env)}\n`,
         };
       }
       return DENIED;
@@ -901,7 +907,7 @@ describe("upSandbox", () => {
       "oc-sub-test",
       "opencode",
       "/repo",
-      `${relativeMount("/", PLUGIN_CONFIG_DIR)}:ro`,
+      `${relativeMount("/", pluginDataDir(env))}:ro`,
       `${relativeMount("/", miseInstallsDir(env))}:ro`,
       `${relativeMount("/", sharedAgentsDir(env))}:ro`,
     ]);
@@ -940,7 +946,7 @@ describe("upSandbox", () => {
       "sbx",
       "exec",
       "-e",
-      `OPENCODE_CONFIG_DIR=${PLUGIN_CONFIG_DIR}`,
+      `OPENCODE_CONFIG_DIR=${pluginDataDir(env)}`,
       "-e",
       `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedAgentsDir(env), proxyBaseUrl(SANDBOX_PROXY_PORT))}`,
       "-e",
@@ -952,7 +958,7 @@ describe("upSandbox", () => {
       "oc-sub-test",
       "sh",
       "-c",
-      sandboxHolderScript(`${toolBin}/bun`, BUNDLE_PATH, SANDBOX_PROXY_PORT, 4096),
+      sandboxHolderScript(`${toolBin}/bun`, bundlePath(env), SANDBOX_PROXY_PORT, 4096),
     ]]);
     // The state file holds the name, the root, and the port.
     const state = readSandboxState(sandboxStatePath(env, "test"));
@@ -963,7 +969,7 @@ describe("upSandbox", () => {
     const env = makeEnv();
     const { calls, runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) {
-        return { stdout: `NAME     STATUS     WORKSPACE\noc-sub-test   running   /repo, ${PLUGIN_MOUNT}\n` };
+        return { stdout: `NAME     STATUS     WORKSPACE\noc-sub-test   running   /repo, ${pluginMount(env)}\n` };
       }
       return DENIED;
     });
@@ -1161,12 +1167,34 @@ describe("upSandbox", () => {
       console.log = log;
     }
     expect(output).toContain("http://127.0.0.1:18768 version 1.18.32");
+    // The started server records the digest of the synced plugin folder.
+    expect(pluginDigest(pluginDataDir(env))).toBe(pluginDigest(PLUGIN_CONFIG_DIR));
+    expect(readServePlugin(servePluginPath(env, 18768))).toBe(pluginDigest(pluginDataDir(env)));
   });
 
-  test("a first up with the plugin folder inside the root does not mount it", async () => {
+  test("a healthy server keeps its plugin digest: up neither syncs nor rewrites it", async () => {
     const env = makeEnv();
-    // The project is the plugin repository itself: the plugin folder lies
-    // inside the project root.
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    writeFileSync(servePluginPath(env, 18768), "sha256:old\n");
+    const { runner } = fakeRunner((cmd) =>
+      isSubcommand(cmd, "ls") ? { stdout: lsWorkspace("oc-sub-test", env) } : cmd[0] === "git" ? GIT_REMOTE : DENIED,
+    );
+    const log = console.log;
+    console.log = () => {};
+    try {
+      const result = await upSandbox({}, env, makeDeps({ runner, probe: async () => ({ state: "up", version: "1.18.32" }) }));
+      expect(result).toBe(0);
+    } finally {
+      console.log = log;
+    }
+    expect(readServePlugin(servePluginPath(env, 18768))).toBe("sha256:old");
+    expect(existsSync(pluginDataDir(env))).toBe(false);
+  });
+
+  test("a first up of the plugin repository mounts the synced plugin folder outside the root", async () => {
+    const env = makeEnv();
+    // The project is the plugin repository itself. Its own plugin folder lies
+    // inside the root, but the server loads the synced copy, which does not.
     const root = path.dirname(PLUGIN_CONFIG_DIR);
     const { calls, runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) return { stdout: "other-sb\n" };
@@ -1194,32 +1222,45 @@ describe("upSandbox", () => {
       "oc-sub-test",
       "opencode",
       root,
+      `${relativeMount("/", pluginDataDir(env))}:ro`,
       `${relativeMount("/", miseInstallsDir(env))}:ro`,
       `${relativeMount("/", sharedAgentsDir(env))}:ro`,
     ]);
-    expect(output.join("\n")).toContain(`note: ${PLUGIN_CONFIG_DIR} lies inside the project root`);
-    // The clone check runs at the plugin root.
+    expect(output.join("\n")).not.toContain("lies inside the project root");
+    // The mount source exists before the create.
+    expect(pluginDigest(pluginDataDir(env))).toBe(pluginDigest(PLUGIN_CONFIG_DIR));
     expect(calls.map((call) => call.cmd)).toContainEqual(cloneCheckCommand("sbx", "oc-sub-test", root));
   });
 
-  test("an existing sandbox without the plugin mount is fine when the plugin folder is inside the root", async () => {
+  test("an existing sandbox without the synced plugin mount stops up and names step 15c", async () => {
     const env = makeEnv();
     const root = path.dirname(PLUGIN_CONFIG_DIR);
     const { runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) {
         return { stdout: `NAME     STATUS     WORKSPACE\noc-sub-test   running   ${root}, ${installsMount(env)}, ${sharedMount(env)}\n` };
       }
-      if (isSubcommand(cmd, "secret")) return { stdout: "oc-sub-test   service   openrouter   (stored)\n" };
-      if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
-      if (cmd[0] === "git") return GIT_REMOTE;
       return DENIED;
     });
-    const result = await upSandbox({}, env, makeDeps({
-      runner,
-      rootOf: () => root,
-      probe: async () => ({ state: "up", version: "1.18.32" }),
-    }));
-    expect(result).toBe(0);
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, env, makeDeps({
+        runner,
+        rootOf: () => root,
+        spawnServe: () => {
+          throw new Error("no server may start");
+        },
+      }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    const text = errors.join("\n");
+    expect(text).toContain(`lacks the mounts ${pluginMount(env)}`);
+    expect(text).toContain("since oc-sub step 15c");
+    expect(text).toContain("sbx rm --force oc-sub-test");
   });
 
   test("a create without a clone stops up with the sbx rm --force fix", async () => {
@@ -1292,6 +1333,7 @@ describe("downSandbox", () => {
       root: "/repo",
       port: 18768,
     });
+    writeFileSync(servePluginPath(env, 18768), "sha256:abc\n");
     const { calls, runner } = fakeRunner(() => ({ stdout: "" }));
     const result = await downSandbox({ force: false }, env, makeDeps({
       runner,
@@ -1301,6 +1343,8 @@ describe("downSandbox", () => {
     expect(calls).toEqual([{ cmd: ["sbx", "stop", "oc-sub-test"] }]);
     // The state file stays, so the port stays the same.
     expect(readSandboxState(sandboxStatePath(env, "test"))).not.toBeNull();
+    // The plugin digest belongs to the stopped server.
+    expect(existsSync(servePluginPath(env, 18768))).toBe(false);
   });
 
   test("reports a failed sbx stop", async () => {

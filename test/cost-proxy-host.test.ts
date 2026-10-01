@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PROXY_BUNDLE, serveEnv, up, type UpDeps } from "../src/up";
+import { serveEnv, up, type UpDeps } from "../src/up";
+import { pluginDataDir, proxyBundleIn } from "../src/plugin-sync";
 import { proxyLoopScript } from "../src/sandbox";
-import { proxyLogPath, proxyPidPath, readPid, servePidPath } from "../src/state";
+import { proxyLogPath, proxyPidPath, readPid, readServePlugin, servePidPath, servePluginPath } from "../src/state";
+import { pluginDigest } from "../src/plugin-sync";
+import { PLUGIN_CONFIG_DIR } from "../src/up";
 import { down, type DownDeps } from "../src/down";
 import { parseArgs } from "../src/args";
 
@@ -16,7 +19,7 @@ function tempDir(): string {
 function makeEnv(): Record<string, string> {
   const shared = tempDir();
   writeFileSync(path.join(shared, "AGENTS.md"), "# rules\n");
-  return { XDG_STATE_HOME: tempDir(), OC_SUB_SHARED_DIR: shared };
+  return { XDG_STATE_HOME: tempDir(), XDG_DATA_HOME: tempDir(), OC_SUB_SHARED_DIR: shared };
 }
 
 function makeDeps(overrides: Partial<UpDeps> = {}): UpDeps {
@@ -76,7 +79,7 @@ describe("up starts the cost proxy on the host", () => {
     expect(call.cmd).toEqual([
       "sh",
       "-c",
-      proxyLoopScript("/opt/bun/bin/bun", PROXY_BUNDLE, 8791, "127.0.0.1"),
+      proxyLoopScript("/opt/bun/bin/bun", proxyBundleIn(pluginDataDir(env)), 8791, "127.0.0.1"),
     ]);
     expect(call.logPath).toBe(proxyLogPath(env, 8790));
     expect(call.pidPath).toBe(proxyPidPath(env, 8790));
@@ -185,6 +188,72 @@ describe("down stops the cost proxy", () => {
     expect(result).toBe(0);
     expect(killed).toEqual([]);
     expect(await readPid(proxyPidPath(env, 8790))).toBeNull();
+  });
+
+  test("removes the plugin digest of the stopped server", async () => {
+    const env = makeEnv();
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    await Bun.write(servePidPath(env, 8790), "2147483000\n");
+    await Bun.write(servePluginPath(env, 8790), "sha256:abc\n");
+    const result = await down({ port: 8790, force: true }, env, downDeps("opencode serve --port 8790", []));
+    expect(result).toBe(0);
+    expect(existsSync(servePluginPath(env, 8790))).toBe(false);
+  });
+});
+
+describe("up syncs the plugin folder (step 15c)", () => {
+  test("the server and the proxy load the synced folder, and the state records its digest", async () => {
+    const env = makeEnv();
+    let configDir: string | undefined;
+    let proxyCmd: string[] = [];
+    const deps = makeDeps({
+      spawnServe: (_cmd, _logPath, _pidPath, serveEnvInput) => {
+        configDir = serveEnvInput.OPENCODE_CONFIG_DIR;
+        return { pid: 1001, exitCode: () => null };
+      },
+      spawnProxy: (cmd) => {
+        proxyCmd = [...cmd];
+        return { pid: 1002, exitCode: () => null };
+      },
+    });
+    expect(await up({ port: 8790 }, env, deps)).toBe(0);
+    const synced = pluginDataDir(env);
+    expect(synced.startsWith(env.XDG_DATA_HOME as string)).toBe(true);
+    expect(configDir).toBe(synced);
+    expect(proxyCmd.join(" ")).toContain(proxyBundleIn(synced));
+    expect(pluginDigest(synced)).toBe(pluginDigest(PLUGIN_CONFIG_DIR));
+    expect(readServePlugin(servePluginPath(env, 8790))).toBe(pluginDigest(synced));
+  });
+
+  test("a failed sync stops up before any process starts", async () => {
+    const env = makeEnv();
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await up({ port: 8790 }, env, makeDeps({
+        pluginSource: path.join(tempDir(), "missing"),
+        spawnServe: () => {
+          throw new Error("no server may start");
+        },
+        spawnProxy: () => {
+          throw new Error("no proxy may start");
+        },
+      }));
+    } finally {
+      console.error = original;
+    }
+    expect(result).toBe(1);
+    expect(errors.join("\n")).toContain("cannot sync the plugin folder");
+    expect(existsSync(servePluginPath(env, 8790))).toBe(false);
+  });
+
+  test("a server that already runs keeps its folder: up does not sync", async () => {
+    const env = makeEnv();
+    const deps = makeDeps({ probe: async () => ({ state: "up", version: "1.18.32" }) });
+    expect(await up({ port: 8790 }, env, deps)).toBe(0);
+    expect(existsSync(pluginDataDir(env))).toBe(false);
   });
 });
 

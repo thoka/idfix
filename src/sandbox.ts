@@ -16,9 +16,10 @@ import { busySessions, formatBusyLine, isAlive, waitUntilGone } from "./down";
 import { assertUsable, probeServer } from "./client";
 import { resolveServerUrl } from "./config";
 import { gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOfRun } from "./keys";
-import { stateDir, serveDirsPath, serveLogPath, servePidPath, readPid, readDirs, removeFiles } from "./state";
+import { stateDir, serveDirsPath, serveLogPath, servePidPath, servePluginPath, readPid, readDirs, removeFiles } from "./state";
 import { sharedAgentsDir, sharedConfigEntries } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
+import { pluginDataDir, proxyBundleIn, syncPluginDir } from "./plugin-sync";
 
 /** The first port that a sandbox may take. */
 export const SANDBOX_PORT_BASE = 18768;
@@ -548,6 +549,8 @@ export type SandboxDeps = {
   checkKvm: () => CheckResult;
   healthTimeoutMs: number;
   healthIntervalMs: number;
+  /** The plugin folder that `up` syncs from; the default is `PLUGIN_CONFIG_DIR`. */
+  pluginSource?: string;
 };
 
 /** The default dependencies, with the real `sbx`, git, and network. */
@@ -605,6 +608,27 @@ export function listsMounts(stdout: string, name: string, mounts: readonly strin
  */
 export function listsCloneRemote(stdout: string, name: string): boolean {
   return stdout.split("\n").some((line) => line.trim() === `sandbox-${name}`);
+}
+
+/**
+ * The mounts of `required` that the line of `sbx ls` for the sandbox lacks,
+ * in their order. Pure, so `upSandbox` and `doctor` name the same mounts.
+ */
+export function missingMounts(stdout: string, name: string, required: readonly string[]): string[] {
+  return required.filter((mount) => !listsMounts(stdout, name, [mount]));
+}
+
+/**
+ * The error message for a sandbox that lacks mounts. When the synced plugin
+ * folder is among them, it says why: step 15c moved the plugin mount to that
+ * folder, so a sandbox created before has the old plugin mount only.
+ */
+export function missingMountsMessage(name: string, missing: readonly string[], pluginDir: string): string {
+  let message = `the sandbox ${name} lacks the mounts ${missing.join(", ")}`;
+  if (missing.includes(`${pluginDir}:ro`)) {
+    message += ` (the synced plugin folder ${pluginDir} is the plugin mount since oc-sub step 15c, so a sandbox created before it needs a recreate)`;
+  }
+  return message;
 }
 
 /**
@@ -718,9 +742,10 @@ export function isInsideRoot(dir: string, root: string): boolean {
  *
  * A mount inside the project root stops the clone silently: `sbx create`
  * exits 0, but the sandbox then holds only the mount point at the root and
- * no clone (RUN_ISOLATION.md section 9). This hits the plugin repository
- * itself (the plugin folder `<root>/opencode`) and the project `meta` (the
- * shared agents folder `<root>/agents`). The clone holds the tracked files
+ * no clone (RUN_ISOLATION.md section 9). This hits the project `meta` (the
+ * shared agents folder `<root>/agents`). The plugin folder is the synced
+ * folder of `pluginDataDir` since step 15c, which lies outside every project
+ * root, so it is always mounted. The clone holds the tracked files
  * of such a folder at the same absolute path, so the paths in the
  * configuration still work.
  *
@@ -751,6 +776,20 @@ export function sandboxMountPlan(
  */
 export function requiredSandboxMounts(root: string, pluginDir: string, installsDir: string, sharedDir: string): string[] {
   return sandboxMountPlan(root, pluginDir, installsDir, sharedDir).mounted.map((dir) => `${dir}:ro`);
+}
+
+/**
+ * Syncs the plugin folder for `upSandbox` and returns the digest, or prints
+ * the error and returns null.
+ */
+function syncPlugin(source: string, pluginDir: string): string | null {
+  try {
+    return syncPluginDir(source, pluginDir).digest;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(`error: cannot sync the plugin folder into ${pluginDir}: ${reason}`);
+    return null;
+  }
 }
 
 function printUp(serveUrl: string, name: string, logPath: string, version: string): void {
@@ -838,7 +877,11 @@ export async function upSandbox(
   // bun installed for any project (the project itself may have no bun in its
   // `mise.toml`). Without any bun, up stops: the proxy is on by default, and
   // `--no-cost-proxy` turns it off for the case that it breaks runs.
-  const bundlePath = path.join(PLUGIN_CONFIG_DIR, "cost-proxy", "cost-proxy.js");
+  // The server and the proxy load the synced copy of the plugin folder
+  // (step 15c). It lies outside every project root, so it is always mounted.
+  const pluginDir = pluginDataDir(env);
+  const pluginSource = deps.pluginSource ?? PLUGIN_CONFIG_DIR;
+  const bundlePath = proxyBundleIn(pluginDir);
   let bunBin: string | null = null;
   if (!args.noCostProxy) {
     bunBin = bunBinFromToolPath(toolPath, installsDir) ?? bunBinFromInstalls(installsDir);
@@ -862,11 +905,14 @@ export async function upSandbox(
   // A folder inside the project root gets no mount, because such a mount
   // stops the clone silently; the clone holds its tracked files at the same
   // path instead (see `sandboxMountPlan` for the known gap).
-  const plan = sandboxMountPlan(root, PLUGIN_CONFIG_DIR, installsDir, sharedDir);
+  const plan = sandboxMountPlan(root, pluginDir, installsDir, sharedDir);
   const createMounts = plan.mounted.map((dir) => `${relativeMount("/", dir)}:ro`);
 
   const lsStdout = deps.runner([bin, "ls"]).stdout;
   if (!listsName(lsStdout, name)) {
+    // A mount source must exist at create time, so the plugin folder is
+    // synced before the create. No server of this sandbox runs yet.
+    if (syncPlugin(pluginSource, pluginDir) === null) return 1;
     // `--clone` is a create-time flag: the sandbox gets a private
     // in-container clone of the repository, the host repo stays read-only at
     // `/run/sandbox/source`, and `sbx` adds a `sandbox-<name>` remote to the
@@ -912,11 +958,14 @@ export async function upSandbox(
       printStderr(deny);
       return 1;
     }
-  } else if (!listsMounts(lsStdout, name, requiredSandboxMounts(root, PLUGIN_CONFIG_DIR, installsDir, sharedDir))) {
-    // The sandbox holds the sessions, so oc-sub does not remove it itself.
-    console.error(`error: the sandbox ${name} lacks the plugin, the mise installs, or the shared agents mount`);
-    console.error(sandboxRecreateFix(name));
-    return 1;
+  } else {
+    const missing = missingMounts(lsStdout, name, requiredSandboxMounts(root, pluginDir, installsDir, sharedDir));
+    if (missing.length > 0) {
+      // The sandbox holds the sessions, so oc-sub does not remove it itself.
+      console.error(`error: ${missingMountsMessage(name, missing, pluginDir)}`);
+      console.error(sandboxRecreateFix(name));
+      return 1;
+    }
   }
 
   // After the create, and on every up of an existing sandbox: the clone must
@@ -1027,11 +1076,17 @@ export async function upSandbox(
     return 0;
   }
 
+  // The new server gets the current plugin. The mount shows the new content
+  // inside the sandbox at once, and the digest goes into the state.
+  const synced = syncPlugin(pluginSource, pluginDir);
+  if (synced === null) return 1;
+
   const logPath = serveLogPath(env, port);
   const pidPath = servePidPath(env, port);
   await mkdir(path.dirname(logPath), { recursive: true });
-  // A new server has no runs yet. A list left by a crashed server is stale.
-  await removeFiles(serveDirsPath(env, port));
+  // A new server has no runs yet. A list left by a crashed server is stale,
+  // and so is its plugin digest.
+  await removeFiles(serveDirsPath(env, port), servePluginPath(env, port));
   // The holder process keeps the sandbox alive: `sbx` stops a sandbox 30
   // seconds after the last `sbx` session ends. `OPENCODE_CONFIG_CONTENT`
   // replaces the bash rules of the sandbox agents with `allow` and allows
@@ -1055,7 +1110,7 @@ export async function upSandbox(
       bin,
       "exec",
       "-e",
-      `OPENCODE_CONFIG_DIR=${PLUGIN_CONFIG_DIR}`,
+      `OPENCODE_CONFIG_DIR=${pluginDir}`,
       "-e",
       `OPENCODE_CONFIG_CONTENT=${configContent}`,
       "-e",
@@ -1074,6 +1129,7 @@ export async function upSandbox(
     logPath,
     pidPath,
   );
+  writeFileSync(servePluginPath(env, port), `${synced}\n`);
 
   const deadline = Date.now() + deps.healthTimeoutMs;
   while (Date.now() < deadline) {
@@ -1153,7 +1209,7 @@ export async function downSandbox(
       return 1;
     }
   }
-  await removeFiles(pidPath, dirsPath);
+  await removeFiles(pidPath, dirsPath, servePluginPath(env, port));
   console.log(`stopped sandbox ${name} (${serveUrl})`);
   return 0;
 }

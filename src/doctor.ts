@@ -11,10 +11,12 @@ import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpat
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
-import { cloneStatus, defaultKvmDeps, execFailedMessage, KVM_CHMOD_COMMAND, kvmAccessCheck, listsCloneRemote, miseInstallsDir, missingCloneMessage, readSandboxState, requiredSandboxMounts, sandboxName, sandboxRecreateFix, sandboxStatePath, listsMounts, listsName, defaultRunner, type KvmDeps, type Runner, type SandboxState } from "./sandbox";
+import { cloneStatus, defaultKvmDeps, execFailedMessage, KVM_CHMOD_COMMAND, kvmAccessCheck, listsCloneRemote, miseInstallsDir, missingCloneMessage, missingMounts, missingMountsMessage, readSandboxState, requiredSandboxMounts, sandboxName, sandboxRecreateFix, sandboxStatePath, listsName, defaultRunner, type KvmDeps, type Runner, type SandboxState } from "./sandbox";
 import { projectRootOfRun } from "./keys";
 import { sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
+import { pluginDataDir, pluginDigest, syncPluginDir } from "./plugin-sync";
+import { findRunningServers, restartServer, serverLabel, type RunningServer } from "./server-plugin";
 
 /** The result of one check. */
 export type CheckResult = {
@@ -49,6 +51,10 @@ export type DoctorDeps = {
   sharedDir: string;
   /** The mise installs folder, for the sandbox mount check. */
   installsDir: string;
+  /** The plugin folder of this oc-sub, the source of the sync. */
+  pluginSource: string;
+  /** The synced plugin folder that the servers load and the sandboxes mount. */
+  pluginDir: string;
   /** The project name, used in fix messages. */
   projectName: string;
   /** The repository folder of the plugin (above `src/`). */
@@ -83,6 +89,14 @@ export type DoctorDeps = {
   rootRunner: RootRunner;
   /** Whether stdin is a terminal. Without one, a root fix runs `sudo -n`. */
   stdinIsTTY: boolean;
+  /** The content digest of a plugin folder, or null when it does not exist. */
+  pluginDigest: (dir: string) => string | null;
+  /** Syncs the plugin folder in place and returns the new digest. */
+  syncPlugin: (source: string, dest: string) => string;
+  /** The running servers of the project with their recorded plugin digests. */
+  runningServers: () => RunningServer[];
+  /** Restarts one server if all its sessions are idle (the fix of `server-plugin`). */
+  restartServer: (server: RunningServer) => Promise<FixOutcome>;
 };
 
 /** A runner whose child process shares the terminal of this process. */
@@ -165,6 +179,8 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     root,
     sharedDir: sharedAgentsDir(env),
     installsDir: miseInstallsDir(env),
+    pluginSource: PLUGIN_CONFIG_DIR,
+    pluginDir: pluginDataDir(env),
     projectName: path.basename(root),
     pluginRepoRoot: path.resolve(import.meta.dir, ".."),
     installedPluginsFile: path.join(env.HOME ?? homedir(), ".claude", "plugins", "installed_plugins.json"),
@@ -178,6 +194,10 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     kvm: defaultKvmDeps,
     rootRunner: defaultRootRunner,
     stdinIsTTY: process.stdin.isTTY === true,
+    pluginDigest,
+    syncPlugin: (source, dest) => syncPluginDir(source, dest).digest,
+    runningServers: () => findRunningServers(env, readSandboxState(sandboxStatePath(env, path.basename(root)))),
+    restartServer: (server) => restartServer(server, env),
   };
   return { ...deps, ...overrides };
 }
@@ -195,10 +215,11 @@ export type Check = {
   /**
    * Runs only when `--fix` is set and the check result is `warn` or `fail`.
    * `ctx.force` is the `--force` flag; no fix in this step uses it, a later
-   * step will for the sandbox recreate. The action is synchronous and
-   * returns the outcome; a throw counts as a failed fix.
+   * step will for the sandbox recreate. The action returns the outcome, or a
+   * promise of it when it must wait for a server (the restart of
+   * `server-plugin`). A throw or a rejection counts as a failed fix.
    */
-  fix?: (deps: DoctorDeps, result: CheckResult, ctx: { force: boolean }) => FixOutcome;
+  fix?: (deps: DoctorDeps, result: CheckResult, ctx: { force: boolean }) => FixOutcome | Promise<FixOutcome>;
   /**
    * A fix that needs root. Only `--fix-as-root` runs it, never `--fix`
    * alone, and only a root fix may call sudo. Same contract as `fix`.
@@ -501,14 +522,9 @@ function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
   // The sandbox was created from the root in the state file. The mounts
   // come from the same pure plan as in `up`: a folder inside the root has no
   // mount, the clone holds it.
-  const mounts = requiredSandboxMounts(state.root, PLUGIN_CONFIG_DIR, deps.installsDir, deps.sharedDir);
-  if (!listsMounts(ls, name, mounts)) {
-    return result(
-      "sandbox-mounts",
-      "fail",
-      `the sandbox ${name} lacks the plugin, the mise installs, or the shared agents mount`,
-      sandboxRecreateFix(name),
-    );
+  const missing = missingMounts(ls, name, requiredSandboxMounts(state.root, deps.pluginDir, deps.installsDir, deps.sharedDir));
+  if (missing.length > 0) {
+    return result("sandbox-mounts", "fail", missingMountsMessage(name, missing, deps.pluginDir), sandboxRecreateFix(name));
   }
   // The same clone check as in `up`: a create can exit 0 and leave no clone.
   // Its `sbx exec` also starts a stopped sandbox. When the exec itself fails,
@@ -562,6 +578,66 @@ export function kvmAccessRootFix(deps: DoctorDeps, _result: CheckResult, _ctx: {
   return { ok: false, note: `${cmd.join(" ")} exited with code ${exitCode}` };
 }
 
+/** The fix text of `server-plugin`. */
+export const SERVER_PLUGIN_FIX =
+  "run oc-sub doctor --fix: it syncs the folder and restarts each idle server. A busy server needs oc-sub abort or oc-sub down first";
+
+/**
+ * Whether the servers run the current plugin (step 15c). Every server loads
+ * the synced plugin folder, and its state records the digest of that folder
+ * at its start. The check warns when the synced folder differs from the
+ * plugin folder of this oc-sub (a plugin update since the last `up`), or
+ * when a running server started with other content than the synced folder
+ * holds now. A server without a record started before step 15c, so its
+ * content is unknown and it counts as stale. Without a running server, a
+ * missing synced folder passes: the next `up` creates it.
+ */
+function serverPluginCheck(deps: DoctorDeps): CheckResult {
+  const source = deps.pluginDigest(deps.pluginSource);
+  if (source === null) return result("server-plugin", "skip", `the plugin folder ${deps.pluginSource} does not exist`);
+  const synced = deps.pluginDigest(deps.pluginDir);
+  const servers = deps.runningServers();
+  const problems: string[] = [];
+  if (synced === null) {
+    if (servers.length > 0) problems.push(`the synced plugin folder ${deps.pluginDir} does not exist`);
+  } else if (synced !== source) {
+    problems.push(`the synced plugin folder ${deps.pluginDir} differs from the plugin ${deps.pluginSource}`);
+  }
+  for (const server of servers) {
+    if (server.digest === null) {
+      problems.push(`the ${serverLabel(server)} has no plugin record (started before oc-sub step 15c)`);
+    } else if (server.digest !== synced) {
+      problems.push(`the ${serverLabel(server)} started with other plugin content than the synced folder holds`);
+    }
+  }
+  if (problems.length > 0) return result("server-plugin", "warn", problems.join(", and "), SERVER_PLUGIN_FIX);
+  if (servers.length === 0) {
+    return result("server-plugin", "pass", synced === null ? "no server runs, the next oc-sub up syncs the plugin folder" : "the synced plugin folder matches the plugin, no server runs");
+  }
+  return result("server-plugin", "pass", `the synced plugin folder matches the plugin, and ${servers.length} running server(s) use it`);
+}
+
+/**
+ * The fix of `server-plugin`: sync the plugin folder in place, then restart
+ * every running server whose recorded digest differs from the new one. A
+ * restart happens only when all sessions of the server are idle; a busy
+ * server stays as it is, and the fix fails with a note that names
+ * `oc-sub abort` and `oc-sub down`. No `--force` is needed, because an idle
+ * server loses no work.
+ */
+export async function serverPluginFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): Promise<FixOutcome> {
+  const digest = deps.syncPlugin(deps.pluginSource, deps.pluginDir);
+  const stale = deps.runningServers().filter((server) => server.digest !== digest);
+  const notes = [`synced ${deps.pluginDir}`];
+  let ok = true;
+  for (const server of stale) {
+    const outcome = await deps.restartServer(server);
+    ok = ok && outcome.ok;
+    notes.push(outcome.note);
+  }
+  return { ok, note: notes.join(", ") };
+}
+
 /** The fast checks: `up` and `run` run them on every invocation. */
 export const FAST_CHECKS: Check[] = [
   { name: "env-files", run: envFilesCheck },
@@ -575,6 +651,8 @@ export const FAST_CHECKS: Check[] = [
 /** The slow checks: only `oc-sub doctor` runs them. */
 export const SLOW_CHECKS: Check[] = [
   { name: "plugin-fresh", run: pluginFreshCheck, fix: pluginFreshFix },
+  // After plugin-fresh, so a plugin update comes before the sync and the restart.
+  { name: "server-plugin", run: serverPluginCheck, fix: serverPluginFix },
   // Before sandbox-mounts: without KVM access, the sandbox cannot start.
   { name: "kvm-access", run: (deps) => kvmAccessCheck(deps.kvm), rootFix: kvmAccessRootFix },
   { name: "sandbox-mounts", run: sandboxMountsCheck },
@@ -677,19 +755,19 @@ export function gateForCommand(
  * with `ctx.asRoot` (`--fix-as-root`); without it, the line
  * `needs --fix-as-root (<name>): ...` names the flag, and nothing runs.
  */
-export function runFixes(
+export async function runFixes(
   checks: readonly Check[],
   deps: DoctorDeps,
   results: readonly CheckResult[],
   ctx: { force: boolean; asRoot?: boolean },
   print: (line: string) => void = console.log,
-): FixRecord[] {
+): Promise<FixRecord[]> {
   const records: FixRecord[] = [];
-  const apply = (check: Check, res: CheckResult, action: NonNullable<Check["fix"]>) => {
+  const apply = async (check: Check, res: CheckResult, action: NonNullable<Check["fix"]>) => {
     print(`fixing ${check.name}: ${res.fix ?? res.message}`);
     let outcome: FixOutcome;
     try {
-      outcome = action(deps, res, { force: ctx.force });
+      outcome = await action(deps, res, { force: ctx.force });
     } catch (error) {
       outcome = { ok: false, note: error instanceof Error ? error.message : String(error) };
     }
@@ -701,10 +779,10 @@ export function runFixes(
     const res = results[i];
     if (check === undefined || res === undefined) continue;
     if (res.status !== "warn" && res.status !== "fail") continue;
-    if (check.fix !== undefined) apply(check, res, check.fix);
+    if (check.fix !== undefined) await apply(check, res, check.fix);
     if (check.rootFix !== undefined) {
       if (ctx.asRoot === true) {
-        apply(check, res, check.rootFix);
+        await apply(check, res, check.rootFix);
       } else {
         print(`needs --fix-as-root (${check.name}): this fix runs sudo; run oc-sub doctor --fix-as-root`);
       }
@@ -714,18 +792,18 @@ export function runFixes(
 }
 
 /** `oc-sub doctor`: run all checks and print the results. */
-export function doctor(
+export async function doctor(
   args: { dir?: string; json?: boolean; fix?: boolean; force?: boolean; fixAsRoot?: boolean },
   env: Env = process.env,
   overrides: Partial<DoctorDeps> = {},
-): number {
+): Promise<number> {
   const deps = makeDoctorDeps(env, args.dir ?? process.cwd(), overrides);
   const results = runChecks(ALL_CHECKS, deps);
   // --fix-as-root implies --fix and also runs the root fixes.
   if (args.fix === true || args.fixAsRoot === true) {
     // With --json, stdout holds only the JSON object, so the fix lines go to stderr.
     const print = args.json === true ? console.error : console.log;
-    const fixes = runFixes(
+    const fixes = await runFixes(
       ALL_CHECKS,
       deps,
       results,

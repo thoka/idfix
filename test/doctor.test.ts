@@ -21,13 +21,18 @@ import {
   runChecks,
   runFastChecksFor,
   runFixes,
+  SERVER_PLUGIN_FIX,
+  serverPluginFix,
   SLOW_CHECKS,
   type Check,
   type CheckResult,
   type DoctorDeps,
 } from "../src/doctor";
+import type { RunningServer } from "../src/server-plugin";
 import { cloneCheckCommand, kvmAccessCheck, missingCloneMessage, requiredSandboxMounts, sandboxRecreateFix, type KvmDeps } from "../src/sandbox";
-import { PLUGIN_CONFIG_DIR } from "../src/up";
+
+/** The synced plugin folder of the fake deps. */
+const PLUGIN_DIR = "/home/u/.local/share/oc-sub/opencode";
 
 function tempDir(): string {
   return mkdtempSync(path.join(tmpdir(), "oc-sub-doctor-"));
@@ -64,6 +69,8 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     root: "/repo",
     sharedDir: "/home/u/dv/meta/agents",
     installsDir: "/home/u/.local/share/mise/installs",
+    pluginSource: "/plugin/opencode",
+    pluginDir: PLUGIN_DIR,
     projectName: "repo",
     pluginRepoRoot: "/plugin",
     installedPluginsFile: "/home/u/.claude/plugins/installed_plugins.json",
@@ -86,6 +93,16 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
       throw new Error("the root runner must not run in this test");
     },
     stdinIsTTY: true,
+    // The plugin source and the synced folder hold the same content, and no
+    // server runs, so server-plugin passes by default.
+    pluginDigest: () => "sha256:same",
+    syncPlugin: () => {
+      throw new Error("the sync must not run in this test");
+    },
+    runningServers: () => [],
+    restartServer: async () => {
+      throw new Error("no server may restart in this test");
+    },
     ...overrides,
   };
   return deps;
@@ -321,7 +338,7 @@ describe("plugin-fresh", () => {
 describe("sandbox-mounts", () => {
   const mounts = requiredSandboxMounts(
     "/repo",
-    PLUGIN_CONFIG_DIR,
+    PLUGIN_DIR,
     "/home/u/.local/share/mise/installs",
     "/home/u/dv/meta/agents",
   ).join(", ");
@@ -358,6 +375,24 @@ describe("sandbox-mounts", () => {
     const check = byName(results(deps, SLOW_CHECKS), "sandbox-mounts");
     expect(check?.status).toBe("fail");
     expect(check?.fix).toContain("sbx rm --force oc-sub-repo");
+  });
+
+  test("names the synced plugin mount that a sandbox from before step 15c lacks", () => {
+    // An old sandbox mounts the plugin folder of the oc-sub checkout, not the synced folder.
+    const old = `NAME STATUS WORKSPACE\noc-sub-repo running /repo, /plugin/opencode:ro, /home/u/.local/share/mise/installs:ro, /home/u/dv/meta/agents:ro\n`;
+    const deps = makeDeps(
+      {},
+      {
+        runner: cloneRunner(old),
+        sandboxState: () => ({ name: "oc-sub-repo", root: "/repo", port: 18768 }),
+      },
+    );
+    const check = byName(results(deps, SLOW_CHECKS), "sandbox-mounts");
+    expect(check?.status).toBe("fail");
+    expect(check?.message).toBe(
+      `the sandbox oc-sub-repo lacks the mounts ${PLUGIN_DIR}:ro (the synced plugin folder ${PLUGIN_DIR} is the plugin mount since oc-sub step 15c, so a sandbox created before it needs a recreate)`,
+    );
+    expect(check?.fix).toBe(sandboxRecreateFix("oc-sub-repo"));
   });
 
   test("passes for a stopped clone-mode sandbox, because the clone check starts it", () => {
@@ -420,7 +455,7 @@ describe("sandbox-mounts", () => {
     // The project meta: the shared agents folder lies inside the root, so
     // `up` does not mount it and the check must not ask for it.
     const root = "/home/u/dv/meta";
-    const ls = `NAME STATUS WORKSPACE\noc-sub-repo running ${root}, ${PLUGIN_CONFIG_DIR}:ro, /home/u/.local/share/mise/installs:ro\n`;
+    const ls = `NAME STATUS WORKSPACE\noc-sub-repo running ${root}, ${PLUGIN_DIR}:ro, /home/u/.local/share/mise/installs:ro\n`;
     const deps = makeDeps(
       {},
       {
@@ -723,14 +758,14 @@ describe("runFixes", () => {
   const lines: string[] = [];
   const print = (line: string) => lines.push(line);
 
-  test("catches a throwing action as a failed fix and runs the other actions", () => {
+  test("catches a throwing action as a failed fix and runs the other actions", async () => {
     lines.length = 0;
     const checks: Check[] = [
       { name: "boom", run: () => ({ name: "boom", status: "fail", message: "bad" }), fix: () => { throw new Error("boom"); } },
       { name: "after", run: () => ({ name: "after", status: "warn", message: "meh" }), fix: () => ({ ok: true, note: "did it" }) },
     ];
     const deps = makeDeps();
-    const records = runFixes(
+    const records = await runFixes(
       checks,
       deps,
       [
@@ -749,10 +784,10 @@ describe("runFixes", () => {
     expect(lines).toContain("fixed after: did it");
   });
 
-  test("skips pass and skip results and checks without a fix action", () => {
+  test("skips pass and skip results and checks without a fix action", async () => {
     lines.length = 0;
     const checks: Check[] = [{ name: "no-fix", run: () => ({ name: "no-fix", status: "fail", message: "bad" }) }];
-    const records = runFixes(checks, makeDeps(), [{ name: "no-fix", status: "fail", message: "bad" }], { force: false }, print);
+    const records = await runFixes(checks, makeDeps(), [{ name: "no-fix", status: "fail", message: "bad" }], { force: false }, print);
     expect(records).toEqual([]);
     expect(lines).toEqual([]);
   });
@@ -779,13 +814,13 @@ describe("doctor --fix", () => {
     );
   }
 
-  test("fixes global-rules and plugin-fresh in registry order and prints the lines", () => {
+  test("fixes global-rules and plugin-fresh in registry order and prints the lines", async () => {
     const deps = fixDeps({ [codexMd]: { content: "# rules" }, "/home/u/.claude/plugins/installed_plugins.json": { content: installedOld } });
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     let code: number;
     try {
-      code = doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -807,33 +842,33 @@ describe("doctor --fix", () => {
     expect(deps.readlink(codexMd)).toBe(sharedFile);
   });
 
-  test("returns 1 when a fix fails", () => {
+  test("returns 1 when a fix fails", async () => {
     const deps = fixDeps({ [codexMd]: { content: "# my own rules" } });
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     let code: number;
     try {
-      code = doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
     expect(code).toBe(1);
   });
 
-  test("returns 1 when the re-run still has a fail", () => {
+  test("returns 1 when the re-run still has a fail", async () => {
     // The claude fix fails, so plugin-fresh stays a warn (not a fail), but a
     // differing copy keeps global-rules failed in the re-run too.
     const deps = fixDeps({ [codexMd]: { content: "# my own rules" } });
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     let code: number;
     try {
-      code = doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
     expect(code).toBe(1);
   });
 
-  test("prints {fixes, results} with --fix --json", () => {
+  test("prints {fixes, results} with --fix --json", async () => {
     const deps = fixDeps({
       [codexMd]: { content: "# rules" },
       "/home/u/.claude/plugins/installed_plugins.json": { content: installedOld },
@@ -843,7 +878,7 @@ describe("doctor --fix", () => {
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     const errorSpy = spyOn(console, "error").mockImplementation((line) => errors.push(String(line)));
     try {
-      doctor({ fix: true, json: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      await doctor({ fix: true, json: true }, { HOME: "/home/u" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
       errorSpy.mockRestore();
@@ -860,12 +895,12 @@ describe("doctor --fix", () => {
     expect(parsed.results.every((check) => check.name.length > 0)).toBe(true);
   });
 
-  test("keeps the plain --json array without --fix", () => {
+  test("keeps the plain --json array without --fix", async () => {
     const deps = fixDeps({});
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     try {
-      doctor({ json: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      await doctor({ json: true }, { HOME: "/home/u" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -941,7 +976,7 @@ describe("kvm-access", () => {
     expect(kvmAccessCheck(usable).status).toBe("pass");
   });
 
-  test("is a slow check and runs before sandbox-mounts", () => {
+  test("is a slow check and runs before sandbox-mounts", async () => {
     const names = SLOW_CHECKS.map((check) => check.name);
     expect(names).toContain("kvm-access");
     expect(FAST_CHECKS.map((check) => check.name)).not.toContain("kvm-access");
@@ -974,28 +1009,28 @@ describe("the kvm-access root fix", () => {
     return { deps, calls };
   }
 
-  function runDoctor(args: Parameters<typeof doctor>[0], deps: DoctorDeps): { code: number; lines: string[] } {
+  async function runDoctor(args: Parameters<typeof doctor>[0], deps: DoctorDeps): Promise<{ code: number; lines: string[] }> {
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     try {
-      return { code: doctor(args, { HOME: "/home/u" } as Record<string, string>, deps), lines };
+      return { code: await doctor(args, { HOME: "/home/u" } as Record<string, string>, deps), lines };
     } finally {
       logSpy.mockRestore();
     }
   }
 
-  test("--fix never calls the root runner and names --fix-as-root", () => {
+  test("--fix never calls the root runner and names --fix-as-root", async () => {
     const { deps, calls } = kvmDeps({ tty: true, exitCode: 0 });
-    const { code, lines } = runDoctor({ fix: true }, deps);
+    const { code, lines } = await runDoctor({ fix: true }, deps);
     expect(calls).toEqual([]);
     expect(lines).toContain("needs --fix-as-root (kvm-access): this fix runs sudo; run oc-sub doctor --fix-as-root");
     expect(lines.some((line) => line.startsWith("FAIL  kvm-access"))).toBe(true);
     expect(code).toBe(1);
   });
 
-  test("--fix-as-root runs sudo chmod 0666 /dev/kvm, and the re-run decides the exit code", () => {
+  test("--fix-as-root runs sudo chmod 0666 /dev/kvm, and the re-run decides the exit code", async () => {
     const { deps, calls } = kvmDeps({ tty: true, exitCode: 0 });
-    const { code, lines } = runDoctor({ fixAsRoot: true }, deps);
+    const { code, lines } = await runDoctor({ fixAsRoot: true }, deps);
     expect(calls).toEqual([["sudo", "chmod", "0666", "/dev/kvm"]]);
     expect(lines.some((line) => line.startsWith("fixing kvm-access:"))).toBe(true);
     expect(lines.some((line) => line.startsWith("fixed kvm-access: sudo chmod 0666 /dev/kvm"))).toBe(true);
@@ -1004,7 +1039,7 @@ describe("the kvm-access root fix", () => {
     expect(code).toBe(0);
   });
 
-  test("--fix-as-root returns 1 when the re-run still fails", () => {
+  test("--fix-as-root returns 1 when the re-run still fails", async () => {
     // sudo exits 0, but the device stays unusable (for example a wrong device).
     const calls: string[][] = [];
     const deps = makeDeps(
@@ -1017,28 +1052,28 @@ describe("the kvm-access root fix", () => {
         },
       },
     );
-    const { code, lines } = runDoctor({ fixAsRoot: true }, deps);
+    const { code, lines } = await runDoctor({ fixAsRoot: true }, deps);
     expect(calls).toHaveLength(1);
     expect(lines.some((line) => line.startsWith("FAIL  kvm-access"))).toBe(true);
     expect(code).toBe(1);
   });
 
-  test("without a terminal, the root fix runs sudo -n and a failure says to use a terminal", () => {
+  test("without a terminal, the root fix runs sudo -n and a failure says to use a terminal", async () => {
     const { deps, calls } = kvmDeps({ tty: false, exitCode: 1 });
-    const { code, lines } = runDoctor({ fixAsRoot: true }, deps);
+    const { code, lines } = await runDoctor({ fixAsRoot: true }, deps);
     expect(calls).toEqual([["sudo", "-n", "chmod", "0666", "/dev/kvm"]]);
     const failed = lines.find((line) => line.startsWith("fix failed (kvm-access):"));
     expect(failed).toContain("run in a terminal: sudo chmod 0666 /dev/kvm");
     expect(code).toBe(1);
   });
 
-  test("the root fix reports a failed sudo in a terminal with its exit code", () => {
+  test("the root fix reports a failed sudo in a terminal with its exit code", async () => {
     const { deps } = kvmDeps({ tty: true, exitCode: 1 });
     const outcome = kvmAccessRootFix(deps, {} as CheckResult, { force: false });
     expect(outcome).toEqual({ ok: false, note: "sudo chmod 0666 /dev/kvm exited with code 1" });
   });
 
-  test("runFixes runs a root fix only with asRoot, and a pass result runs nothing", () => {
+  test("runFixes runs a root fix only with asRoot, and a pass result runs nothing", async () => {
     const ran: string[] = [];
     const checks: Check[] = [
       {
@@ -1052,11 +1087,11 @@ describe("the kvm-access root fix", () => {
     ];
     const failed: CheckResult[] = [{ name: "root", status: "fail", message: "bad" }];
     const print = () => {};
-    expect(runFixes(checks, makeDeps(), failed, { force: false }, print)).toEqual([]);
+    expect(await runFixes(checks, makeDeps(), failed, { force: false }, print)).toEqual([]);
     expect(ran).toEqual([]);
-    expect(runFixes(checks, makeDeps(), [{ name: "root", status: "pass", message: "ok" }], { force: false, asRoot: true }, print)).toEqual([]);
+    expect(await runFixes(checks, makeDeps(), [{ name: "root", status: "pass", message: "ok" }], { force: false, asRoot: true }, print)).toEqual([]);
     expect(ran).toEqual([]);
-    expect(runFixes(checks, makeDeps(), failed, { force: false, asRoot: true }, print)).toEqual([
+    expect(await runFixes(checks, makeDeps(), failed, { force: false, asRoot: true }, print)).toEqual([
       { name: "root", ok: true, note: "done" },
     ]);
     expect(ran).toEqual(["root"]);
@@ -1085,7 +1120,7 @@ describe("doctor --fix-as-root argument parsing", () => {
 
 describe("sandbox-mounts when the sandbox does not start", () => {
   test("names the stderr of sbx exec instead of a missing clone", () => {
-    const mounts = requiredSandboxMounts("/repo", PLUGIN_CONFIG_DIR, "/home/u/.local/share/mise/installs", "/home/u/dv/meta/agents").join(", ");
+    const mounts = requiredSandboxMounts("/repo", PLUGIN_DIR, "/home/u/.local/share/mise/installs", "/home/u/dv/meta/agents").join(", ");
     const deps = makeDeps(
       {},
       {
@@ -1101,5 +1136,138 @@ describe("sandbox-mounts when the sandbox does not start", () => {
     expect(check?.message).toContain("start runtime: 500 Internal Server Error");
     expect(check?.message).not.toContain("has no git clone");
     expect(check?.fix).toContain("sbx diagnose");
+  });
+});
+
+describe("server-plugin", () => {
+  const host = (digest: string | null): RunningServer => ({ mode: "host", port: 8767, url: "http://127.0.0.1:8767", digest });
+  const sandbox = (digest: string | null): RunningServer => ({
+    mode: "sandbox",
+    port: 18768,
+    url: "http://127.0.0.1:18768",
+    root: "/repo",
+    digest,
+  });
+  /** Fake digests: the source folder and the synced folder can differ. */
+  const digests = (source: string | null, synced: string | null) => (dir: string) =>
+    dir === "/plugin/opencode" ? source : dir === PLUGIN_DIR ? synced : null;
+  const check = (deps: DoctorDeps) => byName(results(deps, SLOW_CHECKS), "server-plugin");
+  /** The shared rules file exists, so the other fixes of a doctor run succeed. */
+  const withRules = { files: map({ "/home/u/dv/meta/agents/AGENTS.md": { content: "# rules" } }) };
+
+  test("comes right after plugin-fresh in the order", () => {
+    const names = ALL_CHECKS.map((c) => c.name);
+    expect(names.indexOf("server-plugin")).toBe(names.indexOf("plugin-fresh") + 1);
+  });
+
+  test("passes when the synced folder matches and no server runs", () => {
+    expect(check(makeDeps())?.status).toBe("pass");
+  });
+
+  test("passes without a synced folder when no server runs", () => {
+    const result = check(makeDeps({}, { pluginDigest: digests("sha256:a", null) }));
+    expect(result?.status).toBe("pass");
+    expect(result?.message).toContain("the next oc-sub up syncs");
+  });
+
+  test("passes when every running server started with the synced content", () => {
+    const result = check(makeDeps({}, { pluginDigest: digests("sha256:a", "sha256:a"), runningServers: () => [host("sha256:a"), sandbox("sha256:a")] }));
+    expect(result?.status).toBe("pass");
+    expect(result?.message).toContain("2 running server(s)");
+  });
+
+  test("skips when the plugin folder of this oc-sub does not exist", () => {
+    expect(check(makeDeps({}, { pluginDigest: digests(null, "sha256:a") }))?.status).toBe("skip");
+  });
+
+  test("warns when the synced folder differs from the plugin", () => {
+    const result = check(makeDeps({}, { pluginDigest: digests("sha256:new", "sha256:old") }));
+    expect(result?.status).toBe("warn");
+    expect(result?.message).toBe(`the synced plugin folder ${PLUGIN_DIR} differs from the plugin /plugin/opencode`);
+    expect(result?.fix).toBe(SERVER_PLUGIN_FIX);
+  });
+
+  test("warns when a running server started with other content than the synced folder holds", () => {
+    const result = check(makeDeps({}, { pluginDigest: digests("sha256:a", "sha256:a"), runningServers: () => [host("sha256:a"), sandbox("sha256:old")] }));
+    expect(result?.status).toBe("warn");
+    expect(result?.message).toBe("the sandbox server of /repo :18768 started with other plugin content than the synced folder holds");
+  });
+
+  test("warns for a server without a plugin record and names step 15c", () => {
+    const result = check(makeDeps({}, { pluginDigest: digests("sha256:a", "sha256:a"), runningServers: () => [host(null)] }));
+    expect(result?.status).toBe("warn");
+    expect(result?.message).toContain("host server :8767 has no plugin record (started before oc-sub step 15c)");
+  });
+
+  test("the fix syncs the folder and restarts only the servers with other content", async () => {
+    const synced: string[] = [];
+    const restarted: RunningServer[] = [];
+    const deps = makeDeps({}, {
+      syncPlugin: (source, dest) => {
+        synced.push(`${source} -> ${dest}`);
+        return "sha256:new";
+      },
+      runningServers: () => [host("sha256:new"), sandbox("sha256:old")],
+      restartServer: async (server) => {
+        restarted.push(server);
+        return { ok: true, note: "restarted the sandbox server" };
+      },
+    });
+    const outcome = await serverPluginFix(deps, { name: "server-plugin", status: "warn", message: "" }, { force: false });
+    expect(synced).toEqual([`/plugin/opencode -> ${PLUGIN_DIR}`]);
+    expect(restarted.map((server) => server.mode)).toEqual(["sandbox"]);
+    expect(outcome).toEqual({ ok: true, note: `synced ${PLUGIN_DIR}, restarted the sandbox server` });
+  });
+
+  test("the fix fails and keeps the note of a busy server", async () => {
+    const deps = makeDeps({}, {
+      syncPlugin: () => "sha256:new",
+      runningServers: () => [host("sha256:old")],
+      restartServer: async () => ({ ok: false, note: "host server :8767 is busy, not restarted: busy s1 /repo. Wait for the sessions, or end them with oc-sub abort or oc-sub down" }),
+    });
+    const outcome = await serverPluginFix(deps, { name: "server-plugin", status: "warn", message: "" }, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("oc-sub abort or oc-sub down");
+  });
+
+  test("doctor --fix syncs, restarts the stale server, and the re-run passes", async () => {
+    let synced = "sha256:old";
+    let serverDigest = "sha256:old";
+    const deps = makeDeps(withRules, {
+      pluginDigest: (dir) => (dir === "/plugin/opencode" ? "sha256:new" : dir === PLUGIN_DIR ? synced : null),
+      syncPlugin: () => {
+        synced = "sha256:new";
+        return synced;
+      },
+      runningServers: () => [host(serverDigest)],
+      restartServer: async () => {
+        serverDigest = synced;
+        return { ok: true, note: "restarted the host server :8767" };
+      },
+    });
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    let code: number;
+    try {
+      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(code).toBe(0);
+    expect(lines).toContain(`fixed server-plugin: synced ${PLUGIN_DIR}, restarted the host server :8767`);
+    expect(lines.some((line) => line.startsWith("pass  server-plugin"))).toBe(true);
+  });
+
+  test("doctor --fix restarts nothing when server-plugin passes", async () => {
+    // The default fakes throw on a sync and a restart, so a call would fail the fix.
+    const deps = makeDeps(withRules, { runningServers: () => [host("sha256:same")] });
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    let code: number;
+    try {
+      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(code).toBe(0);
   });
 });

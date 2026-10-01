@@ -365,3 +365,29 @@ Root cause: `run --model` set the model only on the first message, and `say` sen
 Root cause: the sandbox got the tool folders of the host read-only, but no `mise` binary, so an agent could not add a tool. `up` now asks the host mise for its version and installs that version as the tool `aqua:jdx/mise` into the shared installs folder. A plain `mise@<version>` fails, because `mise` is not in the mise tool registry. `up` takes the bin folder from `mise bin-paths` and puts it on the sandbox PATH after the project tools. The server gets `MISE_SHARED_INSTALL_DIRS`, `MISE_TRUSTED_CONFIG_PATHS` with the project root, and data, cache, and state folders in `/home/agent`, because `/home/toka/.local/share` belongs to root inside the sandbox. `MISE_EXPERIMENTAL=1` is not needed. Any failure is a warning, and the server starts without mise.
 
 The coder run started on DeepInfra and stopped on its stream error, then continued on OpenRouter. The first version used `mise@<version>` and a fixed bin layout. Its unit tests passed with a fake runner, but the review found both errors on the host, and a follow-up message fixed them. The run cost $0.2309 real ($0.0613 DeepInfra, $0.1696 OpenRouter), 99 requests. Live test after `oc-sub restart`: the server has the variables, `mise ls bun` shows `1.4.2 (shared)`, and `mise x jq@latest` installed jq 1.8.2 into the sandbox home. 836 tests pass.
+
+## Step 3: the tools of the worktree exist before the agent starts
+
+Done on 2026-10-01. Root cause: `oc-sub worktree` ran the setup command without the sandbox mise, and nothing ran `mise install` in the new worktree. `sandboxMiseBinDir` in `src/sandbox.ts` now holds the lookup of the sandbox mise, and `upSandbox` and `worktree` share it. `worktree` runs `mise install && <setup>` in one `sbx exec`, with the mise bin folder on the PATH and the `sandboxMiseEnv` variables. Without a sandbox mise, the old command runs. The sandbox mise gets `MISE_DISABLE_UPDATE_WARNING=true`, so it no longer suggests `mise self-update` on the read-only mount (`MISE_DISABLE_HINTS=all` does not hide it). The fix text of `sandbox-mounts` now names `oc-sub doctor --fix --force` first. A GLM coder run made the change ($0.0680 real). 293 tests of the touched files pass.
+
+## Step 4: say warns on a pending request
+
+Done on 2026-10-01. `say` lists the pending questions and permission requests of the session tree before it sends. If one exists, it prints a warning and the `oc-sub answer` command to stderr, and it still sends the message. A failing list call prints nothing. A GLM coder run made the change ($0.0542 real).
+
+## Step 5 (11d): watch sees open model requests
+
+Done on 2026-10-01. Root cause of the false stall: a long model request sends no event, and `watch` only counted events. `createOpenRequestReader` in `src/proxycost.ts` reads only the new bytes of each proxy log and pairs the `start` and `end` lines by request number. A `listening` line clears the open requests, because the proxy restarted. A request that is open less than 10 minutes suppresses the stall. A longer one gives the new finding `slow-request`. The review fixed one bug: the first version dropped the `start` lines of sessions outside the tree, so a subagent that joined the tree on a later poll lost its first request. A GLM coder run made the change ($0.0568 real). The live test of the proxy (no orphan restart loop after `down`) is still open.
+
+## Research on 2026-10-01
+
+Six GLM researcher runs for $0.1501 in total:
+
+- [RENOVATE_STANDARD.md](research/RENOVATE_STANDARD.md) (step 15e, $0.0308): a stateless `--renovate` that reuses the fix pass, a clean git tree as a precondition, no state file, and no commits by default.
+- [DEEPINFRA_LOGPROB.md](research/DEEPINFRA_LOGPROB.md) (step 16, $0.0321): no public report of the error, the client never asks for log probabilities, and opencode 1.18.32 does not retry this error class (opencode issue #21893). A proxy retry is safe only before the first content chunk.
+- [RECURRING_RESEARCH.md](research/RECURRING_RESEARCH.md) (step 17a, $0.0374): a review date plus an interval in front matter is the common pattern. Only the Windows Task Scheduler can start a stopped WSL2.
+- [WSL_KVM_ACCESS.md](research/WSL_KVM_ACCESS.md) (task of the user, $0.0180): the report guessed a missing `kvm` group, but the host check found the group with gid 990 and udev rules with mode 0666. So another WSL distro likely changes the shared device node.
+- [JEV_DECISIONS_API.md](research/JEV_DECISIONS_API.md) (step 18, $0.0178): the format of `POST /api/alpha/decisions`.
+
+## Step 18 probe: Jev through OpenRouter
+
+Done on 2026-10-01. `probe/jev.ts` sent one chat request to each Jev slug ($0.0002 in total). `typesafe/jev-router` is not Jev: it routed the request to `deepseek/deepseek-v4.1-flash` at Together. `~typesafe/jev-latest` refuses chat: "is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead." The decisions endpoint takes the normal project key and charges $0.042 per million input tokens.

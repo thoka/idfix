@@ -1,6 +1,7 @@
 /** Tests for stage two: the Jev tagging of trace steps through the decisions endpoint. */
 import { describe, expect, spyOn, test } from "bun:test";
-import type { MessageEntry, Part } from "@opencode-ai/sdk";
+import type { Part } from "@opencode-ai/sdk";
+import type { MessageEntry } from "../src/summary";
 import {
   DEFAULT_MAX_STEPS,
   JEV_MODEL,
@@ -25,6 +26,7 @@ function assistant(parts: Part[], over: Record<string, unknown> = {}): MessageEn
       id: id("msg"),
       sessionID: "ses_1",
       role: "assistant",
+      parentID: "",
       time: { created: 1 },
       modelID: "m",
       providerID: "p",
@@ -172,6 +174,7 @@ describe("tagSteps", () => {
   test("a 200 response puts the answers, the model, and the cost into the record", async () => {
     const fake = fakeFetch(() => ({ status: 200, body: OK_BODY }));
     const [step] = steps(1);
+    if (step === undefined) throw new Error("expected one step");
     const total = await tagSteps([step as TraceStep], KEY, { doFetch: fake.fetch });
     const jev = step.jev as { answers?: unknown; model?: string; cost?: number | null };
     expect(jev.answers).toEqual(OK_BODY.answers);

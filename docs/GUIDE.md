@@ -380,6 +380,10 @@ Known gaps:
 - **The real protection** is a separate git worktree for each run, no access to `.env` files or keys, and a review of every diff. Claude reviews the diff and runs the tests itself before a merge. Check the merge yourself for risky changes.
 - **Do not use `--auto`.** `opencode run --auto` approves every request that is not explicitly denied. Use the agent files instead.
 
+## Development
+
+Run `bun run typecheck` before a commit: `bun test` does not check types.
+
 ## Troubleshooting
 
 | Problem | Cause and fix |

@@ -44,9 +44,7 @@ const stepFinish = (opts: { reasoning?: number; cacheRead?: number } = {}) =>
 
 function tool(name: string, input: Record<string, unknown>, status: "completed" | "error" = "completed", callID = id("call")): Part {
   const base = { callID, tool: name, state: { status, input, ...(status === "error" ? { error: "boom" } : { output: "ok", title: name, metadata: {} }) } };
-  if (status !== "pending") {
-    (base.state as Record<string, unknown>).time = { start: 1000, end: 1500 };
-  }
+  (base.state as Record<string, unknown>).time = { start: 1000, end: 1500 };
   return part("tool", base);
 }
 

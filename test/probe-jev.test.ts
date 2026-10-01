@@ -10,10 +10,18 @@ import {
   probeDecisions,
   probeSlug,
   readKey,
+  type ProbeFetch,
   resultLine,
 } from "../probe/jev";
 
 const KEY = "sk-or-secret-key-abc123";
+
+/** Narrow an index access on a parsed object; fails the test when the key is missing. */
+function field<T>(record: Record<string, T>, key: string): T {
+  const value = record[key];
+  if (value === undefined) throw new Error(`missing key "${key}"`);
+  return value;
+}
 
 describe("probe/jev.ts", () => {
   test("buildRequestBody holds the model, max_tokens, and the schema", () => {
@@ -37,8 +45,8 @@ describe("probe/jev.ts", () => {
   });
 
   test("a 404 prints the error and the key never appears", async () => {
-    const fetch = (async () =>
-      new Response(JSON.stringify({ error: { message: "no such model" } }), { status: 404 })) as typeof fetch;
+    const fetch: ProbeFetch = async () =>
+      new Response(JSON.stringify({ error: { message: "no such model" } }), { status: 404 });
     const result = await probeSlug("bad/slug", KEY, fetch, async () => {});
     expect(result.errorText).toBe("no such model");
     expect(result.status).toBe(404);
@@ -47,7 +55,7 @@ describe("probe/jev.ts", () => {
 
   test("a 200 response extracts model, provider, content, usage, and the generation cost", async () => {
     const urls: string[] = [];
-    const fetch = (async (url: string | URL | Request) => {
+    const fetch: ProbeFetch = async (url: string | URL | Request) => {
       urls.push(String(url));
       if (String(url).includes("/generation")) {
         return new Response(JSON.stringify({ data: { total_cost: 0.0012 } }), { status: 200 });
@@ -62,7 +70,7 @@ describe("probe/jev.ts", () => {
         }),
         { status: 200 },
       );
-    }) as typeof fetch;
+    };
     const result = await probeSlug("typesafe/jev-router", KEY, fetch, async () => {});
     expect(result.model).toBe("typesafe/jev-router");
     expect(result.provider).toBe("Typesafe");
@@ -74,7 +82,7 @@ describe("probe/jev.ts", () => {
 
   test("the generation lookup retries three times when OpenRouter counts late", async () => {
     let generationCalls = 0;
-    const fetch = (async (url: string | URL | Request) => {
+    const fetch: ProbeFetch = async (url: string | URL | Request) => {
       if (String(url).includes("/generation")) {
         generationCalls++;
         return new Response(JSON.stringify({ data: { total_cost: 0.0005 } }), { status: 200 });
@@ -83,7 +91,7 @@ describe("probe/jev.ts", () => {
         JSON.stringify({ id: "gen-9", choices: [{ message: { content: "{}" } }], usage: {} }),
         { status: 200 },
       );
-    }) as typeof fetch;
+    };
     const sleeps: number[] = [];
     const result = await probeSlug("m", KEY, fetch, async (ms) => {
       sleeps.push(ms);
@@ -96,7 +104,7 @@ describe("probe/jev.ts", () => {
 
   test("the generation lookup stops after three tries without a cost", async () => {
     let generationCalls = 0;
-    const fetch = (async (url: string | URL | Request) => {
+    const fetch: ProbeFetch = async (url: string | URL | Request) => {
       if (String(url).includes("/generation")) {
         generationCalls++;
         return new Response(JSON.stringify({ data: {} }), { status: 200 });
@@ -104,7 +112,7 @@ describe("probe/jev.ts", () => {
       return new Response(JSON.stringify({ id: "gen-9", choices: [{ message: { content: "{}" } }], usage: {} }), {
         status: 200,
       });
-    }) as typeof fetch;
+    };
     const result = await probeSlug("m", KEY, fetch, async () => {});
     expect(generationCalls).toBe(3);
     expect(result.generationCost).toBeNull();
@@ -144,17 +152,17 @@ describe("probe/jev.ts decisions mode", () => {
     const state = body.state as Record<string, string>;
     expect(state.tool_call).toContain("ls src");
     expect(state.claim).toContain("only test files");
-    const questions = body.questions as Record<string, { type: string }>;
-    expect(questions.tag.type).toBe("choice");
-    expect(Object.keys(questions.tag.criteria as object)).toEqual(["ok", "wasted", "wrong-tool", "ungrounded-claim"]);
-    expect(questions.claim_supported.type).toBe("noul");
+    const questions = body.questions as Record<string, { type: string; criteria?: unknown }>;
+    expect(field(questions, "tag").type).toBe("choice");
+    expect(Object.keys(field(questions, "tag").criteria as object)).toEqual(["ok", "wasted", "wrong-tool", "ungrounded-claim"]);
+    expect(field(questions, "claim_supported").type).toBe("noul");
   });
 
   test("probeDecisions sends the request to the decisions URL with the body and no key leak", async () => {
     let url = "";
     let headers: Record<string, string> = {};
     let sentBody = "";
-    const fetch = (async (u: string | URL | Request, init?: RequestInit) => {
+    const fetch: ProbeFetch = async (u: string | URL | Request, init?: RequestInit) => {
       url = String(u);
       headers = (init?.headers ?? {}) as Record<string, string>;
       sentBody = String(init?.body);
@@ -171,7 +179,7 @@ describe("probe/jev.ts decisions mode", () => {
         }),
         { status: 200 },
       );
-    }) as typeof fetch;
+    };
     const result = await probeDecisions(DEFAULT_DECISIONS_MODEL, KEY, fetch);
     expect(url).toBe(DECISIONS_URL);
     expect(headers.Authorization).toBe(`Bearer ${KEY}`);
@@ -179,14 +187,14 @@ describe("probe/jev.ts decisions mode", () => {
     expect(result.status).toBe(200);
     expect(result.errorText).toBeNull();
     const body = result.body as { answers: Record<string, { choice?: string; noul?: number }>; usage: { cost: number } };
-    expect(body.answers.tag.choice).toBe("ungrounded-claim");
-    expect(body.answers.claim_supported.noul).toBe(0.12);
+    expect(field(body.answers, "tag").choice).toBe("ungrounded-claim");
+    expect(field(body.answers, "claim_supported").noul).toBe(0.12);
     expect(body.usage.cost).toBeCloseTo(0.0000126, 9);
   });
 
   test("probeDecisions reports the error text of a 400", async () => {
-    const fetch = (async () =>
-      new Response(JSON.stringify({ error: { message: "unknown question type" } }), { status: 400 })) as typeof fetch;
+    const fetch: ProbeFetch = async () =>
+      new Response(JSON.stringify({ error: { message: "unknown question type" } }), { status: 400 });
     const result = await probeDecisions(DEFAULT_DECISIONS_MODEL, KEY, fetch);
     expect(result.status).toBe(400);
     expect(result.errorText).toBe("unknown question type");

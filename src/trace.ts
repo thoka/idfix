@@ -147,10 +147,11 @@ function stepDuration(parts: readonly Part[]): number | undefined {
   let end: number | undefined;
   for (const part of parts) {
     if (part.type !== "tool") continue;
+    if (part.state.status === "pending") continue;
     const time = part.state.time;
-    if (time === undefined) continue;
     start = start === undefined ? time.start : Math.min(start, time.start);
-    if (time.end !== undefined) end = end === undefined ? time.end : Math.max(end, time.end);
+    const stepEnd = "end" in time ? time.end : undefined;
+    if (stepEnd !== undefined) end = end === undefined ? stepEnd : Math.max(end, stepEnd);
   }
   if (start === undefined || end === undefined) return undefined;
   return Math.max(0, end - start);

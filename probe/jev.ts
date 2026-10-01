@@ -137,13 +137,19 @@ function contentOf(body: unknown): string | null {
 }
 
 /**
+ * The fetch function a probe needs: a plain fetch without the DOM extras
+ * (such as `preconnect`), so tests can pass a simple fake.
+ */
+export type ProbeFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+/**
  * One probe request against one slug, plus the generation cost lookup with
  * up to three tries, because OpenRouter counts a request a minute or two late.
  */
 export async function probeSlug(
   slug: string,
   key: string,
-  doFetch: typeof fetch,
+  doFetch: ProbeFetch,
   sleep: (ms: number) => Promise<void>,
 ): Promise<{ status: number; errorText: string | null; model: string | null; provider: string | null; content: string | null; usage: unknown; generationId: string | null; generationCost: number | null }> {
   const response = await doFetch(OPENROUTER_CHAT_URL, {
@@ -221,7 +227,7 @@ export function buildDecisionsRequestBody(model: string): object {
 export async function probeDecisions(
   model: string,
   key: string,
-  doFetch: typeof fetch,
+  doFetch: ProbeFetch,
 ): Promise<{ status: number; errorText: string | null; body: unknown }> {
   const response = await doFetch(OPENROUTER_DECISIONS_URL, {
     method: "POST",

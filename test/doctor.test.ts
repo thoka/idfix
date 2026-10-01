@@ -2430,7 +2430,7 @@ describe("doctor --renovate --json keeps stdout pure JSON", () => {
     }
     expect(code).toBe(0);
     expect(lines).toHaveLength(1);
-    const parsed = JSON.parse(lines[0]!) as { fixes: { name: string; ok: boolean }[]; results: CheckResult[] };
+    const parsed = JSON.parse(lines[0]!) as { fixes: { name: string; ok: boolean; note?: string }[]; results: CheckResult[] };
     expect(parsed.fixes).toEqual([{ name: "global-rules", ok: true, note: expect.any(String) }]);
     expect(parsed.results).toHaveLength(ALL_CHECKS.length);
     expect(errors.some((line) => line.startsWith("fixing global-rules:"))).toBe(true);

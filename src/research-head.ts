@@ -80,14 +80,14 @@ export function parseResearchHead(text: string): ResearchHead | null {
     if (line.trim().length === 0) continue;
     const item = line.match(/^\s*-\s+(.*)$/);
     if (inDecisions && item !== null) {
-      head.decisions.push(item[1].trim().replace(/^"(.*)"$/, "$1"));
+      head.decisions.push((item[1] ?? "").trim().replace(/^"(.*)"$/, "$1"));
       continue;
     }
     inDecisions = false;
     const pair = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
     if (pair === null) continue;
-    const key = pair[1];
-    const value = pair[2].trim();
+    const key = pair[1] ?? "";
+    const value = (pair[2] ?? "").trim();
     if (key === "checked" && value.length > 0) {
       head.checked = value;
       keys++;
@@ -105,7 +105,7 @@ export function parseResearchHead(text: string): ResearchHead | null {
 
 /** Add days or months to a date string YYYY-MM-DD. A month clamps the day. */
 function addInterval(date: string, interval: { days?: number; months?: number }): string {
-  const [y, m, d] = date.split("-").map(Number);
+  const [y = 0, m = 0, d = 0] = date.split("-").map(Number);
   if (interval.days !== undefined) {
     const next = new Date(Date.UTC(y, m - 1, d + interval.days));
     return next.toISOString().slice(0, 10);

@@ -11,12 +11,12 @@ import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpat
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
-import { cloneStatus, defaultKvmDeps, execFailedMessage, KVM_CHMOD_COMMAND, kvmAccessCheck, listsCloneRemote, miseInstallsDir, missingCloneMessage, missingMounts, missingMountsMessage, readSandboxState, requiredSandboxMounts, sandboxName, sandboxRecreateFix, sandboxStatePath, listsName, defaultRunner, type KvmDeps, type Runner, type SandboxState } from "./sandbox";
+import { defaultKvmDeps, execFailedMessage, hostRefsKeepingCommit, KVM_CHMOD_COMMAND, kvmAccessCheck, miseInstallsDir, missingCloneMessage, missingMountsMessage, parseFeatureBranches, parseWorktrees, readSandboxState, RECREATE_REF_FORMAT, recreateSandbox, sandboxName, sandboxRecreateCase, sandboxRecreateFix, sandboxStatePath, defaultRunner, type KvmDeps, type Runner, type SandboxState } from "./sandbox";
 import { projectRootOfRun } from "./keys";
 import { sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
 import { pluginDataDir, pluginDigest, syncPluginDir } from "./plugin-sync";
-import { findRunningServers, restartServer, serverLabel, type RunningServer } from "./server-plugin";
+import { busyCheck, busyCheckNote, findRunningServers, restartServer, serverLabel, type BusyCheck, type RunningServer } from "./server-plugin";
 
 /** The result of one check. */
 export type CheckResult = {
@@ -97,6 +97,13 @@ export type DoctorDeps = {
   runningServers: () => RunningServer[];
   /** Restarts one server if all its sessions are idle (the fix of `server-plugin`). */
   restartServer: (server: RunningServer) => Promise<FixOutcome>;
+  /** The shared busy check of a server: unauthorized, a failed check, or a busy session blocks. */
+  serverBusy: (server: RunningServer) => Promise<BusyCheck>;
+  /**
+   * Recreates the sandbox of a project: with `stopServer`, `oc-sub down`
+   * first, then `sbx rm --force NAME`, then `oc-sub up` (step 15d).
+   */
+  recreateSandbox: (name: string, root: string, stopServer: boolean) => Promise<FixOutcome>;
 };
 
 /** A runner whose child process shares the terminal of this process. */
@@ -198,6 +205,8 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     syncPlugin: (source, dest) => syncPluginDir(source, dest).digest,
     runningServers: () => findRunningServers(env, readSandboxState(sandboxStatePath(env, path.basename(root)))),
     restartServer: (server) => restartServer(server, env),
+    serverBusy: (server) => busyCheck(server, env),
+    recreateSandbox: (name, rootDir, stopServer) => recreateSandbox(name, rootDir, stopServer, env),
   };
   return { ...deps, ...overrides };
 }
@@ -214,10 +223,11 @@ export type Check = {
   run: (deps: DoctorDeps) => CheckResult;
   /**
    * Runs only when `--fix` is set and the check result is `warn` or `fail`.
-   * `ctx.force` is the `--force` flag; no fix in this step uses it, a later
-   * step will for the sandbox recreate. The action returns the outcome, or a
-   * promise of it when it must wait for a server (the restart of
-   * `server-plugin`). A throw or a rejection counts as a failed fix.
+   * `ctx.force` is the `--force` flag. Most fixes ignore it; the recreate
+   * fix of `sandbox-mounts` runs only with it, because it ends all sessions
+   * of the sandbox. The action returns the outcome, or a promise of it when
+   * it must wait for a server or a subprocess. A throw or a rejection counts
+   * as a failed fix.
    */
   fix?: (deps: DoctorDeps, result: CheckResult, ctx: { force: boolean }) => FixOutcome | Promise<FixOutcome>;
   /**
@@ -514,46 +524,169 @@ export function globalRulesFix(deps: DoctorDeps, _result: CheckResult, _ctx: { f
 function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
   const state = deps.sandboxState();
   if (state === null) return result("sandbox-mounts", "skip", "no sandbox state file for this project");
-  const ls = deps.runner([deps.sandboxBin, "ls"]).stdout;
   const name = sandboxName(deps.projectName);
-  if (!listsName(ls, name)) {
-    return result("sandbox-mounts", "skip", `no sandbox ${name} in sbx ls (it is stopped or removed)`);
+  // The classifier of the check and of its fix. It probes in the order of
+  // `up`: `sbx ls` for the mounts, then the clone (its `sbx exec` starts a
+  // stopped sandbox), then the `sandbox-<name>` remote for clone mode.
+  const bad = sandboxRecreateCase(deps.runner, {
+    bin: deps.sandboxBin,
+    name,
+    root: state.root,
+    pluginDir: deps.pluginDir,
+    installsDir: deps.installsDir,
+    sharedDir: deps.sharedDir,
+  });
+  if (bad === null) return result("sandbox-mounts", "pass", `the sandbox ${name} has all required mounts, clone mode, and a clone`);
+  switch (bad.reason) {
+    case "not-listed":
+      return result("sandbox-mounts", "skip", `no sandbox ${name} in sbx ls (it is stopped or removed)`);
+    case "missing-mount":
+      return result("sandbox-mounts", "fail", missingMountsMessage(name, bad.missing, deps.pluginDir), sandboxRecreateFix(name));
+    case "exec-failed":
+      // The sandbox did not start, so a recreate would not help.
+      return result(
+        "sandbox-mounts",
+        "fail",
+        execFailedMessage(name, bad.exitCode, bad.stderr),
+        `run ${deps.sandboxBin} diagnose for the cause; check kvm-access first`,
+      );
+    case "missing-clone":
+      return result("sandbox-mounts", "fail", missingCloneMessage(name, state.root), sandboxRecreateFix(name));
+    case "not-clone-mode":
+      return result(
+        "sandbox-mounts",
+        "fail",
+        `the sandbox ${name} is not in clone mode (the project has no sandbox-<name> git remote)`,
+        sandboxRecreateFix(name),
+      );
   }
-  // The sandbox was created from the root in the state file. The mounts
-  // come from the same pure plan as in `up`: a folder inside the root has no
-  // mount, the clone holds it.
-  const missing = missingMounts(ls, name, requiredSandboxMounts(state.root, deps.pluginDir, deps.installsDir, deps.sharedDir));
-  if (missing.length > 0) {
-    return result("sandbox-mounts", "fail", missingMountsMessage(name, missing, deps.pluginDir), sandboxRecreateFix(name));
+}
+
+/**
+ * The unfetched-work guard of the recreate fix: it proves that no work in
+ * the clone would be lost. First it finds out whether the sandbox is in
+ * clone mode: `sbx exec NAME test -d /run/sandbox/source` (only a clone-mode
+ * sandbox has that path, and the exec also starts a stopped sandbox). Exit 1
+ * means a direct mount: the sandbox mounts the host repository itself, so
+ * nothing lives in the clone alone and a dirty host tree is no reason to
+ * block. The guard skips. Another non-zero exit blocks, because then the fix
+ * cannot prove that no work is lost. The `sandbox-<name>` remote is no proof
+ * of clone mode, because `sbx stop` removes it.
+ *
+ * In a clone-mode sandbox, a local `feature/*` branch is safe only when a
+ * host ref outside `refs/remotes/sandbox-<name>/` and
+ * `refs/sandboxes/<name>/` contains its commit: `git -C ROOT for-each-ref
+ * --contains SHA --format=%(refname)` on the host. `git cat-file -e` is not
+ * enough, because `sbx rm` removes the remote and git then deletes those
+ * refs, so the last ref of a fetched but unmerged branch would go. A failed
+ * command blocks too. The note names the three ways out: merge the branch,
+ * keep it with `git branch`, or remove it in the clone with
+ * `oc-sub worktree rm`. A squash merge does not contain the feature commits,
+ * so after a squash merge the user runs `oc-sub worktree rm`.
+ *
+ * It also lists the worktrees of the clone and blocks on uncommitted
+ * changes. Null means the guard is clear.
+ */
+function sandboxUnfetchedWorkGuard(deps: DoctorDeps, name: string, root: string): string | null {
+  const bin = deps.sandboxBin;
+  // Clone mode or direct mount? Only a clone-mode sandbox holds
+  // /run/sandbox/source. A direct mount exposes the host repository itself,
+  // so the host branches and worktrees below are the host's own state and no
+  // reason to block.
+  const sourceArgs = [bin, "exec", name, "test", "-d", "/run/sandbox/source"];
+  const source = deps.runner(sourceArgs);
+  if (source.exitCode === 1) return null;
+  if (source.exitCode !== 0) {
+    return `cannot prove that no work is lost: ${sourceArgs.slice(1).join(" ")} failed with code ${source.exitCode}. Check the sandbox with ${bin} diagnose`;
   }
-  // The same clone check as in `up`: a create can exit 0 and leave no clone.
-  // Its `sbx exec` also starts a stopped sandbox. When the exec itself fails,
-  // the sandbox did not start, and a recreate would not help.
-  const clone = cloneStatus(deps.runner, deps.sandboxBin, name, state.root);
-  if (clone.state === "exec-failed") {
-    return result(
-      "sandbox-mounts",
-      "fail",
-      execFailedMessage(name, clone.exitCode, clone.stderr),
-      `run ${deps.sandboxBin} diagnose for the cause; check kvm-access first`,
-    );
+  const refArgs = [bin, "exec", name, "git", "-C", root, "for-each-ref", `--format=${RECREATE_REF_FORMAT}`];
+  const refs = deps.runner(refArgs);
+  if (refs.exitCode !== 0) {
+    return `cannot prove that no work is lost: ${refArgs.slice(1).join(" ")} failed with code ${refs.exitCode}. Fetch and push the work first (oc-sub fetch)`;
   }
-  if (clone.state === "missing") {
-    return result("sandbox-mounts", "fail", missingCloneMessage(name, state.root), sandboxRecreateFix(name));
+  for (const { sha, branch } of parseFeatureBranches(refs.stdout)) {
+    const containsArgs = ["git", "-C", root, "for-each-ref", "--contains", sha, "--format=%(refname)"];
+    const contains = deps.runner(containsArgs);
+    if (contains.exitCode !== 0) {
+      return `cannot prove that no work is lost: ${containsArgs.slice(1).join(" ")} failed with code ${contains.exitCode} for ${branch}. Fetch and push the work first (oc-sub fetch, branch ${branch})`;
+    }
+    if (hostRefsKeepingCommit(contains.stdout, name).length === 0) {
+      return `the branch ${branch} of the clone ${name} holds commits that the host would lose with sbx rm (its only refs sit under sandbox-${name}). Merge the branch, keep it with git branch ${branch} sandbox-${name}/${branch}, or remove it in the clone with oc-sub worktree rm ${branch.slice("feature/".length)}. A squash merge does not contain the feature commits, so after a squash merge run oc-sub worktree rm ${branch.slice("feature/".length)}`;
+    }
   }
-  // Clone mode is a create-time flag, so an old direct-mount sandbox needs
-  // the same recreate: `sbx` adds the `sandbox-<name>` git remote only for a
-  // sandbox created with `--clone`. `sbx stop` removes the remote and the
-  // next start adds it again, so this check comes after the start above.
-  if (!listsCloneRemote(deps.runner(["git", "-C", deps.root, "remote"]).stdout, name)) {
-    return result(
-      "sandbox-mounts",
-      "fail",
-      `the sandbox ${name} is not in clone mode (the project has no sandbox-<name> git remote)`,
-      sandboxRecreateFix(name),
-    );
+  const wtArgs = [bin, "exec", name, "git", "-C", root, "worktree", "list", "--porcelain"];
+  const worktrees = deps.runner(wtArgs);
+  if (worktrees.exitCode !== 0) {
+    return `cannot prove that no work is lost: ${wtArgs.slice(1).join(" ")} failed with code ${worktrees.exitCode}. Fetch and push the work first (oc-sub fetch)`;
   }
-  return result("sandbox-mounts", "pass", `the sandbox ${name} has all required mounts, clone mode, and a clone`);
+  for (const worktree of parseWorktrees(worktrees.stdout)) {
+    const status = deps.runner([bin, "exec", name, "git", "-C", worktree, "status", "--porcelain"]);
+    if (status.exitCode !== 0) {
+      return `cannot prove that no work is lost: git status in the worktree ${worktree} failed with code ${status.exitCode}. Commit and push the work first (oc-sub fetch)`;
+    }
+    if (status.stdout.trim().length > 0) {
+      return `the worktree ${worktree} of the clone ${name} has uncommitted changes. Commit and push them first (oc-sub fetch, worktree ${worktree})`;
+    }
+  }
+  return null;
+}
+
+/**
+ * The fix of `sandbox-mounts` (step 15d): recreate the sandbox with
+ * `sbx rm --force NAME` and `oc-sub up`. The classifier decides whether a
+ * recreate helps; in the `exec-failed` case it does not, because the sandbox
+ * does not start. Without `--force` nothing runs, because a recreate ends
+ * all sessions of the sandbox. Two guards always block, also with
+ * `--force`: a busy session on the sandbox server (the same shared busy
+ * check as the restart of `server-plugin`), and unfetched or uncommitted
+ * work in the clone. With `--force`, a failing step of the recreate returns
+ * `ok: false` with its exit code.
+ */
+export async function sandboxMountsFix(deps: DoctorDeps, _result: CheckResult, ctx: { force: boolean }): Promise<FixOutcome> {
+  const state = deps.sandboxState();
+  if (state === null) return { ok: false, note: "no sandbox state file for this project, nothing changed" };
+  const name = sandboxName(deps.projectName);
+  const bad = sandboxRecreateCase(deps.runner, {
+    bin: deps.sandboxBin,
+    name,
+    root: state.root,
+    pluginDir: deps.pluginDir,
+    installsDir: deps.installsDir,
+    sharedDir: deps.sharedDir,
+  });
+  if (bad === null) return { ok: true, note: `the sandbox ${name} has all required mounts, clone mode, and a clone` };
+  if (bad.reason === "not-listed") return { ok: false, note: `no sandbox ${name} in sbx ls, nothing changed` };
+  if (bad.reason === "exec-failed") {
+    return {
+      ok: false,
+      note: `a recreate does not help: ${execFailedMessage(name, bad.exitCode, bad.stderr)}. For the cause, run ${deps.sandboxBin} diagnose`,
+    };
+  }
+  if (ctx.force !== true) {
+    return {
+      ok: false,
+      note: `a recreate of the sandbox ${name} ends all sessions of the sandbox. Run oc-sub doctor --fix --force to recreate it`,
+    };
+  }
+  // Guard 1: a busy session on the sandbox server. The same shared probe and
+  // busy check as the restart of `server-plugin`.
+  const server = deps.runningServers().find((candidate) => candidate.mode === "sandbox");
+  if (server !== undefined) {
+    const busy = await deps.serverBusy(server);
+    if (busy.kind !== "clear") {
+      return {
+        ok: false,
+        note: `${busyCheckNote(busy, server)}. The sandbox ${name} is not recreated. End the sessions with oc-sub abort or oc-sub down, then run oc-sub doctor --fix --force again`,
+      };
+    }
+  }
+  // Guard 2: unfetched or uncommitted work in the clone. A missing clone
+  // holds no work, so the guard runs only when the clone exists.
+  if (bad.reason !== "missing-clone") {
+    const blocked = sandboxUnfetchedWorkGuard(deps, name, state.root);
+    if (blocked !== null) return { ok: false, note: blocked };
+  }
+  return deps.recreateSandbox(name, state.root, server !== undefined);
 }
 
 /**
@@ -655,7 +788,7 @@ export const SLOW_CHECKS: Check[] = [
   { name: "server-plugin", run: serverPluginCheck, fix: serverPluginFix },
   // Before sandbox-mounts: without KVM access, the sandbox cannot start.
   { name: "kvm-access", run: (deps) => kvmAccessCheck(deps.kvm), rootFix: kvmAccessRootFix },
-  { name: "sandbox-mounts", run: sandboxMountsCheck },
+  { name: "sandbox-mounts", run: sandboxMountsCheck, fix: sandboxMountsFix },
 ];
 
 /** All checks in their fixed order. */

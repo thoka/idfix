@@ -131,6 +131,54 @@ export const defaultRestartDeps: RestartDeps = {
 };
 
 /**
+ * The busy check that `restartServer` and the recreate fix of
+ * `sandbox-mounts` share: probe the server, then check its sessions. The
+ * check is clear only when the server answers with valid credentials and no
+ * session runs on it. A refused probe, a failed session check, or a busy
+ * session blocks both a restart and a recreate.
+ */
+export type BusyCheck =
+  | { kind: "clear" }
+  | { kind: "unauthorized" }
+  | { kind: "failed"; reason: string }
+  | { kind: "busy"; sessions: string };
+
+/** Run the shared busy check of a server. */
+export async function busyCheck(
+  server: RunningServer,
+  env: Env = process.env,
+  deps: RestartDeps = defaultRestartDeps,
+): Promise<BusyCheck> {
+  const state = await deps.probe(server.url, env, 2000);
+  if (state.state === "unauthorized") return { kind: "unauthorized" };
+  if (state.state === "up") {
+    let busy;
+    try {
+      busy = await deps.busySessions(server.url, await readDirs(serveDirsPath(env, server.port)), env);
+    } catch (error) {
+      return { kind: "failed", reason: error instanceof Error ? error.message : String(error) };
+    }
+    if (busy.length > 0) return { kind: "busy", sessions: busy.map(formatBusyLine).join(", ") };
+  }
+  return { kind: "clear" };
+}
+
+/** The cause text of a busy check result, for the notes of the fixes. */
+export function busyCheckNote(check: BusyCheck, server: RunningServer): string {
+  const label = serverLabel(server);
+  switch (check.kind) {
+    case "clear":
+      return "";
+    case "unauthorized":
+      return `${label} refused the credentials, so its sessions cannot be checked`;
+    case "failed":
+      return `${label}: cannot check its sessions (${check.reason})`;
+    case "busy":
+      return `${label} is busy: ${check.sessions}`;
+  }
+}
+
+/**
  * Restarts one server when every session on it is idle. It uses the busy
  * check of `down`: the sessions of the folders in `serve-<port>.dirs` that
  * are not idle. A busy server is not restarted, and the outcome names
@@ -161,24 +209,18 @@ export async function restartServer(
       };
     }
   }
-  const state = await deps.probe(server.url, env, 2000);
-  if (state.state === "unauthorized") {
-    return { ok: false, note: `${label} refused the credentials, so its sessions cannot be checked. It is not restarted` };
+  const busy = await busyCheck(server, env, deps);
+  if (busy.kind === "unauthorized") {
+    return { ok: false, note: `${busyCheckNote(busy, server)}. It is not restarted` };
   }
-  if (state.state === "up") {
-    let busy;
-    try {
-      busy = await deps.busySessions(server.url, await readDirs(serveDirsPath(env, server.port)), env);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      return { ok: false, note: `${label}: cannot check its sessions (${reason}). It is not restarted` };
-    }
-    if (busy.length > 0) {
-      return {
-        ok: false,
-        note: `${label} is busy, not restarted: ${busy.map(formatBusyLine).join(", ")}. Wait for the sessions, or end them with oc-sub abort or oc-sub down, then run oc-sub doctor --fix again`,
-      };
-    }
+  if (busy.kind === "failed") {
+    return { ok: false, note: `${busyCheckNote(busy, server)}. It is not restarted` };
+  }
+  if (busy.kind === "busy") {
+    return {
+      ok: false,
+      note: `${label} is busy, not restarted: ${busy.sessions}. Wait for the sessions, or end them with oc-sub abort or oc-sub down, then run oc-sub doctor --fix again`,
+    };
   }
   const log = console.log;
   console.log = console.error;

@@ -21,6 +21,7 @@ import {
   runChecks,
   runFastChecksFor,
   runFixes,
+  sandboxMountsFix,
   SERVER_PLUGIN_FIX,
   serverPluginFix,
   SLOW_CHECKS,
@@ -28,8 +29,19 @@ import {
   type CheckResult,
   type DoctorDeps,
 } from "../src/doctor";
-import type { RunningServer } from "../src/server-plugin";
-import { cloneCheckCommand, kvmAccessCheck, missingCloneMessage, requiredSandboxMounts, sandboxRecreateFix, type KvmDeps } from "../src/sandbox";
+import type { BusyCheck, RunningServer } from "../src/server-plugin";
+import {
+  cloneCheckCommand,
+  kvmAccessCheck,
+  hostRefsKeepingCommit,
+  missingCloneMessage,
+  parseFeatureBranches,
+  parseWorktrees,
+  recreateSandbox,
+  requiredSandboxMounts,
+  sandboxRecreateFix,
+  type KvmDeps,
+} from "../src/sandbox";
 
 /** The synced plugin folder of the fake deps. */
 const PLUGIN_DIR = "/home/u/.local/share/oc-sub/opencode";
@@ -102,6 +114,12 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     runningServers: () => [],
     restartServer: async () => {
       throw new Error("no server may restart in this test");
+    },
+    serverBusy: async () => {
+      throw new Error("no serverBusy check may run in this test");
+    },
+    recreateSandbox: async () => {
+      throw new Error("no sandbox may be recreated in this test");
     },
     ...overrides,
   };
@@ -1269,5 +1287,480 @@ describe("server-plugin", () => {
       logSpy.mockRestore();
     }
     expect(code).toBe(0);
+  });
+});
+
+describe("parseFeatureBranches", () => {
+  test("keeps only the local feature branches, with the prefix removed", () => {
+    const out = [
+      "1111111111111111111111111111111111111111 refs/heads/alpha",
+      "2222222222222222222222222222222222222222 refs/heads/feature/15d",
+      "3333333333333333333333333333333333333333 refs/heads/feature/15e",
+      "4444444444444444444444444444444444444444 refs/remotes/host/alpha",
+      "",
+    ].join("\n");
+    expect(parseFeatureBranches(out)).toEqual([
+      { sha: "2222222222222222222222222222222222222222", branch: "feature/15d" },
+      { sha: "3333333333333333333333333333333333333333", branch: "feature/15e" },
+    ]);
+  });
+
+  test("ignores empty and malformed lines", () => {
+    expect(parseFeatureBranches("\nrefs/heads/feature/x\nno space\n")).toEqual([]);
+  });
+});
+
+describe("hostRefsKeepingCommit", () => {
+  test("drops the refs that sbx rm deletes with the sandbox-<name> remote", () => {
+    const out = [
+      "refs/heads/alpha",
+      "refs/remotes/sandbox-oc-sub-repo/feature/15d",
+      "refs/sandboxes/oc-sub-repo/heads/feature/15d",
+      "refs/remotes/origin/alpha",
+      "",
+    ].join("\n");
+    expect(hostRefsKeepingCommit(out, "oc-sub-repo")).toEqual(["refs/heads/alpha", "refs/remotes/origin/alpha"]);
+  });
+
+  test("returns nothing when every ref sits under the two namespaces", () => {
+    const out = [
+      "refs/remotes/sandbox-oc-sub-repo/feature/15d",
+      "refs/sandboxes/oc-sub-repo/heads/feature/15d",
+    ].join("\n");
+    expect(hostRefsKeepingCommit(out, "oc-sub-repo")).toEqual([]);
+  });
+});
+
+describe("parseWorktrees", () => {
+  test("reads the worktree paths of the porcelain output, spaces included", () => {
+    const out = [
+      "worktree /repo",
+      "HEAD 1111111111111111111111111111111111111111",
+      "branch refs/heads/alpha",
+      "",
+      "worktree /repo/.worktrees/15d test",
+      "HEAD 2222222222222222222222222222222222222222",
+      "branch refs/heads/feature/15d",
+      "",
+    ].join("\n");
+    expect(parseWorktrees(out)).toEqual(["/repo", "/repo/.worktrees/15d test"]);
+  });
+
+  test("returns nothing without worktree lines", () => {
+    expect(parseWorktrees("bare\n")).toEqual([]);
+  });
+});
+
+describe("the sandbox-mounts fix (step 15d)", () => {
+  const MOUNTS = requiredSandboxMounts("/repo", PLUGIN_DIR, "/home/u/.local/share/mise/installs", "/home/u/dv/meta/agents").join(", ");
+  const LS_OK = `NAME STATUS WORKSPACE\noc-sub-repo running /repo, ${MOUNTS}\n`;
+  const LS_MISSING = `NAME STATUS WORKSPACE\noc-sub-repo running /repo\n`;
+  const SANDBOX_SERVER: RunningServer = {
+    mode: "sandbox",
+    port: 18768,
+    url: "http://127.0.0.1:18768",
+    root: "/repo",
+    name: "oc-sub-repo",
+    digest: "sha256:same",
+  };
+  const FAIL_RESULT: CheckResult = { name: "sandbox-mounts", status: "fail", message: "bad" };
+
+  /**
+   * A fake runner for the classifier and the guard. It matches on the shape
+   * of the command: `sbx ls`, the git host calls, and the `sbx exec` git
+   * calls of the clone check and the guard.
+   */
+  function fakeRunner(rules: {
+    ls: string;
+    /** Exit code of the clone check exec (`git rev-parse --git-dir`). */
+    clone?: number;
+    /** Exit code of the `test -d /run/sandbox/source` exec (1 = direct mount). */
+    test?: number;
+    /** Stdout of `git remote` on the host. */
+    remote?: string;
+    /** Exit code of the for-each-ref exec, or its stdout. */
+    refs?: number | string;
+    /** The host refs that contain a branch commit, per sha, or an exit code. */
+    contains?: number | string | ((sha: string) => number | string);
+    /** Exit code of the worktree list exec, or its porcelain stdout. */
+    worktrees?: number | string;
+    /** Exit code of a worktree status exec, or its stdout, per worktree path. */
+    status?: number | string | ((path: string) => number | string);
+  }): { runner: DoctorDeps["runner"]; calls: string[] } {
+    const calls: string[] = [];
+    const runner: DoctorDeps["runner"] = (cmd) => {
+      calls.push(cmd.join(" "));
+      const joined = cmd.join(" ");
+      if (cmd[0] === "sbx" && cmd[1] === "ls") return { stdout: rules.ls, exitCode: 0 };
+      if (cmd[0] === "sbx" && joined.includes("test -d")) return { stdout: "", exitCode: rules.test ?? 0 };
+      if (cmd[0] === "git") {
+        if (cmd[3] === "remote") return { stdout: rules.remote ?? "sandbox-oc-sub-repo\n", exitCode: 0 };
+        if (cmd[3] === "for-each-ref") {
+          const rule = typeof rules.contains === "function" ? rules.contains(cmd[5] ?? "") : rules.contains;
+          if (typeof rule === "number") return { stdout: "", exitCode: rule };
+          return { stdout: rule ?? "", exitCode: 0 };
+        }
+        return { stdout: "", exitCode: 0 };
+      }
+      if (joined.includes("rev-parse")) return { stdout: "", exitCode: rules.clone ?? 0 };
+      if (joined.includes("for-each-ref")) {
+        if (typeof rules.refs === "number") return { stdout: "", exitCode: rules.refs };
+        return { stdout: rules.refs ?? "", exitCode: 0 };
+      }
+      if (joined.includes("worktree")) {
+        if (typeof rules.worktrees === "number") return { stdout: "", exitCode: rules.worktrees };
+        return { stdout: rules.worktrees ?? "", exitCode: 0 };
+      }
+      if (joined.includes("status")) {
+        const rule = typeof rules.status === "function" ? rules.status(cmd[5] ?? "") : rules.status;
+        if (typeof rule === "number") return { stdout: "", exitCode: rule };
+        return { stdout: rule ?? "", exitCode: 0 };
+      }
+      return { stdout: "", exitCode: 0 };
+    };
+    return { runner, calls };
+  }
+
+  function fixDeps(
+    runner: DoctorDeps["runner"],
+    overrides: Partial<DoctorDeps> = {},
+  ): { deps: DoctorDeps; recreateCalls: Array<[string, string, boolean]> } {
+    const recreateCalls: Array<[string, string, boolean]> = [];
+    const deps = makeDeps(
+      {},
+      {
+        runner,
+        sandboxState: () => ({ name: "oc-sub-repo", root: "/repo", port: 18768 }),
+        recreateSandbox: async (name, root, stop) => {
+          recreateCalls.push([name, root, stop]);
+          return { ok: true, note: "recreated" };
+        },
+        ...overrides,
+      },
+    );
+    return { deps, recreateCalls };
+  }
+
+  test("does nothing without --force and names the flag", async () => {
+    const { runner } = fakeRunner({ ls: LS_MISSING });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("ends all sessions");
+    expect(outcome.note).toContain("oc-sub doctor --fix --force");
+    expect(recreateCalls).toEqual([]);
+  });
+
+  test("does not recreate when the sandbox does not start, even with --force", async () => {
+    const { runner } = fakeRunner({ ls: LS_OK, clone: 1 });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("does not help");
+    expect(outcome.note).toContain("sbx diagnose");
+    expect(recreateCalls).toEqual([]);
+  });
+
+  test("blocks on a busy session of the sandbox server, also with --force", async () => {
+    const { runner } = fakeRunner({ ls: LS_MISSING });
+    const { deps, recreateCalls } = fixDeps(runner, {
+      runningServers: () => [SANDBOX_SERVER],
+      serverBusy: async (): Promise<BusyCheck> => ({ kind: "busy", sessions: "busy ses_1 /repo" }),
+    });
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("busy ses_1 /repo");
+    expect(outcome.note).toContain("oc-sub abort or oc-sub down");
+    expect(recreateCalls).toEqual([]);
+  });
+
+  test("blocks on a server that refuses the credentials", async () => {
+    const { runner } = fakeRunner({ ls: LS_MISSING });
+    const { deps, recreateCalls } = fixDeps(runner, {
+      runningServers: () => [SANDBOX_SERVER],
+      serverBusy: async (): Promise<BusyCheck> => ({ kind: "unauthorized" }),
+    });
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("refused the credentials");
+    expect(recreateCalls).toEqual([]);
+  });
+
+  test("blocks on a clone feature branch whose only host refs sit under sandbox-<name>", async () => {
+    const sha = "2222222222222222222222222222222222222222";
+    const { runner } = fakeRunner({
+      ls: LS_MISSING,
+      refs: `${sha} refs/heads/feature/15d\n`,
+      contains: `refs/remotes/sandbox-oc-sub-repo/feature/15d\nrefs/sandboxes/oc-sub-repo/heads/feature/15d\n`,
+    });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("the host would lose with sbx rm");
+    expect(outcome.note).toContain("Merge the branch");
+    expect(outcome.note).toContain("git branch feature/15d sandbox-oc-sub-repo/feature/15d");
+    expect(outcome.note).toContain("oc-sub worktree rm 15d");
+    expect(outcome.note).toContain("A squash merge does not contain the feature commits");
+    expect(recreateCalls).toEqual([]);
+  });
+
+  test("recreates when a host ref outside sandbox-<name> contains the branch commit", async () => {
+    const sha = "2222222222222222222222222222222222222222";
+    const { runner } = fakeRunner({
+      ls: LS_MISSING,
+      refs: `${sha} refs/heads/feature/15d\n`,
+      contains: "refs/heads/alpha\n",
+      worktrees: "worktree /repo\n",
+      status: "",
+    });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(recreateCalls).toEqual([["oc-sub-repo", "/repo", false]]);
+  });
+
+  test("blocks when the host for-each-ref --contains fails", async () => {
+    const sha = "2222222222222222222222222222222222222222";
+    const { runner } = fakeRunner({
+      ls: LS_MISSING,
+      refs: `${sha} refs/heads/feature/15d\n`,
+      contains: 1,
+    });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("cannot prove that no work is lost");
+    expect(outcome.note).toContain("feature/15d");
+    expect(recreateCalls).toEqual([]);
+  });
+
+  test("skips the guard for a direct-mount sandbox and leaves a dirty host tree alone", async () => {
+    const sha = "2222222222222222222222222222222222222222";
+    const { runner, calls } = fakeRunner({
+      ls: LS_MISSING,
+      test: 1,
+      refs: `${sha} refs/heads/feature/15d\n`,
+    });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(recreateCalls).toEqual([["oc-sub-repo", "/repo", false]]);
+    expect(calls.some((call) => call.includes("for-each-ref"))).toBe(false);
+    expect(calls.some((call) => call.includes("status"))).toBe(false);
+  });
+
+  test("blocks when the clone-mode probe fails, because the fix cannot prove that no work is lost", async () => {
+    const { runner } = fakeRunner({ ls: LS_MISSING, test: 2 });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("cannot prove that no work is lost");
+    expect(outcome.note).toContain("/run/sandbox/source");
+    expect(recreateCalls).toEqual([]);
+  });
+
+  test("blocks on a clone worktree with uncommitted changes", async () => {
+    const { runner } = fakeRunner({
+      ls: LS_MISSING,
+      refs: "",
+      worktrees: "worktree /repo\n\nworktree /repo/.worktrees/15d\n",
+      status: (wt) => (wt === "/repo/.worktrees/15d" ? " M file\n" : ""),
+    });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("oc-sub fetch");
+    expect(outcome.note).toContain("/repo/.worktrees/15d");
+    expect(recreateCalls).toEqual([]);
+  });
+
+  test("blocks when for-each-ref fails, because the fix cannot prove that no work is lost", async () => {
+    const { runner } = fakeRunner({ ls: LS_MISSING, refs: 1 });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("cannot prove that no work is lost");
+    expect(recreateCalls).toEqual([]);
+  });
+
+  test("blocks when git status in a worktree fails", async () => {
+    const { runner } = fakeRunner({
+      ls: LS_MISSING,
+      refs: "",
+      worktrees: "worktree /repo\n",
+      status: 3,
+    });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("cannot prove that no work is lost");
+    expect(outcome.note).toContain("/repo");
+    expect(recreateCalls).toEqual([]);
+  });
+
+  test("recreates for a missing mount, with a clean clone, and names no down without a server", async () => {
+    const { runner } = fakeRunner({
+      ls: LS_MISSING,
+      refs: "",
+      worktrees: "worktree /repo\n",
+      status: "",
+    });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(recreateCalls).toEqual([["oc-sub-repo", "/repo", false]]);
+  });
+
+  test("recreates for a missing clone and skips the work guard", async () => {
+    const { runner, calls } = fakeRunner({ ls: LS_OK, clone: 128 });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(recreateCalls).toEqual([["oc-sub-repo", "/repo", false]]);
+    expect(calls.some((call) => call.includes("for-each-ref"))).toBe(false);
+  });
+
+  test("recreates for a direct-mount sandbox without clone mode", async () => {
+    const { runner } = fakeRunner({ ls: LS_OK, remote: "origin\n", refs: "", worktrees: "worktree /repo\n", status: "" });
+    const { deps, recreateCalls } = fixDeps(runner);
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(recreateCalls).toEqual([["oc-sub-repo", "/repo", false]]);
+  });
+
+  test("stops the server first when one runs and its sessions are idle", async () => {
+    const { runner } = fakeRunner({ ls: LS_MISSING, refs: "", worktrees: "worktree /repo\n", status: "" });
+    const { deps, recreateCalls } = fixDeps(runner, {
+      runningServers: () => [SANDBOX_SERVER],
+      serverBusy: async (): Promise<BusyCheck> => ({ kind: "clear" }),
+    });
+    const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(recreateCalls).toEqual([["oc-sub-repo", "/repo", true]]);
+  });
+
+  test("doctor --fix --force runs the fix through the registry and prints the lines", async () => {
+    const { runner } = fakeRunner({ ls: LS_MISSING, refs: "", worktrees: "worktree /repo\n", status: "" });
+    const { deps } = fixDeps(runner);
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    let code: number;
+    try {
+      code = await doctor({ fix: true, force: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(lines).toContain("fixing sandbox-mounts: Remove it with: sbx rm --force oc-sub-repo, then run oc-sub up. It creates the sandbox again in clone mode with all required mounts.");
+    expect(lines).toContain("fixed sandbox-mounts: recreated");
+    // The re-run of the checks still fails: the fake runner does not change
+    // the sandbox, so the exit code is 1.
+    expect(code).toBe(1);
+  });
+
+  test("doctor --fix without --force fails the fix and names --force", async () => {
+    const { runner } = fakeRunner({ ls: LS_MISSING });
+    const { deps } = fixDeps(runner);
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    let code: number;
+    try {
+      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(code).toBe(1);
+    const failed = lines.find((line) => line.startsWith("fix failed (sandbox-mounts):"));
+    expect(failed).toContain("oc-sub doctor --fix --force");
+  });
+});
+
+describe("recreateSandbox", () => {
+  type Step = "down" | "rm" | "up";
+  function fakeRecreate(opts: { downCode?: number; rmCode?: number; upCode?: number } = {}): {
+    deps: import("../src/sandbox").RecreateDeps;
+    steps: Step[];
+    logged: string[];
+    errored: string[];
+  } {
+    const steps: Step[] = [];
+    const logged: string[] = [];
+    const errored: string[] = [];
+    return {
+      deps: {
+        runner: (cmd) => {
+          steps.push("rm");
+          return { stdout: "", exitCode: opts.rmCode ?? 0 };
+        },
+        downSandbox: async () => {
+          steps.push("down");
+          return opts.downCode ?? 0;
+        },
+        upSandbox: async () => {
+          steps.push("up");
+          // The real `oc-sub up` prints to stdout; recreateSandbox must send
+          // it to stderr.
+          console.log("up printed a line");
+          return opts.upCode ?? 0;
+        },
+      },
+      steps,
+      logged,
+      errored,
+    };
+  }
+
+  test("runs down, then sbx rm --force, then oc-sub up", async () => {
+    const { deps, steps } = fakeRecreate();
+    const outcome = await recreateSandbox("oc-sub-repo", "/repo", true, process.env, deps);
+    expect(outcome.ok).toBe(true);
+    expect(steps).toEqual(["down", "rm", "up"]);
+  });
+
+  test("skips down when no server runs", async () => {
+    const { deps, steps } = fakeRecreate();
+    const outcome = await recreateSandbox("oc-sub-repo", "/repo", false, process.env, deps);
+    expect(outcome.ok).toBe(true);
+    expect(steps).toEqual(["rm", "up"]);
+  });
+
+  test("a failed down stops before sbx rm", async () => {
+    const { deps, steps } = fakeRecreate({ downCode: 1 });
+    const outcome = await recreateSandbox("oc-sub-repo", "/repo", true, process.env, deps);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("oc-sub down failed with code 1");
+    expect(steps).toEqual(["down"]);
+  });
+
+  test("a failed sbx rm reports its exit code and skips oc-sub up", async () => {
+    const { deps, steps } = fakeRecreate({ rmCode: 5 });
+    const outcome = await recreateSandbox("oc-sub-repo", "/repo", false, process.env, deps);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("sbx rm --force oc-sub-repo exited with code 5");
+    expect(steps).toEqual(["rm"]);
+  });
+
+  test("a failed oc-sub up reports its exit code", async () => {
+    const { deps, steps } = fakeRecreate({ upCode: 2 });
+    const outcome = await recreateSandbox("oc-sub-repo", "/repo", false, process.env, deps);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("oc-sub up failed with code 2");
+    expect(steps).toEqual(["rm", "up"]);
+  });
+
+  test("prints the output of down and up to stderr, so --json keeps stdout clean", async () => {
+    const { deps } = fakeRecreate();
+    const out: string[] = [];
+    const err: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => out.push(String(line)));
+    const errorSpy = spyOn(console, "error").mockImplementation((line) => err.push(String(line)));
+    try {
+      await recreateSandbox("oc-sub-repo", "/repo", false, process.env, deps);
+      console.log("after");
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+    expect(err).toEqual(["up printed a line"]);
+    expect(out).toEqual(["after"]);
   });
 });

@@ -642,6 +642,148 @@ export function sandboxRecreateFix(name: string): string {
 }
 
 /**
+ * The format of `git for-each-ref` in the recreate guard: one line per branch
+ * with the commit SHA and the full ref name, separated by one space.
+ */
+export const RECREATE_REF_FORMAT = "%(objectname) %(refname)";
+
+/**
+ * Parses the output of `git for-each-ref --format="%(objectname) %(refname)"`.
+ * It returns the local branches under `refs/heads/feature/`, in their order,
+ * with the branch name without the `refs/heads/` prefix. Pure, so the tests
+ * use it directly.
+ */
+export function parseFeatureBranches(stdout: string): Array<{ sha: string; branch: string }> {
+  const found: Array<{ sha: string; branch: string }> = [];
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const space = trimmed.indexOf(" ");
+    if (space <= 0) continue;
+    const sha = trimmed.slice(0, space);
+    const ref = trimmed.slice(space + 1).trim();
+    if (!ref.startsWith("refs/heads/feature/")) continue;
+    found.push({ sha, branch: ref.slice("refs/heads/".length) });
+  }
+  return found;
+}
+
+/**
+ * The host refs that keep the commit of a clone feature branch when the
+ * sandbox goes. `sbx rm` removes the `sandbox-<name>` remote on the host,
+ * and git then deletes the refs under `refs/remotes/sandbox-<name>/` and
+ * `refs/sandboxes/<name>/`, so a commit that only these refs name is lost.
+ * It parses the output of `git for-each-ref --contains SHA
+ * --format=%(refname)` and drops the two namespaces. Pure, so the tests use
+ * it directly.
+ */
+export function hostRefsKeepingCommit(stdout: string, name: string): string[] {
+  const dead = [`refs/remotes/sandbox-${name}/`, `refs/sandboxes/${name}/`];
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((ref) => ref.length > 0 && !dead.some((prefix) => ref.startsWith(prefix)));
+}
+
+/**
+ * Parses the output of `git worktree list --porcelain`. It returns the paths
+ * of the worktrees, in their order. The path starts after `worktree ` and may
+ * contain spaces. Pure, so the tests use it directly.
+ */
+export function parseWorktrees(stdout: string): string[] {
+  const found: string[] = [];
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith("worktree ")) found.push(line.slice("worktree ".length));
+  }
+  return found;
+}
+
+/**
+ * Why the `sandbox-mounts` check fails and a recreate would fix it. This is
+ * the classifier that the check and its fix both use, so they never disagree.
+ * `not-listed` means the check skips: the sandbox is stopped or removed.
+ * Null means the sandbox is healthy.
+ */
+export type SandboxRecreateCase =
+  | { reason: "not-listed" }
+  | { reason: "missing-mount"; missing: string[] }
+  | { reason: "exec-failed"; exitCode: number; stderr: string }
+  | { reason: "missing-clone" }
+  | { reason: "not-clone-mode" };
+
+/**
+ * The recreate case of a project sandbox, or null when it is healthy. It runs
+ * the same three probes as the `sandbox-mounts` check: `sbx ls` for the
+ * mounts, the clone check, and the `sandbox-<name>` git remote for clone
+ * mode. In that order, because the clone check starts a stopped sandbox and
+ * the remote check must come after it.
+ */
+export function sandboxRecreateCase(
+  runner: Runner,
+  args: { bin: string; name: string; root: string; pluginDir: string; installsDir: string; sharedDir: string },
+): SandboxRecreateCase | null {
+  const ls = runner([args.bin, "ls"]).stdout;
+  if (!listsName(ls, args.name)) return { reason: "not-listed" };
+  const missing = missingMounts(ls, args.name, requiredSandboxMounts(args.root, args.pluginDir, args.installsDir, args.sharedDir));
+  if (missing.length > 0) return { reason: "missing-mount", missing };
+  const clone = cloneStatus(runner, args.bin, args.name, args.root);
+  if (clone.state === "exec-failed") return { reason: "exec-failed", exitCode: clone.exitCode, stderr: clone.stderr };
+  if (clone.state === "missing") return { reason: "missing-clone" };
+  if (!listsCloneRemote(runner(["git", "-C", args.root, "remote"]).stdout, args.name)) return { reason: "not-clone-mode" };
+  return null;
+}
+
+/** The parts that `recreateSandbox` reaches outside this module. */
+export type RecreateDeps = {
+  /** Runs the `sbx rm` command. */
+  runner: Runner;
+  /** Stops the sandbox of a project root, as `oc-sub down` does. */
+  downSandbox: (root: string) => Promise<number>;
+  /** Creates the sandbox again and starts its server, as `oc-sub up` does. */
+  upSandbox: (root: string) => Promise<number>;
+};
+
+/** The real recreate dependencies. */
+export const defaultRecreateDeps: RecreateDeps = {
+  runner: defaultRunner,
+  downSandbox: (root) => downSandbox({ dir: root, force: false }),
+  upSandbox: (root) => upSandbox({ dir: root }),
+};
+
+/**
+ * Recreates a project sandbox: `sbx rm --force NAME`, then `oc-sub up`. With
+ * `stopServer`, `oc-sub down` runs first, so the proxy and the state files of
+ * the server go. The caller has already checked that no session runs (the
+ * busy guard), so down runs without `--force` and re-checks it.
+ *
+ * The prints of down and up go to stderr during the calls, so that
+ * `doctor --fix --json` keeps stdout clean for the JSON object.
+ */
+export async function recreateSandbox(
+  name: string,
+  root: string,
+  stopServer: boolean,
+  env: Env = process.env,
+  deps: RecreateDeps = defaultRecreateDeps,
+): Promise<{ ok: boolean; note: string }> {
+  const log = console.log;
+  console.log = console.error;
+  try {
+    if (stopServer) {
+      const stopped = await deps.downSandbox(root);
+      if (stopped !== 0) return { ok: false, note: `oc-sub down failed with code ${stopped}, the sandbox ${name} is not recreated` };
+    }
+    const rm = deps.runner([sbxBin(env), "rm", "--force", name]);
+    if (rm.exitCode !== 0) return { ok: false, note: `sbx rm --force ${name} exited with code ${rm.exitCode}` };
+    const started = await deps.upSandbox(root);
+    if (started !== 0) return { ok: false, note: `oc-sub up failed with code ${started}` };
+    return { ok: true, note: `recreated the sandbox ${name}: sbx rm --force ${name}, then oc-sub up` };
+  } finally {
+    console.log = log;
+  }
+}
+
+/**
  * The command that proves the clone exists inside the sandbox:
  * `git -C ROOT rev-parse --git-dir` must succeed there. A create with a
  * mount inside the project root exits 0 but leaves no clone

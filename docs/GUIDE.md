@@ -193,6 +193,16 @@ Details:
 - Every command finds its server on its own. The URL comes from `--url`, then `OC_SUB_URL`, then the sandbox state of the project of `--dir` (or of the current folder), then the default `http://127.0.0.1:8767`. `run`, `ping`, `watch`, `log`, `abort`, `answer`, `say`, and `status` follow that order. `status --all` covers every known server: the host server (from `--url`, `OC_SUB_URL`, or the default) plus every sandbox with a valid state file. `up`, `down`, and `restart` keep their own target resolution with `--port`.
 - `run`, `ping`, and the real cost work with a sandboxed server. The sandbox reports the placeholder key `proxy-managed`; `oc-sub` then reads the project key file on the host and checks that key at OpenRouter. The shared-key check of `run` and the real-cost line use it too. `ping` prints the source as `sbx proxy with the project key file <path>`. It prints only fingerprints, never a key.
 
+### Recreating a sandbox
+
+The `sandbox-mounts` check fails when the sandbox lacks a required mount, has no clone, or is not in clone mode. All three need the same repair: remove the sandbox and create it again. `oc-sub doctor --fix --force` does this for you. It runs `oc-sub down` (when the server of the sandbox runs), then `sbx rm --force NAME`, then `oc-sub up`, which creates the sandbox again in clone mode with all required mounts.
+
+A recreate ends all sessions of the sandbox. Without `--force`, the fix changes nothing and names the flag. Two guards always block it, also with `--force`: a busy session on the sandbox server, and work in the clone that would be lost. In both cases the fix names the cause and the next step: end the sessions with `oc-sub abort` or `oc-sub down`, or bring the work to the host with `oc-sub fetch`.
+
+The work guard runs only for a sandbox in clone mode. The fix finds that out with `sbx exec NAME test -d /run/sandbox/source`: only a clone-mode sandbox has that path. A direct-mount sandbox mounts the host repository itself, so a dirty host tree is no reason to block, and the guard skips. In a clone-mode sandbox, a local `feature/*` branch is safe only when a host ref outside `refs/remotes/sandbox-<name>/` and `refs/sandboxes/<name>/` contains its commit, because `sbx rm` removes the `sandbox-<name>` remote and git then deletes those refs. The fix then offers three ways out: merge the branch, keep it with `git branch feature/STEP sandbox-<name>/feature/STEP`, or remove it in the clone with `oc-sub worktree rm STEP`. A squash merge does not contain the feature commits, so after a squash merge you run `oc-sub worktree rm STEP`. A run worktree with uncommitted changes also blocks. When a probe of the guard fails, the fix blocks too, because it cannot prove that no work is lost.
+
+When the sandbox does not start at all (`sbx exec` fails), a recreate does not help, and the fix names `sbx diagnose` instead.
+
 ### The worktree of a run in clone mode
 
 In clone mode, the worktree of a run lives only inside the sandbox clone, at `<root>/.worktrees/<step>`. The host does not have this folder. Use these commands:

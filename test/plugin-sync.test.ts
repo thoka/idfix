@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pluginDataDir, pluginDigest, proxyBundleIn, syncPluginDir } from "../src/plugin-sync";
+import { pluginDataDir, pluginDigest, proxyBundleIn, syncPluginDir, OPENCODE_GITIGNORE } from "../src/plugin-sync";
 
 function tempDir(): string {
   return mkdtempSync(path.join(tmpdir(), "oc-sub-plugin-sync-"));
@@ -136,5 +136,39 @@ describe("syncPluginDir", () => {
     const dest = path.join(tempDir(), "opencode");
     expect(() => syncPluginDir(path.join(tempDir(), "missing"), dest)).toThrow("does not exist");
     expect(existsSync(dest)).toBe(false);
+  });
+
+  test("writes the expected .gitignore into a new dest", () => {
+    const src = makePlugin();
+    const dest = path.join(tempDir(), "opencode");
+    syncPluginDir(src, dest);
+    expect(readFileSync(path.join(dest, ".gitignore"), "utf8")).toBe(OPENCODE_GITIGNORE);
+  });
+
+  test("writes a missing .gitignore even when the digests already match", () => {
+    const src = makePlugin();
+    const dest = path.join(tempDir(), "opencode");
+    syncPluginDir(src, dest);
+    rmSync(path.join(dest, ".gitignore"));
+    const again = syncPluginDir(src, dest);
+    expect(again.changed).toBe(false);
+    expect(readFileSync(path.join(dest, ".gitignore"), "utf8")).toBe(OPENCODE_GITIGNORE);
+  });
+
+  test("never overwrites an existing .gitignore", () => {
+    const src = makePlugin();
+    const dest = path.join(tempDir(), "opencode");
+    mkdirSync(dest, { recursive: true });
+    writeFileSync(path.join(dest, ".gitignore"), "custom\n");
+    syncPluginDir(src, dest);
+    syncPluginDir(src, dest);
+    expect(readFileSync(path.join(dest, ".gitignore"), "utf8")).toBe("custom\n");
+  });
+
+  test("the digest is the same with and without .gitignore", () => {
+    const dir = makePlugin();
+    const without = pluginDigest(dir);
+    writeFileSync(path.join(dir, ".gitignore"), OPENCODE_GITIGNORE);
+    expect(pluginDigest(dir)).toBe(without);
   });
 });

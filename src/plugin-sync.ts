@@ -14,7 +14,7 @@
  * time.
  */
 import { createHash } from "node:crypto";
-import { cpSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, type Stats } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
@@ -22,12 +22,24 @@ import { dataHome } from "./keys";
 
 /**
  * Top-level entries that opencode itself writes into a config folder: it
- * installs `@opencode-ai/plugin` there with a `package.json`, a lock file,
- * `node_modules/`, and a `.gitignore` that lists them. They are not part of
- * the plugin. The sync neither copies nor removes them, and the digest
- * ignores them, so a server can keep its install in the synced folder.
+ * installed `@opencode-ai/plugin` there with a `package.json`, a lock file,
+ * and `node_modules/`, and it expects a `.gitignore` that lists them. They
+ * are not part of the plugin. The sync neither copies nor removes them, and
+ * the digest ignores them, so a server can keep its install in the synced
+ * folder. The sync writes a missing `.gitignore` itself (see
+ * `OPENCODE_GITIGNORE`).
  */
 export const OPENCODE_OWNED = new Set(["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"]);
+
+/**
+ * The exact content of the `.gitignore` that opencode writes into a config
+ * folder. Source: opencode 1.18.32, `packages/opencode/src/config/config.ts:317`
+ * (see `docs/research/OPENCODE_CONFIG_WRITES.md`, short answers 1 and 2). The
+ * sync writes this file when missing, because a sandbox server with a
+ * read-only config folder fails every request with EROFS when opencode tries
+ * to write it itself.
+ */
+export const OPENCODE_GITIGNORE = "node_modules\npackage.json\npackage-lock.json\nbun.lock\n.gitignore";
 
 /** The synced plugin folder: `<dataHome>/oc-sub/opencode`. */
 export function pluginDataDir(env: Env): string {
@@ -110,15 +122,20 @@ function removeStale(src: string, dest: string, topLevel: boolean): void {
 /**
  * Makes `dest` hold the same plugin content as `src` and returns the digest
  * of the result. It creates `dest` when missing. When the digests already
- * match, it writes nothing. Otherwise it removes the entries that `src` no
- * longer has, then copies `src` over `dest` with `cpSync`. It never renames
- * or removes `dest` itself, because a sandbox mount holds that folder. The
- * opencode-owned top-level entries are neither copied nor removed.
+ * match, it still writes a missing `.gitignore` first (see
+ * `OPENCODE_GITIGNORE`), because a read-only sandbox server cannot write it.
+ * When the digests already match otherwise, it writes nothing. Otherwise it
+ * removes the entries that `src` no longer has, then copies `src` over
+ * `dest` with `cpSync`. It never renames or removes `dest` itself, because a
+ * sandbox mount holds that folder. The opencode-owned top-level entries are
+ * neither copied nor removed, and an existing `.gitignore` is never
+ * overwritten, because a host server writes the same file itself.
  */
 export function syncPluginDir(src: string, dest: string): { digest: string; changed: boolean } {
   const want = pluginDigest(src);
   if (want === null) throw new Error(`the plugin folder ${src} does not exist`);
   mkdirSync(dest, { recursive: true });
+  if (!existsSync(path.join(dest, ".gitignore"))) writeFileSync(path.join(dest, ".gitignore"), OPENCODE_GITIGNORE);
   if (pluginDigest(dest) === want) return { digest: want, changed: false };
   removeStale(src, dest, true);
   for (const name of pluginEntries(src, true)) {

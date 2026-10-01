@@ -40,7 +40,7 @@ export type ParsedArgs =
   | { command: "say"; url?: string; session: string; dir?: string; agent?: string; model?: string; text: string }
   | { command: "worktree"; step: string; dir?: string; base?: string; noSetup: boolean; remove: boolean }
   | { command: "fetch"; dir?: string }
-  | { command: "doctor"; dir?: string; json: boolean; fix: boolean; force: boolean; fixAsRoot: boolean };
+  | { command: "doctor"; dir?: string; json: boolean; fix: boolean; force: boolean; fixAsRoot: boolean; renovate: boolean };
 
 /** The reply values of a permission request. */
 export type Reply = "once" | "always" | "reject";
@@ -420,18 +420,19 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "doctor": {
       const { flags, positionals } = collectFlags(
         rest,
-        new Set(["dir", "json", "fix", "force", "fix-as-root"]),
-        new Set(["json", "fix", "force", "fix-as-root"]),
+        new Set(["dir", "json", "fix", "force", "fix-as-root", "renovate"]),
+        new Set(["json", "fix", "force", "fix-as-root", "renovate"]),
       );
       if (positionals.length > 0) {
         throw new UsageError(`doctor takes no positional arguments, got "${positionals.join(" ")}"`);
       }
       // --fix-as-root implies --fix: it runs the safe fixes and the root fixes.
       const fixAsRoot = flags.get("fix-as-root") === true;
-      const fix = flags.get("fix") === true || fixAsRoot;
+      const renovate = flags.get("renovate") === true;
+      const fix = flags.get("fix") === true || fixAsRoot || renovate;
       const force = flags.get("force") === true;
       if (force && !fix) {
-        throw new UsageError("--force is only allowed together with --fix or --fix-as-root");
+        throw new UsageError("--force is only allowed together with --fix, --renovate, or --fix-as-root");
       }
       return {
         command: "doctor",
@@ -440,6 +441,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         fix,
         force,
         fixAsRoot,
+        renovate,
       };
     }
     default:

@@ -16,6 +16,9 @@ import {
   globalRulesFix,
   isPermissionOnlyAgent,
   kvmAccessRootFix,
+  agentCopiesFix,
+  opencodeVersionFix,
+  permissionBlockOf,
   doctor,
   makeDoctorDeps,
   miseToolVersion,
@@ -133,6 +136,12 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     // No DeepInfra key file by default, so deepinfra-key skips.
     deepinfraKeyFile: "/home/u/.config/repo/deepinfra.key",
     fileMode: () => null,
+    // The fake project writes go into the file map, and every file is clean in git.
+    writeText: (file, content) => files.set(file, { content }),
+    deleteFile: (file) => {
+      files.delete(file);
+    },
+    gitFileState: () => "clean",
     ...overrides,
   };
   return deps;
@@ -1802,7 +1811,7 @@ describe("the opencode-version check", () => {
     expect(names).toContain("opencode-version");
     expect(FAST_CHECKS.map((c) => c.name)).not.toContain("opencode-version");
     expect(names.indexOf("opencode-version")).toBeLessThan(names.indexOf("server-plugin"));
-    expect(ALL_CHECKS.find((c) => c.name === "opencode-version")?.fix).toBeUndefined();
+    expect(ALL_CHECKS.find((c) => c.name === "opencode-version")?.fix).toBeDefined();
   });
 
   test("passes when mise resolves the tested version in the project root", () => {
@@ -2056,5 +2065,374 @@ describe("deepinfra-key check (step 16)", () => {
   test("makeDoctorDeps puts the key file into the config folder of the project", () => {
     const deps = makeDoctorDeps({ XDG_CONFIG_HOME: "/cfg", HOME: "/home/u" }, "/work/myproj");
     expect(deps.deepinfraKeyFile).toBe("/cfg/myproj/deepinfra.key");
+  });
+});
+
+describe("doctor --renovate argument parsing", () => {
+  test("--renovate implies --fix but not force or fixAsRoot", () => {
+    expect(parseArgs(["doctor", "--renovate"])).toMatchObject({
+      command: "doctor",
+      fix: true,
+      renovate: true,
+      force: false,
+      fixAsRoot: false,
+    });
+  });
+
+  test("--renovate allows --json and --dir", () => {
+    expect(parseArgs(["doctor", "--renovate", "--json", "--dir", "/repo"])).toMatchObject({ fix: true, renovate: true, json: true });
+  });
+});
+
+describe("permissionBlockOf", () => {
+  test("keeps the permission block byte for byte", () => {
+    expect(permissionBlockOf(FULL_AGENT)).toBe(`---\npermission:\n  bash: allow\n---\n`);
+  });
+
+  test("returns null without a permission entry or frontmatter", () => {
+    expect(permissionBlockOf("---\ndescription: x\n---\n")).toBeNull();
+    expect(permissionBlockOf("no frontmatter")).toBeNull();
+  });
+});
+
+describe("the agent-copies fix", () => {
+  test("keeps only the permission block, byte for byte", () => {
+    const deps = makeDeps({ files: map({ "/repo/.opencode/agents/coder.md": { content: FULL_AGENT } }) });
+    const outcome = agentCopiesFix(deps, {} as CheckResult, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.note).toContain(".opencode/agents/coder.md");
+    expect(deps.readText("/repo/.opencode/agents/coder.md")).toBe(`---\npermission:\n  bash: allow\n---\n`);
+  });
+
+  test("deletes a file without a permission block", () => {
+    const deps = makeDeps({ files: map({ "/repo/.opencode/agents/researcher.md": { content: "---\nmodel: m\n---\nbody\n" } }) });
+    const outcome = agentCopiesFix(deps, {} as CheckResult, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.note).toContain("deleted");
+    expect(deps.exists("/repo/.opencode/agents/researcher.md")).toBe(false);
+  });
+
+  test("leaves permission-only and absent files alone", () => {
+    const deps = makeDeps({ files: map({ "/repo/.opencode/agents/reader.md": { content: PERMISSION_ONLY } }) });
+    const outcome = agentCopiesFix(deps, {} as CheckResult, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(deps.readText("/repo/.opencode/agents/reader.md")).toBe(PERMISSION_ONLY);
+  });
+
+  test("plain --fix without --force does not touch agent files", () => {
+    const deps = makeDeps({ files: map({ "/repo/.opencode/agents/coder.md": { content: FULL_AGENT } }) });
+    const outcome = agentCopiesFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("--renovate");
+    expect(deps.readText("/repo/.opencode/agents/coder.md")).toBe(FULL_AGENT);
+  });
+
+  test("doctor --fix without --force fails the fix and keeps the file", async () => {
+    const deps = makeDeps({ files: map({ "/repo/.opencode/agents/coder.md": { content: FULL_AGENT } }) });
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    let code: number;
+    try {
+      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(code).toBe(1);
+    const failed = lines.find((line) => line.startsWith("fix failed (agent-copies):"));
+    expect(failed).toContain("--force or oc-sub doctor --renovate");
+    expect(deps.readText("/repo/.opencode/agents/coder.md")).toBe(FULL_AGENT);
+  });
+
+  test("doctor --renovate passes force, so the file is rewritten", async () => {
+    const deps = makeDeps({
+      files: map({
+        "/home/u/dv/meta/agents/AGENTS.md": { content: "# rules" },
+        "/repo/.opencode/agents/coder.md": { content: FULL_AGENT },
+      }),
+    });
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    let code: number;
+    try {
+      code = await doctor({ renovate: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(code).toBe(0);
+    expect(lines).toContain("fixed agent-copies: kept only the permission block in .opencode/agents/coder.md");
+    expect(deps.readText("/repo/.opencode/agents/coder.md")).toBe(`---\npermission:\n  bash: allow\n---\n`);
+  });
+});
+
+describe("the opencode-version fix", () => {
+  const TESTED = '[tools]\nbun = "1.4.2"\nopencode = "1.18.32"\n';
+
+  /** Fake deps with the plugin mise.toml, a project mise.toml, and a recording mise runner. */
+  function fixDeps(files: Record<string, string>, installExitCode = 0) {
+    const calls: { cmd: readonly string[]; cwd?: string }[] = [];
+    const entries: Record<string, { content?: string }> = { "/plugin/mise.toml": { content: TESTED } };
+    for (const [file, content] of Object.entries(files)) entries[file] = { content };
+    const deps = makeDeps(
+      { files: map(entries) },
+      {
+        miseRunner: (cmd, opts) => {
+          calls.push({ cmd, cwd: opts?.cwd });
+          // `mise current opencode` resolves a version, `mise install` returns the exit code.
+          return { stdout: cmd.includes("current") ? "1.19.0\n" : "", exitCode: cmd.includes("current") ? 0 : installExitCode };
+        },
+      },
+    );
+    return { deps, calls };
+  }
+
+  test("rewrites the project pin and keeps the rest of the file byte for byte", () => {
+    const before = '# project tools\n[tools]\nbun = "1.4.2"\nopencode = "latest"\n# end\n';
+    const { deps, calls } = fixDeps({ "/repo/mise.toml": before });
+    const outcome = opencodeVersionFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.note).toContain("set opencode = \"1.18.32\" in /repo/mise.toml");
+    expect(deps.readText("/repo/mise.toml")).toBe('# project tools\n[tools]\nbun = "1.4.2"\nopencode = "1.18.32"\n# end\n');
+    expect(calls).toEqual([{ cmd: ["mise", "install"], cwd: "/repo" }]);
+  });
+
+  test("rewrites a table pin too", () => {
+    const { deps } = fixDeps({ "/repo/mise.toml": '[tools]\nopencode = { version = "latest" }\n' });
+    const outcome = opencodeVersionFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(true);
+    expect(deps.readText("/repo/mise.toml")).toBe('[tools]\nopencode = "1.18.32"\n');
+  });
+
+  test("the global pin is reported, not changed", () => {
+    const globalFile = "/home/u/.config/mise/config.toml";
+    const { deps, calls } = fixDeps({ [globalFile]: '[tools]\nopencode = "latest"\n' });
+    const outcome = opencodeVersionFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain(`the global mise configuration belongs to the user: set opencode = "1.18.32" in ${globalFile} by hand`);
+    expect(deps.readText(globalFile)).toBe('[tools]\nopencode = "latest"\n');
+    expect(calls).toEqual([]);
+  });
+
+  test("fails with the exit code of mise install, and the pin is already written", () => {
+    const { deps, calls } = fixDeps({ "/repo/mise.toml": '[tools]\nopencode = "latest"\n' }, 3);
+    const outcome = opencodeVersionFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("mise install exited with code 3");
+    expect(deps.readText("/repo/mise.toml")).toBe('[tools]\nopencode = "1.18.32"\n');
+    expect(calls).toHaveLength(1);
+  });
+
+  test("passes without changes when the project already pins the tested version", () => {
+    const { deps, calls } = fixDeps({ "/repo/mise.toml": TESTED });
+    const outcome = opencodeVersionFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.note).toContain("already pins");
+    expect(calls).toEqual([]);
+  });
+
+  test("runs under plain --fix through the registry", async () => {
+    const { deps } = fixDeps({ "/repo/mise.toml": '[tools]\nbun = "1.4.2"\nopencode = "latest"\n' });
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    let code: number;
+    try {
+      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(lines).toContain('fixed opencode-version: set opencode = "1.18.32" in /repo/mise.toml and ran mise install');
+    expect(deps.readText("/repo/mise.toml")).toBe('[tools]\nbun = "1.4.2"\nopencode = "1.18.32"\n');
+    // The re-run of the check warns no more? It still resolves latest via the
+    // fake runner; here the exit code is not asserted.
+    expect(code === 0 || code === 1).toBe(true);
+  });
+});
+
+describe("the per-file git precondition", () => {
+  /** Fake gitFileState that answers per file, defaulting to clean. */
+  const stateFor = (states: Record<string, "clean" | "modified" | "untracked" | "error">) => (file: string) =>
+    states[file] ?? "clean";
+
+  /** Fake deps like in the opencode-version fix tests, with the pin files and a recording mise runner. */
+  function versionDeps(files: Record<string, string>, states: Record<string, "clean" | "modified" | "untracked" | "error"> = {}, installExitCode = 0) {
+    const calls: { cmd: readonly string[]; cwd?: string }[] = [];
+    const entries: Record<string, { content?: string }> = {
+      "/plugin/mise.toml": { content: '[tools]\nbun = "1.4.2"\nopencode = "1.18.32"\n' },
+    };
+    for (const [file, content] of Object.entries(files)) entries[file] = { content };
+    return makeDeps(
+      { files: map(entries) },
+      {
+        gitFileState: stateFor(states),
+        miseRunner: (cmd, opts) => {
+          calls.push({ cmd, cwd: opts?.cwd });
+          return { stdout: "", exitCode: installExitCode };
+        },
+      },
+    );
+  }
+
+  test("a modified agent file is not touched, the clean one is rewritten, and the note names no flag", async () => {
+    const deps = makeDeps(
+      {
+        files: map({
+          "/home/u/dv/meta/agents/AGENTS.md": { content: "# rules" },
+          "/repo/.opencode/agents/coder.md": { content: FULL_AGENT },
+          "/repo/.opencode/agents/researcher.md": { content: FULL_AGENT },
+        }),
+      },
+      { gitFileState: stateFor({ "/repo/.opencode/agents/coder.md": "modified" }) },
+    );
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    try {
+      await doctor({ renovate: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    const failed = lines.find((line) => line.startsWith("fix failed (agent-copies):"));
+    expect(failed).toContain("/repo/.opencode/agents/coder.md has uncommitted changes; commit or stash them first, or edit the file by hand");
+    expect(failed).not.toContain("--renovate");
+    expect(failed).not.toContain("--fix");
+    expect(failed).toContain("kept only the permission block in .opencode/agents/researcher.md");
+    expect(deps.readText("/repo/.opencode/agents/coder.md")).toBe(FULL_AGENT);
+    expect(deps.readText("/repo/.opencode/agents/researcher.md")).toBe(`---\npermission:\n  bash: allow\n---\n`);
+  });
+
+  test("an untracked agent file is not touched, and the note says to edit it by hand", () => {
+    const deps = makeDeps(
+      { files: map({ "/repo/.opencode/agents/coder.md": { content: FULL_AGENT } }) },
+      { gitFileState: stateFor({ "/repo/.opencode/agents/coder.md": "untracked" }) },
+    );
+    const outcome = agentCopiesFix(deps, {} as CheckResult, { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("/repo/.opencode/agents/coder.md is not tracked by git, so a rewrite would lose its content; edit it by hand");
+    expect(deps.readText("/repo/.opencode/agents/coder.md")).toBe(FULL_AGENT);
+  });
+
+  test("a failed git call for a project file blocks only that file", () => {
+    const deps = makeDeps(
+      { files: map({ "/repo/.opencode/agents/coder.md": { content: FULL_AGENT } }) },
+      { gitFileState: stateFor({ "/repo/.opencode/agents/coder.md": "error" }) },
+    );
+    const outcome = agentCopiesFix(deps, {} as CheckResult, { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("git failed for /repo/.opencode/agents/coder.md");
+    expect(deps.readText("/repo/.opencode/agents/coder.md")).toBe(FULL_AGENT);
+  });
+
+  test("an untracked mise.toml is not rewritten and names the step by hand", () => {
+    const deps = versionDeps({ "/repo/mise.toml": '[tools]\nopencode = "latest"\n' }, { "/repo/mise.toml": "untracked" });
+    const outcome = opencodeVersionFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("/repo/mise.toml is not tracked by git");
+    expect(outcome.note).toContain("edit it by hand");
+    expect(deps.readText("/repo/mise.toml")).toBe('[tools]\nopencode = "latest"\n');
+  });
+
+  test("a modified mise.toml is not rewritten and mise install does not run", () => {
+    const deps = versionDeps({ "/repo/mise.toml": '[tools]\nopencode = "latest"\n' }, { "/repo/mise.toml": "modified" });
+    const outcome = opencodeVersionFix(deps, {} as CheckResult, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("/repo/mise.toml has uncommitted changes");
+    expect(deps.readText("/repo/mise.toml")).toBe('[tools]\nopencode = "latest"\n');
+  });
+
+  test("an untracked .claude folder does not block the fixes", async () => {
+    // An untracked folder lists in `git status --porcelain` but is not a fix
+    // target, so it must not block anything. The fake gitFileState models the
+    // per-file reality: the agent file is clean, so the fix runs.
+    const deps = makeDeps(
+      {
+        files: map({
+          "/home/u/dv/meta/agents/AGENTS.md": { content: "# rules" },
+          "/repo/.opencode/agents/coder.md": { content: FULL_AGENT },
+          "/repo/.claude/settings.local.json": { content: "{}" },
+        }),
+      },
+      { gitFileState: stateFor({ "/repo/.claude/settings.local.json": "untracked" }) },
+    );
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    let code: number;
+    try {
+      code = await doctor({ renovate: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(lines).toContain("fixed agent-copies: kept only the permission block in .opencode/agents/coder.md");
+    expect(deps.readText("/repo/.claude/settings.local.json")).toBe("{}");
+    expect(code).toBe(0);
+  });
+});
+
+describe("doctor --renovate keeps the guards", () => {
+  const MOUNTS = requiredSandboxMounts("/repo", PLUGIN_DIR, "/home/u/.local/share/mise/installs", "/home/u/dv/meta/agents").join(", ");
+  const LS_MISSING = `NAME STATUS WORKSPACE\noc-sub-repo running /repo\n`;
+  const SANDBOX_SERVER: RunningServer = {
+    mode: "sandbox",
+    port: 18768,
+    url: "http://127.0.0.1:18768",
+    root: "/repo",
+    name: "oc-sub-repo",
+    digest: "sha256:same",
+  };
+
+  test("a busy session of the sandbox server blocks, also with --renovate", async () => {
+    const deps = makeDeps(
+      {},
+      {
+        runner: (cmd) => {
+          const joined = cmd.join(" ");
+          if (cmd[0] === "sbx" && cmd[1] === "ls") return { stdout: LS_MISSING, exitCode: 0 };
+          if (cmd[0] === "git" && cmd[3] === "remote") return { stdout: "sandbox-oc-sub-repo\n", exitCode: 0 };
+          return { stdout: `x ${MOUNTS}`, exitCode: 0 };
+        },
+        sandboxState: () => ({ name: "oc-sub-repo", root: "/repo", port: 18768 }),
+        runningServers: () => [SANDBOX_SERVER],
+        serverBusy: async (): Promise<BusyCheck> => ({ kind: "busy", sessions: "busy ses_1 /repo" }),
+        recreateSandbox: async () => {
+          throw new Error("no sandbox may be recreated in this test");
+        },
+      },
+    );
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    let code: number;
+    try {
+      code = await doctor({ renovate: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    const failed = lines.find((line) => line.startsWith("fix failed (sandbox-mounts):"));
+    expect(failed).toContain("busy ses_1 /repo");
+    expect(failed).toContain("oc-sub abort or oc-sub down");
+    expect(code).toBe(1);
+  });
+});
+
+describe("doctor --renovate --json keeps stdout pure JSON", () => {
+  test("the whole stdout parses as one object", async () => {
+    const sharedFile = "/home/u/dv/meta/agents/AGENTS.md";
+    const codexMd = "/home/u/.codex/AGENTS.md";
+    const deps = makeDeps({
+      files: map({ [sharedFile]: { content: "# rules" }, [codexMd]: { content: "# rules" } }),
+    });
+    const lines: string[] = [];
+    const errors: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    const errorSpy = spyOn(console, "error").mockImplementation((line) => errors.push(String(line)));
+    let code: number;
+    try {
+      code = await doctor({ renovate: true, json: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+    expect(code).toBe(0);
+    expect(lines).toHaveLength(1);
+    const parsed = JSON.parse(lines[0]!) as { fixes: { name: string; ok: boolean }[]; results: CheckResult[] };
+    expect(parsed.fixes).toEqual([{ name: "global-rules", ok: true, note: expect.any(String) }]);
+    expect(parsed.results).toHaveLength(ALL_CHECKS.length);
+    expect(errors.some((line) => line.startsWith("fixing global-rules:"))).toBe(true);
   });
 });

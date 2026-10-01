@@ -7,7 +7,7 @@
  * Every dependency is injected, so the tests use fakes like in
  * `test/sandbox.test.ts`.
  */
-import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, statSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
@@ -115,6 +115,20 @@ export type DoctorDeps = {
   deepinfraKeyFile: string;
   /** The permission bits of a file, or null when it does not exist. Never reads content. */
   fileMode: (file: string) => number | null;
+  /** Writes a text file in the project (the fix of `agent-copies` and `opencode-version`). */
+  writeText: (file: string, content: string) => void;
+  /** Deletes a file in the project (the fix of `agent-copies` without a permission block). */
+  deleteFile: (file: string) => void;
+  /**
+   * The git state of one file in the project (step 15e): "clean" means
+   * tracked and unmodified (`git ls-files --error-unmatch` succeeds and
+   * `git status --porcelain -- FILE` prints nothing), "modified" means
+   * tracked with uncommitted changes, "untracked" means not tracked (also
+   * when ignored), and "error" means a git call failed. A fix that writes
+   * or deletes a project file runs only on a clean file, so git holds the
+   * old content.
+   */
+  gitFileState: (file: string) => "clean" | "modified" | "untracked" | "error";
   /**
    * Today as YYYY-MM-DD, for the `research-due` check. Optional; the real
    * deps leave it unset and the check uses the current local date.
@@ -244,6 +258,15 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
       } catch {
         return null;
       }
+    },
+    writeText: (file, content) => writeFileSync(file, content),
+    deleteFile: (file) => rmSync(file, { force: true }),
+    gitFileState: (file) => {
+      const tracked = Bun.spawnSync(["git", "ls-files", "--error-unmatch", file], { cwd: root, stdout: "pipe", stderr: "pipe" });
+      if (tracked.exitCode !== 0) return "untracked";
+      const status = Bun.spawnSync(["git", "status", "--porcelain", "--", file], { cwd: root, stdout: "pipe", stderr: "pipe" });
+      if (status.exitCode !== 0) return "error";
+      return status.stdout.toString().trim().length === 0 ? "clean" : "modified";
     },
   };
   return { ...deps, ...overrides };
@@ -461,6 +484,86 @@ function agentCopiesCheck(deps: DoctorDeps): CheckResult {
     `project agent files with their own description, model, or prompt: ${bad.join(", ")}`,
     "delete the file, the plugin serves the agent, or keep only a permission block (docs/research/AGENT_MERGE.md)",
   );
+}
+
+/**
+ * The permission block of an agent file, byte for byte: the `permission`
+ * entry of the front matter with its indented lines, wrapped in `---`.
+ * Null when the file has no front matter or no `permission` entry.
+ * Pure, so the tests use it directly.
+ */
+export function permissionBlockOf(text: string): string | null {
+  if (!text.startsWith("---\n")) return null;
+  const end = text.indexOf("\n---", 4);
+  if (end === -1) return null;
+  const lines = text.slice(4, end).split("\n");
+  const start = lines.findIndex((line) => /^permission:/.test(line));
+  if (start === -1) return null;
+  const block: string[] = [];
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (i === start || line.startsWith(" ") || line.startsWith("\t")) block.push(line);
+    else break;
+  }
+  return `---\n${block.join("\n")}\n---\n`;
+}
+
+/**
+ * The fix of `agent-copies` (step 15e, writes the project): for each project
+ * agent file that is not permission-only, keep only its `permission` block
+ * in the front matter and drop the description, model, prompt body, and
+ * other keys. A file without a `permission` block is deleted. Because the
+ * fix removes content, it needs `--force` (or `--renovate`, which implies
+ * it). Each target file must be clean in git (tracked and unmodified), so
+ * git holds the old content; a file that is not clean is not touched, and
+ * the note names the file, its state, and the step by hand.
+ */
+export function agentCopiesFix(deps: DoctorDeps, _result: CheckResult, ctx: { force: boolean }): FixOutcome {
+  if (ctx.force !== true) {
+    return {
+      ok: false,
+      note: "rewriting an agent file removes its description, model, and prompt. Run oc-sub doctor --fix --force or oc-sub doctor --renovate",
+    };
+  }
+  const agentsDir = path.join(deps.root, ".opencode", "agents");
+  const notes: string[] = [];
+  let ok = true;
+  for (const name of AGENT_NAMES) {
+    const file = path.join(agentsDir, `${name}.md`);
+    const text = deps.readText(file);
+    if (text === null || isPermissionOnlyAgent(text)) continue;
+    const state = deps.gitFileState(file);
+    if (state !== "clean") {
+      ok = false;
+      notes.push(fileNotCleanNote(file, state));
+      continue;
+    }
+    const block = permissionBlockOf(text);
+    if (block === null) {
+      deps.deleteFile(file);
+      notes.push(`deleted .opencode/agents/${name}.md (it had no permission block)`);
+    } else {
+      deps.writeText(file, block);
+      notes.push(`kept only the permission block in .opencode/agents/${name}.md`);
+    }
+  }
+  if (notes.length === 0) return { ok: true, note: "the agent files are already permission-only or absent" };
+  return { ok, note: notes.join(", ") };
+}
+
+/**
+ * The note for a project file that a fix does not touch because git does
+ * not hold its old content: the note names the file, its git state, and
+ * the step by hand. It names no flag, so it fits `--fix` and `--renovate`.
+ */
+function fileNotCleanNote(file: string, state: "modified" | "untracked" | "error"): string {
+  if (state === "untracked") {
+    return `${file} is not tracked by git, so a rewrite would lose its content; edit it by hand`;
+  }
+  if (state === "modified") {
+    return `${file} has uncommitted changes; commit or stash them first, or edit the file by hand`;
+  }
+  return `git failed for ${file}, so the old content is not proven; edit it by hand`;
 }
 
 function pluginFreshCheck(deps: DoctorDeps): CheckResult {
@@ -851,7 +954,7 @@ export function miseToolVersion(text: string | null, tool: string): string | nul
  * opencode of the sandbox image run. In host mode, the server runs the
  * opencode of the PATH of the shell that calls `oc-sub up`.
  *
- * There is no fix action yet; step 15e (`doctor --renovate`) adds one.
+ * The fix action is `opencodeVersionFix` (step 15e).
  */
 function opencodeVersionCheck(deps: DoctorDeps): CheckResult {
   const testedFile = path.join(deps.pluginRepoRoot, "mise.toml");
@@ -892,6 +995,50 @@ function opencodeVersionCheck(deps: DoctorDeps): CheckResult {
     `the project runs opencode ${resolved} (from ${source}), but oc-sub is tested with ${tested}`,
     fix,
   );
+}
+
+/**
+ * The fix of `opencode-version` (step 15e, writes the project): when the
+ * deciding pin sits in the project `mise.toml`, set it to the tested
+ * version, keep the rest of the file byte for byte, and run `mise install`
+ * in the project root. The file must be clean in git (tracked and
+ * unmodified), so git holds the old content; otherwise nothing changes and
+ * the note names the state and the step by hand. When the deciding pin sits
+ * in the global mise configuration of the user, nothing changes: the global
+ * file belongs to the user, and the fix names the line to set by hand. It
+ * runs under plain `--fix` (no `--force` needed), because git holds the old
+ * file.
+ */
+export function opencodeVersionFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): FixOutcome {
+  const testedFile = path.join(deps.pluginRepoRoot, "mise.toml");
+  const tested = miseToolVersion(deps.readText(testedFile), "opencode");
+  if (tested === null) return { ok: false, note: `no opencode pin in ${testedFile}, nothing changed` };
+  const projectFile = path.join(deps.root, "mise.toml");
+  const text = deps.readText(projectFile);
+  const projectPin = miseToolVersion(text, "opencode");
+  if (projectPin === null) {
+    return {
+      ok: false,
+      note: `the global mise configuration belongs to the user: set opencode = "${tested}" in ${deps.globalMiseConfig} by hand`,
+    };
+  }
+  if (projectPin === tested) return { ok: true, note: `${projectFile} already pins the tested version ${tested}` };
+  const state = deps.gitFileState(projectFile);
+  if (state !== "clean") return { ok: false, note: fileNotCleanNote(projectFile, state) };
+  // A string pin (`opencode = "x"`) or a table pin (`opencode = { version = "x" }`).
+  const pin = new RegExp(`^(\\s*opencode\\s*=\\s*)(?:"[^"]*"|\\{\\s*version\\s*=\\s*"[^"]*"\\s*\\})(.*)$`, "m");
+  if (text === null || !pin.test(text)) {
+    return { ok: false, note: `cannot find the opencode pin line in ${projectFile}, nothing changed` };
+  }
+  deps.writeText(projectFile, text.replace(pin, `$1"${tested}"$2`));
+  const install = deps.miseRunner([deps.miseBin, "install"], { cwd: deps.root });
+  if (install.exitCode !== 0) {
+    return {
+      ok: false,
+      note: `set opencode = "${tested}" in ${projectFile}, but ${deps.miseBin} install exited with code ${install.exitCode}`,
+    };
+  }
+  return { ok: true, note: `set opencode = "${tested}" in ${projectFile} and ran ${deps.miseBin} install` };
 }
 
 /**
@@ -1032,13 +1179,13 @@ export const FAST_CHECKS: Check[] = [
   { name: "agents-md", run: agentsMdCheck },
   { name: "global-rules", run: globalRulesCheck, fix: globalRulesFix },
   { name: "skill-links", run: skillLinksCheck },
-  { name: "agent-copies", run: agentCopiesCheck },
+  { name: "agent-copies", run: agentCopiesCheck, fix: agentCopiesFix },
 ];
 
 /** The slow checks: only `oc-sub doctor` runs them. */
 export const SLOW_CHECKS: Check[] = [
   // First: it only spawns mise, and no other check or fix depends on it.
-  { name: "opencode-version", run: opencodeVersionCheck },
+  { name: "opencode-version", run: opencodeVersionCheck, fix: opencodeVersionFix },
   { name: "opencode-release", run: opencodeReviewCheck },
   { name: "plugin-fresh", run: pluginFreshCheck, fix: pluginFreshFix },
   // After plugin-fresh, so a plugin update comes before the sync and the restart.
@@ -1185,21 +1332,26 @@ export async function runFixes(
 
 /** `oc-sub doctor`: run all checks and print the results. */
 export async function doctor(
-  args: { dir?: string; json?: boolean; fix?: boolean; force?: boolean; fixAsRoot?: boolean },
+  args: { dir?: string; json?: boolean; fix?: boolean; force?: boolean; fixAsRoot?: boolean; renovate?: boolean },
   env: Env = process.env,
   overrides: Partial<DoctorDeps> = {},
 ): Promise<number> {
   const deps = makeDoctorDeps(env, args.dir ?? process.cwd(), overrides);
   const results = runChecks(ALL_CHECKS, deps);
+  // --renovate lifts the project to the current standard: it implies --fix
+  // and runs the fix pass with force, so the fixes that need --force (for
+  // example the recreate of sandbox-mounts and the agent-copies rewrite)
+  // run too. The guards inside a fix still block, also with --renovate.
   // --fix-as-root implies --fix and also runs the root fixes.
-  if (args.fix === true || args.fixAsRoot === true) {
+  const fix = args.fix === true || args.fixAsRoot === true || args.renovate === true;
+  if (fix) {
     // With --json, stdout holds only the JSON object, so the fix lines go to stderr.
     const print = args.json === true ? console.error : console.log;
     const fixes = await runFixes(
       ALL_CHECKS,
       deps,
       results,
-      { force: args.force === true, asRoot: args.fixAsRoot === true },
+      { force: args.force === true || args.renovate === true, asRoot: args.fixAsRoot === true },
       print,
     );
     const rerun = runChecks(ALL_CHECKS, deps);

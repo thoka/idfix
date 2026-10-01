@@ -46,6 +46,7 @@ Usage:
   oc-sub fetch [--dir ROOT]
   oc-sub doctor [--dir DIR] [--json]
   oc-sub doctor --fix [--force] [--dir DIR] [--json]
+  oc-sub doctor --renovate [--dir DIR] [--json]
   oc-sub doctor --fix-as-root [--force] [--dir DIR] [--json]
 
 Every command accepts:
@@ -83,6 +84,14 @@ Environment:
 Doctor fixes:
   --fix           runs the safe fixes, then all checks again. It never
                   calls sudo.
+  --renovate      implies --fix and --force, and lifts the project to the
+                  current standard: it also runs the fixes that need
+                  --force (for example the agent-copies rewrite and the
+                  recreate of the sandbox). The guards inside a fix still
+                  block: a busy session and work in the clone that the host
+                  would lose. A fix that writes a file in the project runs
+                  only on a clean git tree; on a dirty tree it prints the
+                  precondition instead.
   --fix-as-root   implies --fix, and also runs the fixes that need root
                   through sudo (for example chmod 0666 /dev/kvm). sudo may
                   ask for the password; without a terminal it runs sudo -n.`;

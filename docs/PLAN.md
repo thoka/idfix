@@ -56,6 +56,32 @@ The live test of the proxy (log lines, no orphan restart loop after `down`). Ste
 
 15e: `doctor --renovate` lifts a project to the current standard. Every best practice is a check, and an old setup gets the status `outdated`. `--renovate` includes `--fix` and applies every fix without `--force`, but a busy session or unfetched work still blocks it. First candidates: a host-mode server, a sandbox in direct-mount mode, a project `mise.toml` that pins its own `opencode`, and old agent copies. A missing project key is only reported, because oc-sub never creates OpenRouter keys (decided with the user on 2026-09-30). Research first: how `ng update`, Renovate, and similar tools define a standard, detect drift, and apply migrations.
 
+### 7. Step 17: recurring research
+
+Root cause: a research report records facts with a date, but nothing says when a fact goes stale or which decision rests on it. So a decision stays in force after its facts change, and nobody notices. Only opencode releases have a re-check today: the `doctor` check `opencode-release` and the review record `opencode-review.json`. The other 26 reports in `docs/research/` have no recheck date.
+
+Facts that go stale in this project, with a first guess for the interval:
+
+| Topic | Reports | Decision that rests on it | Trigger or interval |
+| --- | --- | --- | --- |
+| opencode releases, 2.0 status, the upstream bugs that we work around (SDK SSE abort, issue 28658, the stale v1 SDK gen) | OPENCODE_ROADMAP, SSE_CLIENT, SUBAGENT_QUESTIONS | stay on 1.18.32, the handler in `src/top/app.tsx` | each new release (the existing check), and monthly for 2.0 |
+| GLM providers: price, quantization, uptime | OPENROUTER_ROUTING, DEEPINFRA, PROVIDER_PROBE | the provider order, DeepInfra as the default | every two weeks |
+| A cheaper or better model than GLM for `researcher` and `coder` | none yet | GLM as the default subagent model | monthly |
+| `sbx` releases, and the experimental shared installs of mise | SANDBOX, SANDBOX_MISE | step 12, the clone mode | each new `sbx` release |
+| Plugin updates in Claude Code | PLUGIN_UPDATES | the synced plugin folder of 15c | each new Claude Code release |
+| Prior art, the lag of the Exa index | PRIOR_ART, WEBSEARCH | build oc-sub instead of an existing tool | quarterly |
+
+Substeps:
+
+1. 17a research, with a GLM researcher, report `docs/research/RECURRING_RESEARCH.md`. How do others keep decisions fresh: review dates in ADRs (architecture decision records), the schedules of Renovate and Dependabot, the refresh of a tech radar, the freshness checks of documentation tools. How does a scheduled job run on this machine when the user is away: a systemd user timer under WSL, cron, a Claude Code routine (`/schedule`, which runs in the cloud and cannot reach this machine), or a reminder only. Criteria: cost per month, no repeated work (lesson: cache expensive work), the result reaches `PLAN.md`, and it works across all projects in `~/dv`. The brief names the criteria and no preferred option (lesson `leading-brief-skews-research.md`).
+2. 17b the convention: each report gets a short head with `recheck` (a date, an interval, or a trigger such as a new release) and `decisions` (the plan items that rest on it). The convention is general, so it goes into meta: the global rules and `bin/research-index.py`, which then lists the due reports. The six topics above get their heads first.
+3. 17c a `doctor` check `research-due` that warns on an overdue report of the project, the same shape as `opencode-release`. A recheck that finds no change records the date, like `opencode-review.json`.
+4. 17d the scheduled runner: it starts one researcher run per due report, appends a section "Recheck <date>" with only the changes, and adds a line to the open tasks of the user if a decision is affected. Only after 17a and a decision of the user.
+
+Cost estimate: one research run cost 0.058 USD ([EXPERIENCE.md](EXPERIENCE.md)). Ten rechecks a month cost about 0.60 USD, with a cap per run.
+
+Decision of the user before 17d: whether unattended paid runs are allowed, and the cap per month. Until then, 17c only warns, and the main thread starts the recheck.
+
 ### Later
 
 - Known gap of 15d: the fix text of `sandbox-mounts` still names `sbx rm --force NAME` and `oc-sub up` by hand instead of `oc-sub doctor --fix --force`.

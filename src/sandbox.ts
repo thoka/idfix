@@ -626,14 +626,15 @@ export function listsOpenRouterSecret(stdout: string, name: string): boolean {
 
 /**
  * Whether the output of `sbx secret ls --sandbox NAME` lists the DeepInfra
- * custom secret for that scope. The columns are `SCOPE TYPE NAME SECRET`.
- * The name of a custom secret comes from its host (`api.deepinfra.com`), so
- * any name that contains `deepinfra` counts.
+ * custom secret for that scope. `sbx` 0.45.1 prints custom secrets in a
+ * separate table under the heading `CUSTOM SECRETS`, with the columns
+ * `SCOPE TARGETS ENV`. A row counts when its scope is the sandbox and its
+ * target is `api.deepinfra.com`.
  */
 export function listsDeepInfraSecret(stdout: string, name: string): boolean {
   return stdout.split("\n").some((line) => {
-    const [scope, , secretName] = line.trim().split(/\s+/);
-    return scope === name && secretName !== undefined && secretName.includes("deepinfra");
+    const [scope, target] = line.trim().split(/\s+/);
+    return scope === name && target === DEEPINFRA_HOST;
   });
 }
 

@@ -1478,7 +1478,10 @@ describe("cloneStatus and printStderr", () => {
 
 describe("DeepInfra in sandbox mode (step 16)", () => {
   const SECRETS_OPENROUTER = "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n";
-  const SECRETS_BOTH = `${SECRETS_OPENROUTER}oc-sub-test   custom    api.deepinfra.com   (stored)\n`;
+  // The real output of sbx 0.45.1: custom secrets come in a separate table.
+  const CUSTOM_TABLE = (scope: string) =>
+    `\nCUSTOM SECRETS\nSCOPE                      TARGETS            ENV\n${scope}  api.deepinfra.com  DEEPINFRA_API_KEY\n`;
+  const SECRETS_BOTH = `${SECRETS_OPENROUTER}${CUSTOM_TABLE("oc-sub-test")}`;
   const PORTS = "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n";
 
   /** An up of an existing sandbox, with the given secret list and key files. */
@@ -1519,6 +1522,14 @@ describe("DeepInfra in sandbox mode (step 16)", () => {
     expect(listsDeepInfraSecret(SECRETS_BOTH, "oc-sub-test")).toBe(true);
     expect(listsDeepInfraSecret(SECRETS_OPENROUTER, "oc-sub-test")).toBe(false);
     expect(listsDeepInfraSecret(SECRETS_BOTH, "oc-sub-other")).toBe(false);
+    // The live output of the project sandbox, verbatim.
+    const live = "CUSTOM SECRETS\nSCOPE                      TARGETS            ENV\noc-sub-opencode-subagents  api.deepinfra.com  DEEPINFRA_API_KEY\n";
+    expect(listsDeepInfraSecret(live, "oc-sub-opencode-subagents")).toBe(true);
+    expect(listsDeepInfraSecret(live, "oc-sub-test")).toBe(false);
+    // The openrouter rule does not take the custom row for an openrouter secret.
+    expect(listsOpenRouterSecret(live, "oc-sub-opencode-subagents")).toBe(false);
+    expect(listsOpenRouterSecret(CUSTOM_TABLE("oc-sub-test"), "oc-sub-test")).toBe(false);
+    expect(listsOpenRouterSecret(SECRETS_BOTH, "oc-sub-test")).toBe(true);
     expect(listsDeepInfraSecret("No secrets found.\n", "oc-sub-test")).toBe(false);
   });
 

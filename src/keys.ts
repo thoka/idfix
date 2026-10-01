@@ -223,16 +223,24 @@ export function projectNameOf(directory: string): string {
 }
 
 /**
- * The project root of a run folder. In sandbox clone mode, the worktree of a
- * run exists only inside the sandbox, at `<root>/.worktrees/<name>`; on the
- * host the folder is missing. When the folder itself exists on the host (the
- * project root, or a host-mode worktree), the existing logic stays and the
- * folder decides. When it does not, and the path has the form
- * `<root>/.worktrees/<name>` with an existing `<root>` on the host, the
- * root is `<root>`. Otherwise the folder itself.
+ * The project root of a run folder. A host git worktree of the project, for
+ * example `<root>/.claude/worktrees/x`, resolves to the project root through
+ * the git common dir, so a command called from it finds the sandbox server of
+ * the project. Without git there, the folder itself decides. When the folder
+ * does not exist, and the path has the form `<root>/.worktrees/<name>` with an
+ * existing `<root>` on the host (the run worktree of a clone-mode sandbox,
+ * which exists only inside the sandbox), the root is `<root>`. Otherwise the
+ * folder itself.
  */
-export function projectRootOfRun(directory: string, exists: (file: string) => boolean = existsSync): string {
-  if (exists(directory)) return directory;
+export function projectRootOfRun(
+  directory: string,
+  exists: (file: string) => boolean = existsSync,
+  commonDirOf: (dir: string) => string | null = gitCommonDir,
+): string {
+  if (exists(directory)) {
+    const commonDir = commonDirOf(directory);
+    return commonDir === null ? directory : path.dirname(commonDir);
+  }
   const parent = path.dirname(directory);
   if (path.basename(parent) === ".worktrees") {
     const root = path.dirname(parent);
@@ -242,8 +250,12 @@ export function projectRootOfRun(directory: string, exists: (file: string) => bo
 }
 
 /** The project name of a run folder, through `projectRootOfRun`. */
-export function projectNameOfRun(directory: string): string {
-  return projectNameOf(projectRootOfRun(directory));
+export function projectNameOfRun(
+  directory: string,
+  exists: (file: string) => boolean = existsSync,
+  commonDirOf: (dir: string) => string | null = gitCommonDir,
+): string {
+  return projectNameOf(projectRootOfRun(directory, exists, commonDirOf));
 }
 
 /** The content of a text file, or null when it is missing or unreadable. */

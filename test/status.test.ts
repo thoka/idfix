@@ -7,6 +7,7 @@ import {
   displayFolder,
   formatStatusLine,
   parseWorktreeList,
+  projectDirectories,
   serverDirectories,
   sessionState,
   status,
@@ -103,13 +104,14 @@ async function runStatus(options: {
   server: FakeServer;
   dir?: string;
   all?: boolean;
+  json?: boolean;
   deps?: Partial<StatusDeps>;
   env?: Record<string, string | undefined>;
 }): Promise<{ code: number; lines: string[]; errors: string[] }> {
   const captured = captureLog();
   try {
     const code = await status(
-      { url: options.server.url, dir: options.dir, all: options.all ?? false },
+      { url: options.server.url, dir: options.dir, all: options.all ?? false, json: options.json },
       options.env ?? {},
       { ...testDeps, ...options.deps },
     );
@@ -117,6 +119,11 @@ async function runStatus(options: {
   } finally {
     captured.restore();
   }
+}
+
+/** The single JSON document of a JSON-mode run, parsed from the whole stdout. */
+function parseJsonStdout(lines: string[]): unknown {
+  return JSON.parse(lines.join("\n"));
 }
 
 describe("parseWorktreeList", () => {
@@ -698,5 +705,206 @@ describe("status", () => {
     } finally {
       server.stop();
     }
+  });
+});
+
+describe("status --json", () => {
+  test("prints one JSON array with id, state, title, and folder as the whole stdout", async () => {
+    const server = startFakeServer({
+      sessions: [
+        { id: "ses_root", directory: DIR, title: "Root run" },
+        { id: "ses_wt", directory: `${DIR}/.worktrees/x`, title: "WT run" },
+        { id: "ses_child", directory: `${DIR}/.worktrees/x`, title: "Child run", parentID: "ses_wt" },
+      ],
+      states: { ses_wt: { type: "busy" } },
+    });
+    try {
+      const { code, lines, errors } = await runStatus({
+        server,
+        dir: DIR,
+        json: true,
+        deps: { worktreesOf: () => [DIR, `${DIR}/.worktrees/x`] },
+      });
+      expect(code).toBe(0);
+      expect(errors).toEqual([]);
+      // The whole stdout is one JSON document, so the test parses all of it.
+      const rows = parseJsonStdout(lines) as Array<Record<string, string>>;
+      expect(rows).toEqual([
+        { id: "ses_root", state: "idle", title: "Root run", folder: DIR },
+        { id: "ses_wt", state: "busy", title: "WT run", folder: `${DIR}/.worktrees/x` },
+      ]);
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("--json --all adds project and server to every row", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-json-"));
+    const server = startFakeServer({
+      sessions: [{ id: "ses_proj", directory: "/proj", title: "Proj run" }],
+      states: { ses_proj: { type: "busy" } },
+      projects: [{ id: "p1", worktree: "/proj" }],
+    });
+    try {
+      const { code, lines } = await runStatus({
+        server,
+        all: true,
+        json: true,
+        env: { XDG_STATE_HOME: stateHome },
+        deps: { worktreesOf: (directory) => [directory] },
+      });
+      expect(code).toBe(0);
+      const rows = parseJsonStdout(lines) as Array<Record<string, string>>;
+      expect(rows).toEqual([
+        { id: "ses_proj", state: "busy", title: "Proj run", folder: "/proj", project: "proj", server: server.url },
+      ]);
+    } finally {
+      server.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("--json names the project of a sandbox server and keeps stdout pure", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-json-"));
+    const server = startFakeServer({
+      sessions: [{ id: "ses_sbx", directory: "/sbxproj", title: "Sandbox run" }],
+      states: { ses_sbx: { type: "busy" } },
+      brokenDirectories: ["/sbxproj/.worktrees/x"],
+    });
+    try {
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-sbx.json");
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-sbx", root: "/sbxproj", port: server.port }));
+      const { code, lines, errors } = await runStatus({
+        server,
+        all: true,
+        json: true,
+        env: { XDG_STATE_HOME: stateHome },
+        deps: {
+          ...testDeps,
+          cloneDirectoriesOf: (project) => (project === "sbx" ? ["/sbxproj", "/sbxproj/.worktrees/x"] : []),
+        },
+      });
+      expect(code).toBe(0);
+      // The warning goes to stderr; stdout stays the one JSON document.
+      expect(errors.join("\n")).toContain("warning: /sbxproj/.worktrees/x:");
+      const rows = parseJsonStdout(lines) as Array<Record<string, string>>;
+      expect(rows).toEqual([
+        {
+          id: "ses_sbx",
+          state: "busy",
+          title: "Sandbox run",
+          folder: "/sbxproj",
+          project: "sbx",
+          server: server.url,
+        },
+      ]);
+    } finally {
+      server.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("--json prints an empty array to stdout and the message to stderr without a server", async () => {
+    const captured = captureLog();
+    try {
+      const code = await status({ url: "http://127.0.0.1:9", all: false, json: true }, {});
+      expect(code).toBe(0);
+      expect(parseJsonStdout(captured.lines)).toEqual([]);
+      expect(captured.errors).toEqual(["no server on http://127.0.0.1:9"]);
+    } finally {
+      captured.restore();
+    }
+  });
+
+  test("--json prints an empty array when no session runs", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-json-"));
+    const server = startFakeServer({
+      sessions: [{ id: "ses_idle", directory: "/proj", title: "Idle run" }],
+      projects: [{ id: "p1", worktree: "/proj" }],
+    });
+    try {
+      const { code, lines, errors } = await runStatus({
+        server,
+        all: true,
+        json: true,
+        env: { XDG_STATE_HOME: stateHome },
+      });
+      expect(code).toBe(0);
+      expect(errors).toEqual(["no running sessions"]);
+      expect(parseJsonStdout(lines)).toEqual([]);
+    } finally {
+      server.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("--json --all keeps the plain text messages off stdout without --json", async () => {
+    const captured = captureLog();
+    try {
+      const code = await status({ url: "http://127.0.0.1:9", all: true }, {});
+      expect(code).toBe(0);
+      expect(captured.lines).toEqual(["no server on http://127.0.0.1:9"]);
+      expect(captured.errors).toEqual([]);
+    } finally {
+      captured.restore();
+    }
+  });
+});
+
+describe("host worktree of a project", () => {
+  test("projectDirectories maps a host git worktree to the project root through the git common dir", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-wt-"));
+    const server = startFakeServer({
+      sessions: [{ id: "ses_root", directory: "/repo", title: "Root run" }],
+      states: { ses_root: { type: "busy" } },
+    });
+    try {
+      const stateFile = path.join(stateHome, "oc-sub", "sandbox-repo.json");
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-repo", root: "/repo", port: server.port }));
+      const worktree = "/repo/.claude/worktrees/x";
+      const calls: string[] = [];
+      const { code, lines } = await runStatus({
+        server,
+        dir: worktree,
+        env: { XDG_STATE_HOME: stateHome },
+        deps: {
+          exists: () => true,
+          // The fake git common dir: the worktree belongs to the repository
+          // at /repo, so it resolves to the project root of the sandbox.
+          commonDirOf: (directory) => (directory === worktree || directory === "/repo" ? "/repo/.git" : null),
+          worktreesOf: (directory) => {
+            calls.push(`worktreesOf ${directory}`);
+            return [directory];
+          },
+          cloneDirectoriesOf: (project) => {
+            calls.push(`cloneDirectoriesOf ${project}`);
+            return ["/repo"];
+          },
+        },
+      });
+      expect(code).toBe(0);
+      expect(lines).toEqual(["ses_root busy Root run (/repo)"]);
+      expect(calls).toEqual(["cloneDirectoriesOf repo"]);
+    } finally {
+      server.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("projectDirectories keeps the folder without a git common dir", () => {
+    const calls: string[] = [];
+    const dirs = projectDirectories("/repo/.claude/worktrees/x", {}, {
+      ...testDeps,
+      exists: () => true,
+      commonDirOf: () => null,
+      worktreesOf: (directory) => {
+        calls.push(directory);
+        return [directory];
+      },
+    });
+    expect(dirs).toEqual(["/repo/.claude/worktrees/x"]);
+    expect(calls).toEqual(["/repo/.claude/worktrees/x"]);
   });
 });

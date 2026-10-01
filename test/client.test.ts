@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { assertOk, errorMessage, probeServer, requireServer, ServerAuthError, ServerDownError, unwrap, type ServerState } from "../src/client";
+import type { Env } from "../src/config";
 
 describe("unwrap and assertOk", () => {
   test("returns the data when present", () => {
@@ -61,7 +62,7 @@ describe("requireServer", () => {
     let count = 0;
     return {
       probe: () => {
-        const state = states[Math.min(count, states.length - 1)];
+        const state = states[Math.min(count, states.length - 1)] as ServerState;
         count += 1;
         return Promise.resolve(state);
       },

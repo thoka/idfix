@@ -30,7 +30,7 @@ Usage:
   oc-sub restart --no-sandbox [--port N] [--force] [--no-cost-proxy]
   oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T] [--model PROVIDER/MODEL]
   oc-sub attach CODE [--url URL]
-  oc-sub status [--dir DIR | --all]
+  oc-sub status [--dir DIR | --all] [--json]
   oc-sub top [--dir DIR | --all]
   oc-sub top --once [--dir DIR | --all] [--json]
   oc-sub ping [--dir DIR]

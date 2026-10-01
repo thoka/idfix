@@ -174,6 +174,18 @@ Keys: `j`/`k` or the arrow keys select a run. `o` shows the attach command of th
 
 The project column shows the full project name. A project can set a short name for it in the file `.opencode/oc-sub.json` of the project root: `{ "shortName": "opsub" }`. Without the file, the full name shows. The column is as wide as its longest name, like the other columns.
 
+### Check what runs: `oc-sub status`
+
+`oc-sub status` prints one line per running session of the current project and its worktrees: the session ID, the state (`busy`, `waiting`, `retry`, or `idle`), and the title. A session of another worktree gets its folder in brackets. `oc-sub status --all` lists the running sessions of all known servers, all projects, and their worktrees, each with its folder.
+
+With `--json`, the command prints one JSON array as the whole stdout, one object per session:
+
+- `id`, `state`, and `title` are the fields of the text line.
+- `folder` is the absolute directory whose listing produced the session (the project root, a worktree, or a run folder).
+- With `--all`, each object also has `project` (the project name) and `server` (the URL of the server that listed the session).
+
+In JSON mode, nothing else goes to stdout: messages such as `no server on ...` go to stderr, and the array is then empty (`[]`). Parse the whole stdout as one JSON document. The command works from the project root, from a host git worktree of the project (for example `<root>/.claude/worktrees/x`, which resolves to the project root through the git common dir), and with `--dir`.
+
 ## Follow up, abort, and read the cost
 
 - **Follow up**: tell Claude what to change. Claude sends the message into the same session with `oc-sub say <session-id> --dir <worktree> "<message>"`. The command returns at once and does not block. It keeps the model of the run; `--model PROVIDER/MODEL` overrides it. If the session or one of its subagent sessions already waits for a question or permission request, `say` warns on stderr and prints the matching `oc-sub answer` command, because the message stays queued until that request has an answer. You can also type into the attached opencode interface yourself.
@@ -374,7 +386,7 @@ Known gaps:
 | --- | --- |
 | `oc-sub: command not found` | The plugin is not enabled in this session. Run `claude plugin list`, then `/reload-plugins`. |
 | `opencode run` hangs | The command waits for input. Add `< /dev/null`. |
-| `oc-sub status` shows nothing | The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. `oc-sub status --all` shows the running sessions of all known servers, all projects, and their worktrees, each with its folder. |
+| `oc-sub status` shows nothing | The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. `oc-sub status --all` shows the running sessions of all known servers, all projects, and their worktrees, each with its folder. From a host git worktree of the project, `status` resolves to the project root through the git common dir; if git fails there (for example a dubious-ownership error), it cannot, so run it with `--dir <root>` instead. `--json` prints the sessions as one JSON array. |
 | A run seems stuck | The agent may wait for an answer to a question or a permission request. Run `oc-sub watch <session-id> --dir <worktree>` again. It ends with exit code 3 and prints the request. |
 | `watch` ends with exit code 4 | The watch saw a warning sign: a loop of identical tool calls, a stalled session, or runaway reasoning in one step. The run itself keeps running. Claude reads the block, then aborts the run or sends a correction. A session whose model claims broken tools is poisoned. Claude starts a fresh session with the same brief instead of a follow-up message. |
 | The agent cannot read a file | The agent cannot leave its project folder. Copy the file into the worktree, or put its content into the brief. |

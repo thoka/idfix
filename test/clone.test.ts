@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fetch, HOST_REMOTE, HOST_SOURCE, runWorktreePath, worktree, worktreeRm, type CloneDeps } from "../src/clone";
-import { projectRootOfRun } from "../src/keys";
+import { projectRootOfRun, projectNameOfRun } from "../src/keys";
 import { sandboxStatePath, writeSandboxState, type Runner, type SandboxState } from "../src/sandbox";
 
 function tempDir(): string {
@@ -79,9 +79,29 @@ function callsOf(calls: Call[], match: (cmd: readonly string[]) => boolean): str
 
 describe("projectRootOfRun", () => {
   test("an existing folder decides as before", () => {
-    // The host-mode worktree and the project root exist on the host.
+    // The host-mode worktree and the project root exist on the host. Without
+    // a git common dir (the fake paths have none), the folder decides.
     expect(projectRootOfRun(ROOT, (file) => file === ROOT)).toBe(ROOT);
     expect(projectRootOfRun(`${ROOT}/.worktrees/x`, (file) => file !== "/nope")).toBe(`${ROOT}/.worktrees/x`);
+  });
+
+  test("a host git worktree maps to the project root through the git common dir", () => {
+    // A host worktree such as <root>/.claude/worktrees/x belongs to the
+    // project at <root>, so commands called from it find the sandbox server
+    // of the project.
+    const worktree = `${ROOT}/.claude/worktrees/x`;
+    const exists = () => true;
+    const commonDirOf = (dir: string) => (dir === worktree || dir === ROOT ? `${ROOT}/.git` : null);
+    expect(projectRootOfRun(worktree, exists, commonDirOf)).toBe(ROOT);
+    expect(projectRootOfRun(ROOT, exists, commonDirOf)).toBe(ROOT);
+    // The project name follows the root, so the state file is found.
+    expect(projectNameOfRun(worktree, exists, commonDirOf)).toBe(path.basename(ROOT));
+  });
+
+  test("without a git common dir the existing folder stays itself", () => {
+    expect(projectRootOfRun(`${ROOT}/.claude/worktrees/x`, () => true, () => null)).toBe(
+      `${ROOT}/.claude/worktrees/x`,
+    );
   });
 
   test("a run folder that exists only inside the sandbox maps to the root", () => {

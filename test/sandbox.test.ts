@@ -62,7 +62,7 @@ import {
   listsDeepInfraSecret,
   providerEntries,
 } from "../src/sandbox";
-import { DEEPINFRA_PLACEHOLDER } from "../src/keys";
+import { DEEPINFRA_PLACEHOLDER, projectNameOf, projectRootOfRun } from "../src/keys";
 import { sharedAgentsDir } from "../src/shared";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
 import { pluginDataDir, pluginDigest, proxyBundleIn } from "../src/plugin-sync";
@@ -211,6 +211,17 @@ describe("sandboxUrlFor and resolveCommandUrl", () => {
     // test replaces the git call with the projectName parameter.
     const projectName = (directory: string) => (directory.startsWith("/repo/") ? "proj" : path.basename(directory));
     expect(sandboxUrlFor("/repo/.worktrees/x", env, projectName)).toBe("http://127.0.0.1:18781");
+  });
+
+  test("a host git worktree of the project resolves to the sandbox server", async () => {
+    const env = makeEnv();
+    await writeState(env, "repo", 18786);
+    // The fake git common dir maps the host worktree <repo>/.claude/worktrees/x
+    // to the project root, and the project name follows the root.
+    const worktree = "/repo/.claude/worktrees/x";
+    const commonDirOf = (dir: string) => (dir === worktree || dir === "/repo" ? "/repo/.git" : null);
+    const projectName = (directory: string) => projectNameOf(projectRootOfRun(directory, () => true, commonDirOf));
+    expect(resolveCommandUrl(undefined, env, worktree, projectName)).toBe("http://127.0.0.1:18786");
   });
 
   test("resolveCommandUrl: the flag wins over everything", async () => {

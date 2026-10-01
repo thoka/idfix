@@ -4,7 +4,7 @@ import path from "node:path";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { resolvePort, resolveServerUrl, type Env } from "./config";
 import { defaultRunner, readSandboxState, readSandboxStates, resolveCommandUrl, sandboxStatePath, sbxBin, type Runner } from "./sandbox";
-import { projectRootOfRun, projectNameOf } from "./keys";
+import { projectRootOfRun, projectNameOf, projectNameOfRun } from "./keys";
 import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "./client";
 import { listPendingRequests } from "./requests";
 import { listServers } from "./servers";
@@ -63,7 +63,7 @@ export function cloneDirectories(project: string, env: Env, runner: Runner): str
  * `scopeDirectories` of `top` share this helper, so they never differ.
  */
 export function projectDirectories(directory: string, env: Env, deps: StatusDeps): string[] {
-  const root = projectRootOfRun(directory, deps.exists);
+  const root = projectRootOfRun(directory, deps.exists, deps.commonDirOf);
   const project = projectNameOf(root);
   if (readSandboxState(sandboxStatePath(env, project)) !== null) {
     return uniqueDirectories(deps.cloneDirectoriesOf(project));
@@ -96,6 +96,8 @@ export type StatusDeps = {
   exists: (file: string) => boolean;
   /** The directories of the sandbox clone of a project: the root first, then the worktrees in the clone. Empty without a state file or when the sandbox does not answer. */
   cloneDirectoriesOf: (project: string) => string[];
+  /** The absolute path of the main `.git` folder of a directory, or null without git. The tests replace it, so a fake host worktree needs no real git. */
+  commonDirOf?: (directory: string) => string | null;
 };
 
 const defaultDeps: StatusDeps = {
@@ -194,46 +196,82 @@ export async function serverDirectories(baseUrl: string, env: Env, deps: StatusD
   );
 }
 
+/** One session as the output of status shows it. */
+export type StatusRow = {
+  id: string;
+  state: string;
+  title: string;
+  /** The absolute directory whose listing produced the session. */
+  folder: string;
+  /** The project of the session, only in the listing of `--all`. */
+  project?: string;
+  /** The server URL that listed the session, only in the listing of `--all`. */
+  server?: string;
+};
+
 /**
- * The running sessions of one server, one line each, from the directories of
+ * The running sessions of one server, one row each, from the directories of
  * `serverDirectories`. A session that another server already listed (same
  * session ID) is skipped.
  */
-async function allServerLines(
+async function allServerRows(
   baseUrl: string,
   env: Env,
   deps: StatusDeps,
   listed: Set<string>,
-): Promise<string[]> {
+): Promise<StatusRow[]> {
   const client = makeClient(baseUrl, env);
   const directories = await serverDirectories(baseUrl, env, deps);
+  const sandbox = readSandboxStates(env).find((entry) => entry.state.port === resolvePort(undefined, baseUrl));
 
-  const lines: string[] = [];
+  const rows: StatusRow[] = [];
   for (const directory of directories) {
     for (const session of await listSessionsSafe(client, baseUrl, directory, env)) {
       // Child sessions are internal subagent runs of a listed parent.
       if (session.child || session.state === "idle") continue;
       if (listed.has(session.id)) continue;
       listed.add(session.id);
-      lines.push(formatStatusLine(session.id, session.state, session.title, directory));
+      rows.push({
+        id: session.id,
+        state: session.state,
+        title: session.title,
+        folder: directory,
+        // The folders of a sandbox server belong to its project; the folders
+        // of a host server name their own project.
+        project: sandbox?.project ?? projectNameOfRun(directory),
+        server: baseUrl,
+      });
     }
   }
-  return lines;
+  return rows;
 }
 
-/** `oc-sub status [--dir DIR | --all]`: one line per session: ID, state, title. */
+/**
+ * `oc-sub status [--dir DIR | --all] [--json]`: one line per session
+ * (`ID state title`), or with `--json` one JSON array of objects with `id`,
+ * `state`, `title`, and `folder` (plus `project` and `server` with `--all`)
+ * as the whole stdout. In JSON mode, messages such as `no server on ...` go
+ * to stderr, and the array is then empty.
+ */
 export async function status(
-  args: { url?: string; dir?: string; all: boolean },
+  args: { url?: string; dir?: string; all: boolean; json?: boolean },
   env: Env = process.env,
   deps: StatusDeps = defaultDeps,
 ): Promise<number> {
+  const json = args.json === true;
+  // Nothing but the JSON document may go to stdout in JSON mode, so the
+  // messages go to stderr there.
+  const say = (message: string): void => {
+    (json ? console.error : console.log)(message);
+  };
+
   // With --all, the listing covers every known server: the host server (or
   // the server of --url) and each sandbox with a valid state file. Without
   // it, the sandbox URL of the project can step in before the default.
   if (args.all) {
     const servers = listServers(env, args.url);
     const hostUrl = servers[0]?.url ?? resolveServerUrl(args.url, env);
-    const lines: string[] = [];
+    const rows: StatusRow[] = [];
     const listed = new Set<string>();
     let answered = false;
     for (const server of servers) {
@@ -249,7 +287,7 @@ export async function status(
       answered = true;
       // One broken server must not stop the listing of the others.
       try {
-        lines.push(...(await allServerLines(server.url, env, deps, listed)));
+        rows.push(...(await allServerRows(server.url, env, deps, listed)));
       } catch (error) {
         const message = error instanceof Error ? error.message : errorMessage(error);
         console.error(`warning: ${server.url}: ${message}`);
@@ -257,14 +295,15 @@ export async function status(
     }
     if (!answered) {
       // No server means no sessions. That is a normal state, not an error.
-      console.log(`no server on ${hostUrl}`);
-      return 0;
+      say(`no server on ${hostUrl}`);
+    } else if (rows.length === 0) {
+      say("no running sessions");
     }
-    if (lines.length === 0) {
-      console.log("no running sessions");
-      return 0;
+    if (json) {
+      console.log(JSON.stringify(rows, null, 2));
+    } else {
+      for (const row of rows) console.log(formatStatusLine(row.id, row.state, row.title, row.folder));
     }
-    for (const line of lines) console.log(line);
     return 0;
   }
 
@@ -272,20 +311,29 @@ export async function status(
   // No server means no sessions. That is a normal state, not an error.
   const server = await probeServer(baseUrl, env, 2000);
   if (server.state === "down") {
-    console.log(`no server on ${baseUrl}`);
+    say(`no server on ${baseUrl}`);
+    if (json) console.log(JSON.stringify([], null, 2));
     return 0;
   }
   assertUsable(server, baseUrl, env);
   const client = makeClient(baseUrl, env);
 
   const directory = path.resolve(args.dir ?? process.cwd());
+  const rows: StatusRow[] = [];
   for (const dir of projectDirectories(directory, env, deps)) {
     for (const session of await listSessionsSafe(client, baseUrl, dir, env)) {
       // Child sessions are internal subagent runs, not first-class sessions.
       if (session.child) continue;
-      const folder = dir === directory ? undefined : displayFolder(dir, directory);
-      console.log(formatStatusLine(session.id, session.state, session.title, folder));
+      rows.push({ id: session.id, state: session.state, title: session.title, folder: dir });
     }
+  }
+  if (json) {
+    console.log(JSON.stringify(rows, null, 2));
+    return 0;
+  }
+  for (const row of rows) {
+    const folder = row.folder === directory ? undefined : displayFolder(row.folder, directory);
+    console.log(formatStatusLine(row.id, row.state, row.title, folder));
   }
   return 0;
 }

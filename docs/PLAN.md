@@ -8,7 +8,7 @@ oc-sub is stable and useful if four things hold. First, a plugin change reaches 
 
 ## State on 2026-10-01
 
-Everything is on `alpha` and pushed. No run is active. Step 15c is done: every server loads the synced plugin folder `~/.local/share/oc-sub/opencode/`, and the `doctor` check `server-plugin` restarts an idle server that runs old plugin content. Every sandbox created before 15c lacks the new mount, so `oc-sub up` fails in it until a recreate. `oc-sub doctor` passes all 9 checks in this project, after `oc-sub doctor --fix` updated the installed plugin to `7661ae0`.
+Everything is on `alpha` and pushed. No run is active. Step 15d is done in code: `oc-sub doctor --fix --force` recreates a sandbox that lacks a mount, has no clone, or is not in clone mode. A busy session and work that the host would lose block it, also with `--force`. 753 tests pass. The live test is open, because the permission check of Claude Code blocked the main thread from running the recreate (see the open tasks of the user). Every sandbox created before 15c still lacks the synced plugin mount, so `oc-sub up` fails in it until a recreate.
 
 Sandbox mode in clone mode works, with one run worktree per step inside the clone and the review fetch on the host. A cost proxy runs next to each server. GLM goes to Z.AI, with Parasail and Together as fallbacks. The live view `oc-sub top` works, and `oc-sub doctor --fix` repairs the plugin and the global rule links.
 
@@ -21,15 +21,11 @@ The workflow in this project (clone mode):
 
 ## Next steps, in this order
 
-### 1. Step 15d: recreate a sandbox with `doctor --fix --force`
-
-This step comes first now, because since 15c every old sandbox needs a recreate. `doctor --fix --force` recreates a sandbox that is not in clone mode or lacks a mount. A busy session or unfetched `feature/*` commits in the clone always block it. It runs `sbx rm --force NAME` and `oc-sub up`.
-
-### 2. A check for the opencode version of each project
+### 1. A check for the opencode version of each project
 
 Nine projects in `~/dv` pin `opencode = "latest"` in their `mise.toml`. Their sandbox server thus runs another opencode than the tested 1.18.32, and no check reports it. A new `doctor` check warns. Its fix comes with 15e.
 
-### 3. Step 12: a working mise inside the sandbox
+### 2. Step 12: a working mise inside the sandbox
 
 Root cause: the sandbox gets the tool folders of the host read-only, but no `mise` binary, so an agent cannot add a tool. On 2026-09-30, a coder in arch-helper needed `pwsh` and tried workarounds for a long time. The research is in [SANDBOX_MISE.md](research/SANDBOX_MISE.md).
 
@@ -39,19 +35,21 @@ Root cause: the sandbox gets the tool folders of the host read-only, but no `mis
 4. Open: the feature is experimental upstream. Make sure that it works without `MISE_EXPERIMENTAL=1`, or set it. Find out why `/home/toka/.local/share` belongs to root inside the sandbox, and whether `HOME` is `/home/toka` there.
 5. Tests for the server environment, and one bullet each in `docs/GUIDE.md` and `skills/oc-sub/reference.md`.
 
-### 4. `oc-sub say` warns on a pending question
+### 3. `oc-sub say` warns on a pending question
 
 If a session waits for an answer to a `question`, `say` only queues its message. The agent sees the message after the question gets an answer. `say` warns and names `oc-sub answer`.
 
-### 5. Step 11d: the cost proxy in `watch` and `log`
+### 4. Step 11d: the cost proxy in `watch` and `log`
 
 The live test of the proxy (log lines, no orphan restart loop after `down`). Then `watch` and `log` read the real cost and the open requests from the proxy log. This also fixes the false stall of step 6 while a model request is open.
 
-### 6. Step 15e: bring every project to the standard
+### 5. Step 15e: bring every project to the standard
 
 15e: `doctor --renovate` lifts a project to the current standard. Every best practice is a check, and an old setup gets the status `outdated`. `--renovate` includes `--fix` and applies every fix without `--force`, but a busy session or unfetched work still blocks it. First candidates: a host-mode server, a sandbox in direct-mount mode, a project `mise.toml` that pins its own `opencode`, and old agent copies. A missing project key is only reported, because oc-sub never creates OpenRouter keys (decided with the user on 2026-09-30). Research first: how `ng update`, Renovate, and similar tools define a standard, detect drift, and apply migrations.
 
 ### Later
+
+- Known gap of 15d: the fix text of `sandbox-mounts` still names `sbx rm --force NAME` and `oc-sub up` by hand instead of `oc-sub doctor --fix --force`.
 
 - Step 11, rest: the detectors of step 6 give the provider of a flagged run a strike. After two or three strikes, the provider goes onto the OpenRouter `ignore` list for some days.
 - Step 8h: `oc-sub status --json`.
@@ -64,7 +62,7 @@ The live test of the proxy (log lines, no orphan restart loop after `down`). The
 ## Open tasks of the user
 
 - Make the access to `/dev/kvm` permanent. Today it has mode 0666 only because of `oc-sub doctor --fix-as-root` (`sudo chmod 0666 /dev/kvm`). On 2026-09-30 the device was recreated with mode 660 and the unknown group ID 109, and every sandbox start failed. After the next WSL restart this can happen again. The structural fix is a udev rule or a boot step that sets the group `kvm` and the mode. The main thread can research the right way under WSL first.
-- Recreate every sandbox once, because since step 15c each needs the synced plugin mount. This includes the sandbox of this project and of arch-helper, grata, and meta. If no session runs in it, run `sbx rm --force oc-sub-<project>`, then `oc-sub up` in the project. Or wait for step 15d. A recreate ends the sessions of that sandbox. Until then, an agent in the old sandboxes of arch-helper, grata, and meta reaches the whole repository and its `.git`, because they are not in clone mode. Restart a running host server once too, or run `oc-sub doctor --fix` while it is idle.
+- Recreate every sandbox once with step 15d, because since step 15c each needs the synced plugin mount. In each project, run `oc-sub doctor --fix --force`. This ends the sessions of that sandbox, and it refuses while a session is busy or while the clone holds work that the host would lose. Start with this project: it is the live test of 15d, and it also restarts the old sandbox server. Then arch-helper, grata, and meta. Until then, an agent in the old sandboxes of arch-helper, grata, and meta reaches the whole repository and its `.git`, because they are not in clone mode. The main thread cannot run the recreate itself: the auto mode classifier of Claude Code denied it as interference with workloads. To let the main thread do it, allow `oc-sub doctor --fix --force` in the permission rules.
 - Decide from [DEPLOY_ACCESS.md](research/DEPLOY_ACCESS.md) section 8: whether Tailscale runs on the servers, and how long a debugging window lasts.
 - Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.
 

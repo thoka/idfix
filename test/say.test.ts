@@ -31,8 +31,11 @@ function startFakeServer(options: { messages?: Array<Record<string, unknown>> })
   return { url: `http://127.0.0.1:${server.port}`, calls, stop: () => server.stop(true) };
 }
 
-function userMessage(agent: string): Record<string, unknown> {
-  return { info: { role: "user", agent, sessionID: "ses_1", id: "msg_1", time: { created: 1 } }, parts: [] };
+function userMessage(agent: string, model?: { providerID: string; modelID: string }): Record<string, unknown> {
+  return {
+    info: { role: "user", agent, sessionID: "ses_1", id: "msg_1", time: { created: 1 }, ...(model === undefined ? {} : { model }) },
+    parts: [],
+  };
 }
 
 function assistantMessage(): Record<string, unknown> {
@@ -83,8 +86,8 @@ describe("say", () => {
     }
   });
 
-  test("uses --agent and skips the message list", async () => {
-    const server = startFakeServer({});
+  test("uses --agent and takes the model from the message list", async () => {
+    const server = startFakeServer({ messages: [userMessage("researcher")] });
     try {
       const { logged, error } = await runSay(server, ["ses_1", "--agent", "researcher", "answer the question"]);
       expect(error).toBeUndefined();
@@ -105,6 +108,97 @@ describe("say", () => {
       const { error } = await runSay(server, ["ses_1", "continue"]);
       expect(error?.message).toBe("session ses_1 has no user message. Give --agent NAME");
       expect(server.calls).toEqual([]);
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("sends the model of the last user message", async () => {
+    const server = startFakeServer({
+      messages: [userMessage("coder", { providerID: "deepinfra", modelID: "zai-org/GLM-5.3-Flash" })],
+    });
+    try {
+      const { code, logged, error } = await runSay(server, ["ses_1", "continue"]);
+      expect(error).toBeUndefined();
+      expect(code).toBe(0);
+      expect(server.calls[0]?.body).toEqual({
+        agent: "coder",
+        parts: [{ type: "text", text: "continue" }],
+        model: { providerID: "deepinfra", modelID: "zai-org/GLM-5.3-Flash" },
+      });
+      expect(logged[0]).toContain("(agent coder, model deepinfra/zai-org/GLM-5.3-Flash)");
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("also reads the message list with --agent, to get the model", async () => {
+    const server = startFakeServer({
+      messages: [userMessage("coder", { providerID: "deepinfra", modelID: "zai-org/GLM-5.3-Flash" })],
+    });
+    try {
+      const { error } = await runSay(server, ["ses_1", "--agent", "researcher", "continue"]);
+      expect(error).toBeUndefined();
+      expect(server.calls).toHaveLength(1);
+      expect(server.calls[0]?.body).toEqual({
+        agent: "researcher",
+        parts: [{ type: "text", text: "continue" }],
+        model: { providerID: "deepinfra", modelID: "zai-org/GLM-5.3-Flash" },
+      });
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("--model wins over the model of the last user message", async () => {
+    const server = startFakeServer({
+      messages: [userMessage("coder", { providerID: "deepinfra", modelID: "zai-org/GLM-5.3-Flash" })],
+    });
+    try {
+      const { logged, error } = await runSay(server, ["ses_1", "--model", "openrouter/z-ai/glm-5.3-flash", "continue"]);
+      expect(error).toBeUndefined();
+      expect(server.calls[0]?.body).toEqual({
+        agent: "coder",
+        parts: [{ type: "text", text: "continue" }],
+        model: { providerID: "openrouter", modelID: "z-ai/glm-5.3-flash" },
+      });
+      expect(logged[0]).toContain("(agent coder, model openrouter/z-ai/glm-5.3-flash)");
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("a last user message without a model sends no model", async () => {
+    const server = startFakeServer({ messages: [userMessage("coder")] });
+    try {
+      const { error } = await runSay(server, ["ses_1", "continue"]);
+      expect(error).toBeUndefined();
+      expect(server.calls[0]?.body).toEqual({
+        agent: "coder",
+        parts: [{ type: "text", text: "continue" }],
+      });
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("parseArgs takes --model for say and rejects a value without a slash", () => {
+    const parsed = parseArgs(["say", "ses_1", "--model", "openrouter/z-ai/glm-5.3-flash", "hi"]);
+    if (parsed.command !== "say") throw new Error("expected a say command");
+    expect(parsed.model).toBe("openrouter/z-ai/glm-5.3-flash");
+    expect(() => parseArgs(["say", "ses_1", "--model", "nopath", "hi"])).toThrow(
+      '--model must be PROVIDER/MODEL, got "nopath"',
+    );
+  });
+  test("--agent works on a session without a user message, and sends no model", async () => {
+    const server = startFakeServer({ messages: [] });
+    try {
+      const { error } = await runSay(server, ["ses_1", "--agent", "researcher", "start"]);
+      expect(error).toBeUndefined();
+      expect(server.calls[0]?.body).toEqual({
+        agent: "researcher",
+        parts: [{ type: "text", text: "start" }],
+      });
     } finally {
       server.stop();
     }

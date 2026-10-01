@@ -36,7 +36,7 @@ export type ParsedArgs =
       message?: string;
       answers: string[];
     }
-  | { command: "say"; url?: string; session: string; dir?: string; agent?: string; text: string }
+  | { command: "say"; url?: string; session: string; dir?: string; agent?: string; model?: string; text: string }
   | { command: "worktree"; step: string; dir?: string; base?: string; noSetup: boolean; remove: boolean }
   | { command: "fetch"; dir?: string }
   | { command: "doctor"; dir?: string; json: boolean; fix: boolean; force: boolean; fixAsRoot: boolean };
@@ -348,11 +348,15 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       };
     }
     case "say": {
-      const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "agent", "url"]), new Set<string>());
+      const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "agent", "model", "url"]), new Set<string>());
       const session = requireSession(positionals);
       const text = positionals.slice(1).join(" ");
       if (text.trim().length === 0) {
         throw new UsageError("a message TEXT is required after the session ID");
+      }
+      const model = optionalString(flags, "model");
+      if (model !== undefined && model.split("/").length < 2) {
+        throw new UsageError(`--model must be PROVIDER/MODEL, got "${model}"`);
       }
       return {
         command: "say",
@@ -360,6 +364,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         session,
         dir: optionalString(flags, "dir"),
         agent: optionalString(flags, "agent"),
+        model,
         text,
       };
     }

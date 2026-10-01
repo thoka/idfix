@@ -21,6 +21,16 @@ import type { MessageEntry } from "./summary";
 import { loadSessionTree } from "./tree";
 import { REASONING_LIMIT } from "./detect";
 import { toolMainArg } from "./events";
+import {
+  DEFAULT_MAX_STEPS,
+  costEstimate,
+  costSummary,
+  tagSteps,
+  type JevError,
+  type JevTag,
+  type JevFetch,
+} from "./jev";
+import { projectKeyPath, projectNameOfRun, readTextFile } from "./keys";
 
 /** How much of the step text goes into the record. */
 export const TEXT_EXCERPT_LIMIT = 500;
@@ -68,6 +78,10 @@ export type TraceStep = {
   text: string;
   /** The first `REASONING_EXCERPT_LIMIT` characters of the reasoning. */
   reasoningExcerpt: string;
+  /** The Jev answers of stage two, only with `trace --tag`. */
+  jev?: JevTag | JevError;
+  /** The question-set version of the `jev` field, only with `trace --tag`. */
+  jevQuestionsVersion?: string;
 };
 
 /** One `step-start`...`step-finish` span (or an open span without finish). */
@@ -257,12 +271,46 @@ export async function traceRun(
   return trace;
 }
 
+/** The OpenRouter key for `trace --tag`: the environment variable first, then the project key file of the project of `--dir`. Never printed. */
+export async function traceKey(dir: string, env: Env): Promise<string | null> {
+  const fromEnv = env.OPENROUTER_API_KEY?.trim();
+  if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
+  const keyPath = projectKeyPath(projectNameOfRun(dir), env);
+  const fromFile = (await readTextFile(keyPath))?.trim();
+  return fromFile !== undefined && fromFile.length > 0 ? fromFile : null;
+}
+
+/** The fetch and the sleep that the tests replace. */
+export type TraceTagDeps = {
+  doFetch?: JevFetch;
+  sleep?: (ms: number) => Promise<void>;
+};
+
 /** Run `oc-sub trace`: print one JSON line per step to stdout or --out. */
 export async function trace(
-  args: { url?: string; session: string; dir?: string; out?: string },
+  args: { url?: string; session: string; dir?: string; out?: string; tag?: boolean; maxSteps?: number },
   env: Env = process.env,
+  deps: TraceTagDeps = {},
 ): Promise<number> {
   const traceTree = await traceRun(args, env);
+  if (args.tag === true) {
+    const directory = path.resolve(args.dir ?? process.cwd());
+    const key = await traceKey(directory, env);
+    if (key === null) {
+      const keyPath = projectKeyPath(projectNameOfRun(directory), env);
+      console.error(`no key: set OPENROUTER_API_KEY or create ${keyPath}`);
+      return 2;
+    }
+    const steps = traceTree.flatMap((session) => session.steps);
+    console.error(costEstimate(steps.length));
+    const totalCost = await tagSteps(steps, key, {
+      maxSteps: args.maxSteps ?? DEFAULT_MAX_STEPS,
+      doFetch: deps.doFetch ?? fetch,
+      sleep: deps.sleep,
+      log: (line) => console.error(line),
+    });
+    console.error(costSummary(totalCost));
+  }
   const lines = traceTree.flatMap((session) => session.steps.map((step) => JSON.stringify(step))).join("\n");
   const output = lines.length > 0 ? `${lines}\n` : "";
   if (args.out === undefined) {

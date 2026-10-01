@@ -25,7 +25,7 @@ export type ParsedArgs =
   | { command: "ping"; url?: string; dir?: string; rules: boolean }
   | { command: "watch"; url?: string; session: string; dir?: string; json: boolean }
   | { command: "log"; url?: string; session: string; dir?: string }
-  | { command: "trace"; url?: string; session: string; dir?: string; out?: string }
+  | { command: "trace"; url?: string; session: string; dir?: string; out?: string; tag: boolean; maxSteps?: number }
   | { command: "abort"; url?: string; session: string; dir?: string }
   | {
       command: "answer";
@@ -301,13 +301,24 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       return { command: "log", url: globals.url, session: requireSession(positionals), dir: optionalString(flags, "dir") };
     }
     case "trace": {
-      const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "url", "out"]), new Set<string>());
+      const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "url", "out", "tag", "max-steps"]), new Set(["tag"]));
+      const maxStepsRaw = flags.get("max-steps");
+      let maxSteps: number | undefined;
+      if (typeof maxStepsRaw === "string") {
+        const value = Number(maxStepsRaw);
+        if (!Number.isInteger(value) || value < 1) {
+          throw new UsageError(`--max-steps must be a positive whole number, got "${maxStepsRaw}"`);
+        }
+        maxSteps = value;
+      }
       return {
         command: "trace",
         url: globals.url,
         session: requireSession(positionals),
         dir: optionalString(flags, "dir"),
         out: optionalString(flags, "out"),
+        tag: flags.get("tag") === true,
+        maxSteps,
       };
     }
     case "abort": {

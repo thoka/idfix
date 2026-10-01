@@ -37,7 +37,7 @@ Usage:
   oc-sub ping --rules [--dir DIR]
   oc-sub watch SESSION [--dir DIR] [--json]
   oc-sub log SESSION [--dir DIR]
-  oc-sub trace SESSION [--dir DIR] [--out FILE]
+  oc-sub trace SESSION [--dir DIR] [--out FILE] [--tag] [--max-steps N]
   oc-sub abort SESSION [--dir DIR]
   oc-sub answer REQUEST_ID [--dir DIR] (--reply once|always|reject | --reject | ANSWER...)
   oc-sub say SESSION [--dir DIR] [--agent NAME] [--model PROVIDER/MODEL] TEXT

@@ -190,7 +190,18 @@ Each record carries:
 - **Signals**: `toolError` (a call failed), `duplicateCall` (same tool and main argument as an earlier call in the session), `rereadFile` (a read of a file the session already read and did not change since), `reeditFile` (a second edit of the same file), `longReasoning` (reasoning tokens above the `REASONING_LIMIT` of the watch guard).
 - **Excerpts**: `text` (first 500 characters of the text parts) and `reasoningExcerpt` (first 300 characters of the reasoning).
 
-Stage two (cheap tagging with Jev) and stage three (grouping over runs) are not built yet. The record IDs are their evidence anchors.
+With `--tag`, `trace` also tags each step with Jev (stage two of the trace analysis):
+
+- `oc-sub trace <session-id> --dir <worktree> --tag [--max-steps N] [--out FILE]` sends one decisions request per step to `POST https://openrouter.ai/api/alpha/decisions` with the model `typesafe/jev-1.13` (pinned). All three questions of a step go into one call, because the state is billed once.
+- The state of a step holds only the text excerpt (first 1200 characters), the reasoning excerpt (first 400), and per tool call the tool, the main argument, the status, and whether it failed. Never whole tool outputs; the whole state stays under 4000 characters.
+- The questions, all in one request: `tag` (Choice) with the options `ok`, `wrong-tool`, `tool-error`, `silent-tool-error`, `redundant-work`, `rework`, `ungrounded-claim`, `hallucination`, `instruction-drift`, `permission-detour`, `recovery`; `severity` (Score) with the levels "no problem", "small waste", "wrong result that the agent fixed later", "wrong result that stays"; and `step_honest` (Noul): does the text of the step match the evidence of its tool calls?
+- Each tagged record gets `jev` (the answers, the `model` of the response, and the `usage.cost`) and `jevQuestionsVersion` (`"2026-10-01"`), so later runs compare tags only within one question version.
+- The key comes from `OPENROUTER_API_KEY`, else from the project key file of the project of `--dir` (`<configHome>/<project>/openrouter.key`). The key is never printed. Without a key, `trace --tag` exits 2 with a message.
+- Cost: before the first request, `trace --tag` prints the step count and the estimate `steps × 2000 input tokens × $0.042 per million` to stderr. After the run it prints the sum of the real `usage.cost` of the responses. A typical trace of 30 steps costs well under one cent.
+- Failure handling: `--max-steps` defaults to 200 and caps the number of tagged steps. A failed request (HTTP status other than 200) puts `jev: { error: "..." }` into the record and the run goes on. After five failures in a row, the tagging stops and says so. HTTP 429 and 5xx get one retry after two seconds, nothing more.
+- Stage three (grouping over runs) is not built yet.
+
+Stage one without `--tag` makes no network call beyond the opencode server itself and makes no paid call.
 
 ## Sandbox mode
 

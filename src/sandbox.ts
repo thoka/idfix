@@ -16,7 +16,7 @@ import { busySessions, formatBusyLine, isAlive, waitUntilGone } from "./down";
 import { assertUsable, probeServer } from "./client";
 import { resolveServerUrl } from "./config";
 import { DEEPINFRA_HOST, DEEPINFRA_PLACEHOLDER, deepinfraKeyPath, gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOfRun } from "./keys";
-import { stateDir, serveDirsPath, serveLogPath, servePidPath, servePluginPath, readPid, readDirs, removeFiles } from "./state";
+import { stateDir, serveDirsPath, serveLogPath, servePidPath, servePluginPath, readPid, readDirs, removeFiles, appendLogMarker, readLogTail } from "./state";
 import { sharedAgentsDir, sharedConfigEntries } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
 import { pluginDataDir, proxyBundleIn, syncPluginDir } from "./plugin-sync";
@@ -650,7 +650,9 @@ export type ServeProcess = {
 export function spawnDetached(cmd: readonly string[], logPath: string, pidPath: string): ServeProcess {
   // The process keeps running after this one exits, so its output goes to
   // a file: fd numbers are inherited by the child and closed here again.
-  const logFd = openSync(logPath, "w");
+  // The file opens in append mode, so the proxy `end` lines of older runs
+  // stay in the log and `oc-sub log` of an older run keeps the real cost.
+  const logFd = openSync(logPath, "a");
   let proc: Bun.Subprocess;
   try {
     proc = Bun.spawn({
@@ -1459,6 +1461,9 @@ export async function upSandbox(
         String(SERVE_PORT),
       ]
     : ["sh", "-c", sandboxHolderScript(bunBin as string, bundlePath, SANDBOX_PROXY_PORT, SERVE_PORT)];
+  // The log keeps the lines of older starts, so this start writes one
+  // marker line first: a reader sees where a new start begins.
+  await appendLogMarker(logPath, "up");
   const holder = deps.spawnServe(
     [
       bin,
@@ -1504,13 +1509,24 @@ export async function upSandbox(
     const code = holder.exitCode();
     if (code !== null) {
       console.error(`error: the sandbox holder process exited with code ${code}, see ${logPath}`);
+      await printLogTail(logPath);
       return 1;
     }
   }
   console.error(
     `error: opencode serve did not become healthy on ${serveUrl} within ${deps.healthTimeoutMs / 1000}s, see ${logPath}`,
   );
+  await printLogTail(logPath);
   return 1;
+}
+
+/** The output of the newest start, under the error that points to the log. */
+async function printLogTail(logPath: string): Promise<void> {
+  const lines = await readLogTail(logPath);
+  if (lines.length > 0) {
+    console.error("output of this start:");
+    for (const line of lines) console.error(`  ${line}`);
+  }
 }
 
 /**

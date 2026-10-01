@@ -65,6 +65,60 @@ export function proxyLogPath(env: Env, port: number): string {
   return path.join(stateDir(env), `proxy-${port}.log`);
 }
 
+/**
+ * The marker line that every start of a server or proxy writes into its log
+ * first. A reader sees from it where a new start begins; the proxy readers
+ * skip the line, because it is not JSON. Pure.
+ */
+export function logMarkerLine(label: string, now: Date = new Date()): string {
+  return `--- oc-sub ${label} ${now.toISOString()} ---`;
+}
+
+/** True when the line is a start marker of `logMarkerLine`. Pure. */
+export function isLogMarkerLine(line: string): boolean {
+  return /^--- oc-sub \S+ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(line.trim());
+}
+
+/**
+ * The lines of a log text after its last start marker, without the marker
+ * and without empty lines: the output of the newest start. A text without
+ * a marker has no start to name, so it gives an empty list. Pure.
+ */
+export function logSinceLastMarker(text: string): string[] {
+  const lines = text.split("\n");
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (isLogMarkerLine(lines[i] as string)) start = i;
+  }
+  if (start === -1) return [];
+  return lines.slice(start + 1).filter((line) => line.trim().length > 0);
+}
+
+/**
+ * Append one start marker line to a log file, creating it if needed. The
+ * logs open in append mode, so a start must mark where its lines begin.
+ */
+export async function appendLogMarker(file: string, label: string): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true });
+  await appendFile(file, `${logMarkerLine(label)}\n`);
+}
+
+/**
+ * The output of the newest start of a log file, for an error message after
+ * a failed start. At most `maxLines` lines, with a note about the cut. An
+ * unreadable file gives an empty list.
+ */
+export async function readLogTail(file: string, maxLines = 50): Promise<string[]> {
+  let lines: string[];
+  try {
+    lines = logSinceLastMarker(await readFile(file, "utf8"));
+  } catch {
+    return [];
+  }
+  if (lines.length <= maxLines) return lines;
+  return [...lines.slice(-maxLines), `(${lines.length - maxLines} earlier lines cut)`];
+}
+
 /** The PID from a PID file, or null when the file is missing or invalid. */
 export async function readPid(file: string): Promise<number | null> {
   let text: string;

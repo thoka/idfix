@@ -16,7 +16,7 @@ import {
   spawnDetached,
   type ServeProcess,
 } from "./sandbox";
-import { removeFiles, proxyLogPath, proxyPidPath, serveDirsPath, serveLogPath, servePidPath, servePluginPath } from "./state";
+import { removeFiles, appendLogMarker, readLogTail, proxyLogPath, proxyPidPath, serveDirsPath, serveLogPath, servePidPath, servePluginPath } from "./state";
 import { pluginDataDir, proxyBundleIn, syncPluginDir } from "./plugin-sync";
 
 const HEALTH_TIMEOUT_MS = 60_000;
@@ -126,7 +126,9 @@ export const defaultUpDeps: UpDeps = {
   spawnServe: (cmd, logPath, pidPath, env) => {
     // The server keeps running after this process exits, so its output goes
     // to a file: fd numbers are inherited by the child and closed here again.
-    const logFd = openSync(logPath, "w");
+    // The file opens in append mode, so the proxy `end` lines of older runs
+    // stay in the log and `oc-sub log` of an older run keeps the real cost.
+    const logFd = openSync(logPath, "a");
     let proc: Bun.Subprocess;
     try {
       proc = Bun.spawn({
@@ -237,9 +239,12 @@ export async function up(
   await removeFiles(serveDirsPath(env, port), servePluginPath(env, port));
 
   // The proxy starts first, so that it listens before the first request of
-  // the server. Its log and pid live next to the ones of the server.
+  // the server. Its log and pid live next to the ones of the server. Both
+  // logs keep the lines of older starts, so each start writes one marker
+  // line first: a reader sees where a new start begins.
   if (bunBin !== null) {
     try {
+      await appendLogMarker(proxyLogPath(env, port), "up");
       deps.spawnProxy(
         ["sh", "-c", proxyLoopScript(bunBin, proxyBundleIn(pluginDir), proxyPort, "127.0.0.1")],
         proxyLogPath(env, port),
@@ -253,6 +258,7 @@ export async function up(
 
   let proc: ServeProcess;
   try {
+    await appendLogMarker(logPath, "up");
     proc = deps.spawnServe(
       ["opencode", "serve", "--port", String(port), "--hostname", "127.0.0.1"],
       logPath,
@@ -278,11 +284,22 @@ export async function up(
     }
     if (proc.exitCode() !== null) {
       console.error(`error: opencode serve exited with code ${proc.exitCode()}, see ${logPath}`);
+      await printLogTail(logPath);
       return 1;
     }
   }
   console.error(`error: opencode serve did not become healthy on ${serveUrl} within ${HEALTH_TIMEOUT_MS / 1000}s, see ${logPath}`);
+  await printLogTail(logPath);
   return 1;
+}
+
+/** The output of the newest start, under the error that points to the log. */
+async function printLogTail(logPath: string): Promise<void> {
+  const lines = await readLogTail(logPath);
+  if (lines.length > 0) {
+    console.error("output of this start:");
+    for (const line of lines) console.error(`  ${line}`);
+  }
 }
 
 /**

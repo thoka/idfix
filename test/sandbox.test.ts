@@ -66,7 +66,7 @@ import { DEEPINFRA_PLACEHOLDER } from "../src/keys";
 import { sharedAgentsDir } from "../src/shared";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
 import { pluginDataDir, pluginDigest, proxyBundleIn } from "../src/plugin-sync";
-import { readServePlugin, servePluginPath } from "../src/state";
+import { readServePlugin, serveLogPath, servePluginPath } from "../src/state";
 
 /** The bundle of the cost proxy, inside the synced plugin folder of the env. */
 function bundlePath(env: Record<string, string>): string {
@@ -1867,5 +1867,64 @@ describe("DeepInfra in sandbox mode (step 16)", () => {
 
   test("the deny list never matches the DeepInfra API host", () => {
     for (const host of NETWORK_DENY_HOSTS) expect(DEEPINFRA_NETWORK_HOST.startsWith(host)).toBe(false);
+  });
+});
+
+describe("server log keeps older starts (sandbox mode, step 16d)", () => {
+  /** The runner answers of an up of an existing sandbox, without DeepInfra. */
+  function sandboxRunner(env: Record<string, string>): Runner {
+    return fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "No secrets found.\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return DENIED;
+    }).runner;
+  }
+
+  test("a second up appends a marker and keeps the lines of the first start", async () => {
+    const env = makeEnv();
+    const logPath = serveLogPath(env, 18768);
+    mkdirSync(path.dirname(logPath), { recursive: true });
+    writeFileSync(logPath, "--- oc-sub up 2026-10-01T20:00:00.000Z ---\nold start output\n");
+    let probes = 0;
+    const result = await upSandbox({}, env, makeDeps({
+      runner: sandboxRunner(env),
+      probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
+      spawnServe: () => ({ pid: 4242, exitCode: () => null }),
+    }));
+    expect(result).toBe(0);
+    const text = readFileSync(logPath, "utf8");
+    expect(text).toContain("old start output");
+    expect(text.match(/^--- oc-sub up \S+ ---$/gm)).toHaveLength(2);
+  });
+
+  test("a failed start shows only the output after the last marker", async () => {
+    const env = makeEnv();
+    const logPath = serveLogPath(env, 18768);
+    mkdirSync(path.dirname(logPath), { recursive: true });
+    writeFileSync(logPath, "--- oc-sub up 2026-10-01T20:00:00.000Z ---\nold start output\n");
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, env, makeDeps({
+        runner: sandboxRunner(env),
+        probe: async () => ({ state: "down" }),
+        spawnServe: (_cmd, logPath2) => {
+          writeFileSync(logPath2, `${readFileSync(logPath2, "utf8")}holder: fatal error\n`);
+          return { pid: 4242, exitCode: () => 1 };
+        },
+      }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    const output = errors.join("\n");
+    expect(output).toContain("see " + logPath);
+    expect(output).toContain("output of this start:");
+    expect(output).toContain("holder: fatal error");
+    expect(output).not.toContain("old start output");
   });
 });

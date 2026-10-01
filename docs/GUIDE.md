@@ -334,11 +334,14 @@ What `up` does:
 
 Where the cost shows: in the proxy log (`serve-<port>.log` in sandbox mode, `proxy-<port>.log` in host mode). Each line has the field `upstream`, `openrouter` or `deepinfra`, so the cost of each provider stays apart. For DeepInfra, the `cost` field comes from `usage.estimated_cost` of the response, in USD. The `provider` field is empty for DeepInfra, because its chunks carry no provider name.
 
+The log files keep the lines of older starts. Each `up` and `restart` writes one marker line first, for example `--- oc-sub up 2026-10-01T21:00:00.000Z ---`, and then appends to the file. A restart therefore does not erase the proxy `end` lines of older runs, so `oc-sub log` of an older run still finds its real cost after the server restarted. When a start fails, `up` prints the output of this start only: the lines after the last marker.
+
 Known gaps:
 
 - The cost estimate of opencode for DeepInfra uses the models.dev prices without the current 50% discount, so it shows about twice the real cost. The proxy log has the real cost.
 - With `--no-cost-proxy`, a DeepInfra run has no proxy log lines, so the real-cost line of `watch` and `log` falls back to the OpenRouter key usage and shows about zero.
 - In host mode, one server serves several projects, but it gets the DeepInfra key of one project: the project of the folder where `up` ran.
+- The log files grow without limit now that every start appends. There is no rotation yet. The logs are small (a few hundred kilobytes after weeks of runs), but they need a size cap or rotation in a later step.
 
 ## Security
 

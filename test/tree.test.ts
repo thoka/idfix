@@ -112,6 +112,7 @@ describe("loadSessionTree", () => {
 describe("treeUsage", () => {
   test("splits the usage of the main session from the usage of the descendants", () => {
     const totals = treeUsage({
+      ids: ["main", "a", "b"],
       main: [assistant("main", 0.01, { input: 10, output: 20, reasoning: 2, cache: { read: 3, write: 4 } })],
       descendants: [
         [assistant("a", 0.02, { input: 100, output: 50, reasoning: 1, cache: { read: 2, write: 3 } })],

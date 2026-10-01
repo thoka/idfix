@@ -130,7 +130,7 @@ A short live view is also available in the shell:
 oc-sub watch ses_abc123 --dir /path/to/worktree
 ```
 
-It prints one short line per tool call. When the run ends, it prints a summary line with the cost, then the real-cost line from OpenRouter. The cost covers the session and all of its subagent sessions. When the run pauses on a question or a permission request, it prints the request and ends. Claude answers it and watches again.
+It prints one short line per tool call. When the run ends, it prints a summary line with the cost, then the real-cost line. The cost covers the session and all of its subagent sessions. When the run pauses on a question or a permission request, it prints the request and ends. Claude answers it and watches again.
 
 `watch` also warns early when a run goes wrong, for example when the agent repeats the same tool call five times in a row. Then it prints a block that names the problem and the session, and it ends with exit code 4. The run itself keeps running. Claude reads the block and then aborts the run or sends a correction. You do not need to act yourself.
 
@@ -152,7 +152,7 @@ The project column shows the full project name. A project can set a short name f
 - **Follow up**: tell Claude what to change. Claude sends the message into the same session with `oc-sub say <session-id> --dir <worktree> "<message>"`. The command returns at once and does not block. You can also type into the attached opencode interface yourself.
 - **Questions**: an agent can ask a question, and a command with an `ask` rule can raise a permission request. The run then pauses until Claude answers. `oc-sub watch` ends with exit code 3 and prints the request. Claude decides whether it is safe, asks you if it is not, and answers with `oc-sub answer <request-id> ...`. With a rejected permission request, the agent gets the reason as a tool error, and its turn ends. Claude then sends a follow-up message with `oc-sub say` to continue. Then Claude watches again.
 - **Abort**: tell Claude to stop the run, or run `oc-sub abort <session-id> --dir <worktree>`.
-- **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and two cost lines in USD. The first line is the estimate of opencode: it multiplies the tokens by the prices in its model catalog from models.dev. The second line is the real cost at OpenRouter: the growth of the usage of the project key during the run. Both cover the session and all of its subagent sessions. With subagents, the first line reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. The second reads `real cost $0.0512 at OpenRouter (key usage since the start of the run)`. Other runs with the same key that overlap in time add their cost to the same number, so the real cost line names them. OpenRouter counts a request a minute or two late, so a `log` some minutes later can show a slightly higher real cost. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
+- **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and two cost lines in USD. The first line is the estimate of opencode: it multiplies the tokens by the prices in its model catalog from models.dev. The second line is the real cost. `watch` and `log` first sum the `cost` of the proxy log (`end` lines) over the session and all of its subagent sessions; when the proxy log has none of them, they fall back to the OpenRouter real cost: the growth of the usage of the project key during the run. Both lines cover the session and all of its subagent sessions. With subagents, the first line reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. The proxy line reads `real cost $0.0115 from the cost proxy (20 requests, deepinfra $0.0115)`: it sums the upstreams of the run, and lines with `cost: null` add a part like `2 requests without cost`. The fallback reads `real cost $0.0512 at OpenRouter (key usage since the start of the run)`. Other runs with the same key that overlap in time add their cost to the same number, so that line names them. OpenRouter counts a request a minute or two late, so a `log` some minutes later can show a slightly higher real cost. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
 
 ## Sandbox mode
 
@@ -296,7 +296,7 @@ Where the cost shows: in the proxy log (`serve-<port>.log` in sandbox mode, `pro
 Known gaps:
 
 - The cost estimate of opencode for DeepInfra uses the models.dev prices without the current 50% discount, so it shows about twice the real cost. The proxy log has the real cost.
-- `oc-sub run` still checks the OpenRouter key and reads the real cost from the OpenRouter key usage. A DeepInfra run therefore shows a real cost of about zero there. Read the proxy log, or the DeepInfra dashboard, for the cost of a DeepInfra run.
+- With `--no-cost-proxy`, a DeepInfra run has no proxy log lines, so the real-cost line of `watch` and `log` falls back to the OpenRouter key usage and shows about zero.
 - In host mode, one server serves several projects, but it gets the DeepInfra key of one project: the project of the folder where `up` ran.
 
 ## Security

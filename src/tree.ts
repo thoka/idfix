@@ -47,6 +47,8 @@ export type SessionTree = {
   main: MessageEntry[];
   /** Messages of each descendant session, in discovery order. */
   descendants: MessageEntry[][];
+  /** The session IDs of the tree: the main session first, then the descendants. */
+  ids: string[];
 };
 
 /** Load the messages of a session and of all of its descendant sessions. */
@@ -62,7 +64,7 @@ export async function loadSessionTree(
     collectDescendants(sessionId, childIdsOf(client, directory)),
   ]);
   const descendants = await Promise.all(ids.map(messagesOf));
-  return { main, descendants };
+  return { main, descendants, ids: [sessionId, ...ids] };
 }
 
 /** Cost and token totals over a loaded session tree. */

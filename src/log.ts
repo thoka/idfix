@@ -24,8 +24,9 @@ export async function log(args: { url?: string; session: string; dir?: string },
     console.error("no assistant text in this session");
   }
   console.log(formatTotals(treeUsage(tree)));
-  // The real cost from OpenRouter, below the estimated cost line.
-  const realCost = await realCostOutput(client, args.session, env);
+  // The real cost from the proxy log, else from OpenRouter, below the
+  // estimated cost line.
+  const realCost = await realCostOutput(client, args.session, env, tree.ids);
   if (realCost !== null) console.log(realCost);
   return 0;
 }

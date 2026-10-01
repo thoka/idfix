@@ -128,3 +128,7 @@ The short probe task shows no broken output on fp4. The time to the first token 
 ## First real coder run on DeepInfra direct (step 16) on 2026-10-01
 
 The coder fixed the flaky `TopView` test with `--model deepinfra/zai-org/GLM-5.3-Flash` (session `ses_f0a2e867fffe79wsa3HWQL0oOf`). It took 2m43s and 21 tool calls, and it named the right cause. The diff was correct, with one redundant line, and the full suite passed (812 of 812). All 20 model requests returned status 200, with no rate limit and no broken output. The proxy log sums the cost to $0.0115 for 270,593 input tokens (155,648 cached) and 2,259 output tokens. The opencode estimate at the Z.AI list price is $0.0230, so DeepInfra costs half. The OpenRouter real cost line shows $0, because the run did not use OpenRouter.
+
+## Second coder run on DeepInfra direct (step 16c) on 2026-10-01
+
+The coder implemented step 16c with `--model deepinfra/zai-org/GLM-5.3-Flash` (session `ses_f0a26ef09ffeSyB5tNoPlLZjFu`). It took 11m17s, 54 tool calls, and 48 model requests. Every request returned status 200, with no error and at most 690 reasoning tokens in one step. The diff followed the brief, needed one doc fix in review, and the full suite passed on the host (823 of 823). The coder reported three failing integration tests, but they fail only inside the sandbox and passed on the host. The new proxy line reads $0.0550 for 414,504 input tokens (1,349,760 cache reads) and 12,326 output tokens. The opencode estimate is $0.1100, so DeepInfra again costs half.

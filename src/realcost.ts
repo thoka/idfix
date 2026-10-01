@@ -3,7 +3,9 @@ import type { OpencodeClient } from "@opencode-ai/sdk";
 import type { Env } from "./config";
 import { errorMessage } from "./client";
 import { fetchKeyUsage, resolveDirectoryKey, type KeyFetch } from "./keys";
+import { readProxyTotals, formatProxyLine } from "./proxycost";
 import { loadAllRunRecords, loadRunRecord, otherRunIds, realCostLine } from "./runs";
+import { stateDir } from "./state";
 
 /** The parts that the tests replace: fetch and the working directory. */
 export type RealCostDeps = {
@@ -14,16 +16,23 @@ export type RealCostDeps = {
 const defaultDeps: RealCostDeps = { fetch, cwd: process.cwd() };
 
 /**
- * The real-cost line for a finished run: the growth of the key usage at
- * OpenRouter since the start of the run. Returns null without a run record
- * with a fingerprint, because then there is nothing to ask OpenRouter about.
+ * The real-cost line for a finished run. It first sums the `end` lines of the
+ * cost proxy (~/.local/state/oc-sub logs) for the session tree; when the proxy
+ * log has none of the tree sessions, it falls back to the growth of the key
+ * usage at OpenRouter since the start of the run. Returns null without a run
+ * record with a fingerprint, because then there is nothing to ask OpenRouter
+ * about.
  */
 export async function realCostOutput(
   client: OpencodeClient,
   sessionId: string,
   env: Env,
+  sessionIds: readonly string[],
   deps: RealCostDeps = defaultDeps,
 ): Promise<string | null> {
+  const proxy = await readProxyTotals(stateDir(env), new Set(sessionIds));
+  const proxyLine = formatProxyLine(proxy);
+  if (proxyLine !== null) return proxyLine;
   try {
     const run = await loadRunRecord(sessionId, deps.cwd, env);
     if (run === null || run.keyFingerprint === undefined) {

@@ -349,3 +349,9 @@ Open tasks of the user:
 - Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.
 
 Lessons of this day in `~/dv/meta/agents/lessons/`: `sbx-clone-mode-fails-silently.md`, `opencode-sdk-sse-abort-unhandled.md`, `worktree-needs-setup-command.md`, `compare-failing-test-names.md`, and `sbx-stop-removes-clone-remote.md`, `fix-mode-guards-by-flag-not-prompt.md`, and `json-output-test-parses-all-stdout.md`.
+
+## Step 16c: the real cost from the proxy log
+
+Done on 2026-10-01. Root cause: `watch` and `log` read the real cost from the OpenRouter key usage, so a DeepInfra run showed $0, and overlapping runs mixed their costs.
+
+`src/proxycost.ts` sums the `cost` of the proxy `end` lines over the session tree (`SessionTree.ids`), across every `serve-*.log` and `proxy-*.log` in the state folder. Session IDs are unique, so no port mapping is needed. If the log has no line for the tree, the old OpenRouter line stays. The line reads `real cost $0.0550 from the cost proxy (48 requests, deepinfra $0.0550)`. A DeepInfra coder run wrote the step, and it was the live test of itself (see [EXPERIENCE.md](EXPERIENCE.md)). Known gap: the reader scans whole log files on each call, which gets slow once the logs grow large.

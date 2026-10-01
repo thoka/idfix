@@ -8,7 +8,7 @@ oc-sub is stable and useful if four things hold. First, a plugin change reaches 
 
 ## State on 2026-10-01
 
-Everything is on `alpha` and pushed. The `doctor` checks `opencode-version` and `opencode-release` are done, and the global mise configuration pins opencode 1.18.32. The sync writes the `.gitignore` that a read-only sandbox server needs. A DeepInfra probe is running (step 2). Step 15d is done in code: `oc-sub doctor --fix --force` recreates a sandbox that lacks a mount, has no clone, or is not in clone mode. A busy session and work that the host would lose block it, also with `--force`. 753 tests pass. The live test is open, because the permission check of Claude Code blocked the main thread from running the recreate (see the open tasks of the user). Every sandbox created before 15c still lacks the synced plugin mount, so `oc-sub up` fails in it until a recreate.
+Everything is on `alpha` and pushed. The `doctor` checks `opencode-version` and `opencode-release` are done, and the global mise configuration pins opencode 1.18.32. The sync writes the `.gitignore` that a read-only sandbox server needs. Step 16c is done: `watch` and `log` read the real cost from the proxy log. Step 15d is done in code: `oc-sub doctor --fix --force` recreates a sandbox that lacks a mount, has no clone, or is not in clone mode. A busy session and work that the host would lose block it, also with `--force`. 823 tests pass. The live test is open, because the permission check of Claude Code blocked the main thread from running the recreate (see the open tasks of the user). Every sandbox created before 15c still lacks the synced plugin mount, so `oc-sub up` fails in it until a recreate.
 
 Sandbox mode in clone mode works, with one run worktree per step inside the clone and the review fetch on the host. A cost proxy runs next to each server. GLM goes to Z.AI, with Parasail and Together as fallbacks. The live view `oc-sub top` works, and `oc-sub doctor --fix` repairs the plugin and the global rule links.
 
@@ -29,8 +29,8 @@ The workflow in this project (clone mode):
 
 Step 16 is on `alpha`: `up` registers the key from `~/.config/<project>/deepinfra.key` as an `sbx` custom secret for `api.deepinfra.com`, the sandbox sees only a placeholder, and the cost proxy logs `usage.estimated_cost` with `"upstream":"deepinfra"` ([GUIDE.md](GUIDE.md), [DEEPINFRA_KEY_PATH.md](research/DEEPINFRA_KEY_PATH.md)). The first live coder run passed review (see [EXPERIENCE.md](EXPERIENCE.md)). Open:
 
-1. One or two longer coder runs on DeepInfra, because the fp4 incident happened in long runs. Then the user decides whether DeepInfra becomes the default.
-2. `watch` and `log` show a real cost of $0 for a DeepInfra run, because they read the OpenRouter key usage. They must sum the proxy log instead (this joins step 11d).
+1. One more longer coder run on DeepInfra, because the fp4 incident happened in long runs. The first longer run (step 16c, 11 minutes, 48 requests) was clean. Then the user decides whether DeepInfra becomes the default.
+2. Done in step 16c: `watch` and `log` sum the proxy log for the real cost (see [HISTORY.md](HISTORY.md#step-16c-the-real-cost-from-the-proxy-log)).
 3. The opencode estimate uses the undiscounted models.dev price, so it shows twice the real cost.
 4. An existing sandbox gets the network allow rule for `api.deepinfra.com` only together with the first secret set.
 
@@ -50,7 +50,7 @@ If a session waits for an answer to a `question`, `say` only queues its message.
 
 ### 5. Step 11d: the cost proxy in `watch` and `log`
 
-The live test of the proxy (log lines, no orphan restart loop after `down`). Then `watch` and `log` read the real cost and the open requests from the proxy log. This also fixes the false stall of step 6 while a model request is open.
+The live test of the proxy (log lines, no orphan restart loop after `down`). Step 16c already reads the real cost from the proxy log. Open: `watch` reads the open requests from the proxy log. This also fixes the false stall of step 6 while a model request is open.
 
 ### 6. Step 15e: bring every project to the standard
 

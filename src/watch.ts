@@ -229,10 +229,12 @@ export async function watch(
   const elapsed = Date.now() - startedAt;
   let toolCalls = watchedToolCalls;
   let summary = "summary unavailable";
+  let realCostIds: readonly string[] = [sessionId];
   try {
     const tree = await loadSessionTree(client, sessionId, directory);
     toolCalls = countToolCalls(tree.main);
     summary = formatTotals(treeUsage(tree));
+    realCostIds = tree.ids;
   } catch {
     // Keep the watch-side numbers instead.
   }
@@ -242,8 +244,9 @@ export async function watch(
   } else {
     console.log(line);
   }
-  // The real cost from OpenRouter, below the estimated cost of the summary.
-  const realCost = await realCostOutput(client, sessionId, env);
+  // The real cost from the proxy log, else from OpenRouter, below the
+  // estimated cost of the summary.
+  const realCost = await realCostOutput(client, sessionId, env, realCostIds);
   if (realCost !== null) {
     if (args.json) {
       console.error(realCost);

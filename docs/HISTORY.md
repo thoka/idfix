@@ -305,6 +305,10 @@ Known gaps:
 - The check covers only the host server on the default port and the sandbox server of the project of `--dir`. A host server on another port is not checked.
 - The opencode-owned names are a fixed list. If the plugin ever ships its own `package.json`, the sync skips it.
 
+## Check of the opencode version of each project
+
+Done on 2026-10-01. The slow `doctor` check `opencode-version` reads the tested version from the `mise.toml` of the oc-sub repository and runs `mise current opencode` in the project root. It warns when the project pin, or else the global mise pin, differs from the tested version, also when "latest" resolves to the tested version today. It also warns when the resolved version differs. The sandbox server runs the opencode that mise resolves for the project, because `up` puts the project tool folders of the mounted installs folder in front of the sandbox PATH. Known gaps: a pin in `.mise.toml`, `mise.local.toml`, or a parent `mise.toml` is not seen, and pins are compared as exact strings. The fix action comes with step 15e.
+
 ## Hand-off on 2026-09-30
 
 State for the next thread. Everything above is on `alpha` and pushed.

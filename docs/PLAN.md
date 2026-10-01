@@ -8,7 +8,7 @@ oc-sub is stable and useful if four things hold. First, a plugin change reaches 
 
 ## State on 2026-10-01
 
-Everything is on `alpha` and pushed. No run is active. Step 15d is done in code: `oc-sub doctor --fix --force` recreates a sandbox that lacks a mount, has no clone, or is not in clone mode. A busy session and work that the host would lose block it, also with `--force`. 753 tests pass. The live test is open, because the permission check of Claude Code blocked the main thread from running the recreate (see the open tasks of the user). Every sandbox created before 15c still lacks the synced plugin mount, so `oc-sub up` fails in it until a recreate.
+Everything is on `alpha` and pushed. Two research runs are active (see steps 1 and 2). The `doctor` check `opencode-version` is done: it warns for every project that pins "latest", directly or through the global mise configuration. Step 15d is done in code: `oc-sub doctor --fix --force` recreates a sandbox that lacks a mount, has no clone, or is not in clone mode. A busy session and work that the host would lose block it, also with `--force`. 753 tests pass. The live test is open, because the permission check of Claude Code blocked the main thread from running the recreate (see the open tasks of the user). Every sandbox created before 15c still lacks the synced plugin mount, so `oc-sub up` fails in it until a recreate.
 
 Sandbox mode in clone mode works, with one run worktree per step inside the clone and the review fetch on the host. A cost proxy runs next to each server. GLM goes to Z.AI, with Parasail and Together as fallbacks. The live view `oc-sub top` works, and `oc-sub doctor --fix` repairs the plugin and the global rule links.
 
@@ -21,11 +21,15 @@ The workflow in this project (clone mode):
 
 ## Next steps, in this order
 
-### 1. A check for the opencode version of each project
+### 1. Step 15c fix: the synced plugin folder lacks the opencode install
 
-Nine projects in `~/dv` pin `opencode = "latest"` in their `mise.toml`. Their sandbox server thus runs another opencode than the tested 1.18.32, and no check reports it. A new `doctor` check warns. Its fix comes with 15e.
+Root cause: since step 15c, the sandbox mounts the synced plugin folder read-only, but the sync leaves out the files that opencode installs into its config folder (`.gitignore`, `package.json`, `package-lock.json`, `node_modules/`). opencode in the sandbox then tries to write them, gets EROFS, and every `GET /session` fails. `oc-sub top --all` showed "no sessions" and hid the error behind a warning. On 2026-10-01 the main thread copied the four entries from the repository folder `opencode/` into `~/.local/share/oc-sub/opencode` and ran `oc-sub restart`. Only the copy and the restart together fixed it. The installed plugin copies in `~/.claude/plugins/cache` lack these files, so the copy is no structural fix. Research is running: `docs/research/OPENCODE_CONFIG_WRITES.md` (run worktree `opencode-config-writes`). Then `up` prepares the install on the host before a sandbox server starts, and a `doctor` check reports a server whose session list fails.
 
-### 2. Step 12: a working mise inside the sandbox
+### 2. DeepInfra as a direct provider
+
+The user registered at DeepInfra on 2026-10-01 and says that it costs 50 percent less at the moment. The project key is in `~/.config/opencode-subagents/deepinfra.key`. Research is running: `docs/research/DEEPINFRA.md` (run worktree `deepinfra-research`). Open point: DeepInfra serves GLM 5.3 Flash in fp4 on OpenRouter, and oc-sub excludes fp4 for quality ([PROVIDER_PROBE.md](research/PROVIDER_PROBE.md)). A probe run must show the same quality before real runs use it. The real cost line needs a DeepInfra source, because today it reads the OpenRouter key usage.
+
+### 3. Step 12: a working mise inside the sandbox
 
 Root cause: the sandbox gets the tool folders of the host read-only, but no `mise` binary, so an agent cannot add a tool. On 2026-09-30, a coder in arch-helper needed `pwsh` and tried workarounds for a long time. The research is in [SANDBOX_MISE.md](research/SANDBOX_MISE.md).
 
@@ -35,15 +39,15 @@ Root cause: the sandbox gets the tool folders of the host read-only, but no `mis
 4. Open: the feature is experimental upstream. Make sure that it works without `MISE_EXPERIMENTAL=1`, or set it. Find out why `/home/toka/.local/share` belongs to root inside the sandbox, and whether `HOME` is `/home/toka` there.
 5. Tests for the server environment, and one bullet each in `docs/GUIDE.md` and `skills/oc-sub/reference.md`.
 
-### 3. `oc-sub say` warns on a pending question
+### 4. `oc-sub say` warns on a pending question
 
 If a session waits for an answer to a `question`, `say` only queues its message. The agent sees the message after the question gets an answer. `say` warns and names `oc-sub answer`.
 
-### 4. Step 11d: the cost proxy in `watch` and `log`
+### 5. Step 11d: the cost proxy in `watch` and `log`
 
 The live test of the proxy (log lines, no orphan restart loop after `down`). Then `watch` and `log` read the real cost and the open requests from the proxy log. This also fixes the false stall of step 6 while a model request is open.
 
-### 5. Step 15e: bring every project to the standard
+### 6. Step 15e: bring every project to the standard
 
 15e: `doctor --renovate` lifts a project to the current standard. Every best practice is a check, and an old setup gets the status `outdated`. `--renovate` includes `--fix` and applies every fix without `--force`, but a busy session or unfetched work still blocks it. First candidates: a host-mode server, a sandbox in direct-mount mode, a project `mise.toml` that pins its own `opencode`, and old agent copies. A missing project key is only reported, because oc-sub never creates OpenRouter keys (decided with the user on 2026-09-30). Research first: how `ng update`, Renovate, and similar tools define a standard, detect drift, and apply migrations.
 

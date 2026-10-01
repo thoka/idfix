@@ -1,3 +1,10 @@
+---
+checked: 2026-09-30
+recheck: on new opencode release
+decisions:
+  - "stay on opencode 1.18.32"
+---
+
 # The state of opencode development and the road to 2.0
 
 Written 2026-09-30 for the `oc-sub` project, which pins opencode **1.18.32** (`mise.toml:3`). Builds on [OPENROUTER_ROUTING.md](OPENROUTER_ROUTING.md) (model suffixes, issue #48016), [REAL_COST.md](REAL_COST.md) (issue #43818, `usage.cost`), and [SSE_CLIENT.md](SSE_CLIENT.md) (the unhandled AbortError in the generated SDK client).

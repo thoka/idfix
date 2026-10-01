@@ -1,3 +1,10 @@
+---
+checked: 2026-09-29
+recheck: quarterly
+decisions:
+  - "build oc-sub instead of an existing tool"
+---
+
 # Why the researcher has no websearch tool
 
 Date: 2026-09-29. Scope: opencode 1.18.32, model `openrouter/z-ai/glm-5.3-flash`, agent `opencode/agents/researcher.md`.

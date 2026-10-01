@@ -1,3 +1,11 @@
+---
+checked: 2026-09-28
+recheck: biweekly
+decisions:
+  - "the provider order of opencode/opencode.json"
+  - "DeepInfra as a direct provider"
+---
+
 # OpenRouter routing from opencode 1.18.32
 
 Note of the orchestrator, added after the run: the premise of this question was wrong. The price did not change at OpenRouter. opencode computes the cost from the models.dev catalog, and that catalog price changed. The tests with forced routing could not show an effect, because the reported cost does not come from OpenRouter. See [EXPERIENCE.md](../EXPERIENCE.md#the-reported-cost-is-an-estimate-from-the-model-catalog). The facts about the request path and the configuration below stay valid, but nobody has tested them yet.

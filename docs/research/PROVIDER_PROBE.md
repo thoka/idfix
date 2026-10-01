@@ -1,3 +1,11 @@
+---
+checked: 2026-09-30
+recheck: biweekly
+decisions:
+  - "the provider order of opencode/opencode.json"
+  - "DeepInfra as a direct provider"
+---
+
 # Provider probe: picking approved OpenRouter providers for GLM 5.3 Flash
 
 Research for PLAN.md step 10a, written on 2026-09-30. No OpenRouter key was used and no paid call was made. The only live call was the free endpoints API.

@@ -1,3 +1,11 @@
+---
+checked: 2026-09-30
+recheck: on new sbx release
+decisions:
+  - "step 12 sandbox mise"
+  - "the clone mode"
+---
+
 # Research: a working mise inside the oc-sub sandbox
 
 Date: 2026-09-30. Research only, no code changes. Many claims were tested live inside a real

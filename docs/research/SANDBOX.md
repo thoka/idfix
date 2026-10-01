@@ -1,3 +1,11 @@
+---
+checked: 2026-09-29
+recheck: on new sbx release
+decisions:
+  - "step 12 sandbox mise"
+  - "the clone mode"
+---
+
 # A real sandbox for opencode runs instead of permission rules
 
 Research date: 2026-09-29. Written for step 9 of [PLAN.md](../PLAN.md).

@@ -1,3 +1,10 @@
+---
+checked: 2026-09-30
+recheck: on new Claude Code release
+decisions:
+  - "the synced plugin folder of step 15c"
+---
+
 # Research: Why an installed Claude Code plugin does not get new features
 
 Date: 2026-09-30. Scope: how Claude Code decides that an installed plugin has an

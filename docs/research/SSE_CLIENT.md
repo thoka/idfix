@@ -1,3 +1,11 @@
+---
+checked: 2026-09-30
+recheck: on new opencode release
+decisions:
+  - "stay on opencode 1.18.32"
+  - "the AbortError handler in src/top/app.tsx"
+---
+
 # How `oc-sub top` reads SSE and stops it cleanly
 
 Research for step 8e of [PLAN.md](../PLAN.md). Written 2026-09-30, against `@opencode-ai/sdk` 1.18.32 and 1.18.33, hey-api `main` (fetched 2026-09-30), opencode `main` (fetched 2026-09-30), bun 1.4.2 on Linux. Facts carry sources; guesses are marked.

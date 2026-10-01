@@ -13,6 +13,7 @@ import path from "node:path";
 import type { Env } from "./config";
 import { defaultKvmDeps, execFailedMessage, hostRefsKeepingCommit, KVM_CHMOD_COMMAND, kvmAccessCheck, miseBin as miseBinOf, miseInstallsDir, missingCloneMessage, missingMountsMessage, parseFeatureBranches, parseWorktrees, readSandboxState, RECREATE_REF_FORMAT, recreateSandbox, sandboxName, sandboxRecreateCase, sandboxRecreateFix, sandboxStatePath, defaultRunner, type KvmDeps, type Runner, type SandboxState } from "./sandbox";
 import { deepinfraKeyPath, projectRootOfRun } from "./keys";
+import { parseResearchHead, recheckState, todayString } from "./research-head";
 import { sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
 import { pluginDataDir, pluginDigest, syncPluginDir } from "./plugin-sync";
@@ -114,6 +115,11 @@ export type DoctorDeps = {
   deepinfraKeyFile: string;
   /** The permission bits of a file, or null when it does not exist. Never reads content. */
   fileMode: (file: string) => number | null;
+  /**
+   * Today as YYYY-MM-DD, for the `research-due` check. Optional; the real
+   * deps leave it unset and the check uses the current local date.
+   */
+  today?: string;
 };
 
 /** A runner whose child process shares the terminal of this process. */
@@ -971,6 +977,54 @@ export function deepinfraKeyCheck(deps: DoctorDeps): CheckResult {
   );
 }
 
+/**
+ * The fix text of `research-due`: a recheck is work with a researcher run,
+ * not something the doctor can do itself.
+ */
+export const RESEARCH_DUE_FIX = "Recheck the facts with a researcher run, then set `checked` to today";
+
+/**
+ * The `research-due` check (PLAN.md step 17c): every report in
+ * `docs/research/` of the project root can start with a recheck head
+ * (`checked`, `recheck`, `decisions`, see `src/research-head.ts`). The
+ * check warns when one or more reports are due (the due date is today or
+ * earlier) or have an invalid head, and names each report, its due date,
+ * and its decisions. A trigger (`on ...`) is never due by date and is only
+ * information. Reports without a head do not count. Without any head the
+ * check passes with the note "no report has a recheck head". It never
+ * fails. `deps.today` replaces the real date in the tests.
+ */
+export function researchDueCheck(deps: DoctorDeps): CheckResult {
+  const folder = path.join(deps.root, "docs", "research");
+  const entries = deps.readdir(folder);
+  if (entries === null) return result("research-due", "pass", "no docs/research folder, so no report has a recheck head");
+  const today = deps.today ?? todayString();
+  const names = entries.filter((name) => name.endsWith(".md")).sort();
+  const due: string[] = [];
+  const invalid: string[] = [];
+  const triggers: string[] = [];
+  let heads = 0;
+  for (const name of names) {
+    const text = deps.readText(path.join(folder, name));
+    if (text === null) continue;
+    const head = parseResearchHead(text);
+    if (head === null) continue;
+    heads++;
+    const state = recheckState(head, today);
+    const decisions = head.decisions.length > 0 ? ` (decisions: ${head.decisions.join("; ")})` : "";
+    if (state.kind === "due") due.push(`${name} was due on ${state.due}${decisions}`);
+    else if (state.kind === "invalid") invalid.push(`${name}: ${state.problem}`);
+    else if (state.kind === "trigger") triggers.push(`${name} rechecks ${head.recheck}`);
+  }
+  if (heads === 0) return result("research-due", "pass", "no report has a recheck head");
+  if (due.length > 0 || invalid.length > 0) {
+    const lines = [...invalid, ...due].join("; and ");
+    return result("research-due", "warn", lines, RESEARCH_DUE_FIX);
+  }
+  if (triggers.length > 0) return result("research-due", "pass", `no report is due; ${triggers.join(", ")}`);
+  return result("research-due", "pass", "no report is due");
+}
+
 /** The fast checks: `up` and `run` run them on every invocation. */
 export const FAST_CHECKS: Check[] = [
   { name: "env-files", run: envFilesCheck },
@@ -993,6 +1047,7 @@ export const SLOW_CHECKS: Check[] = [
   { name: "kvm-access", run: (deps) => kvmAccessCheck(deps.kvm), rootFix: kvmAccessRootFix },
   { name: "sandbox-mounts", run: sandboxMountsCheck, fix: sandboxMountsFix },
   { name: "deepinfra-key", run: deepinfraKeyCheck },
+  { name: "research-due", run: researchDueCheck },
 ];
 
 /** All checks in their fixed order. */

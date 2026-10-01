@@ -1,3 +1,11 @@
+---
+checked: 2026-10-01
+recheck: biweekly
+decisions:
+  - "the provider order of opencode/opencode.json"
+  - "DeepInfra as a direct provider"
+---
+
 # DeepInfra as a direct provider for GLM, and how it measures cost
 
 Research on 2026-10-01. No paid API call was made and no key file was read. Every live call was free (public model pages, docs, `models.dev/api.json`, the DeepInfra public model list). Context: oc-sub runs GLM 5.3 Flash through OpenRouter (see [PROVIDER_PROBE.md](PROVIDER_PROBE.md)); the user has a DeepInfra account and says DeepInfra is 50 percent cheaper.

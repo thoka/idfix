@@ -1,3 +1,10 @@
+---
+checked: 2026-09-27
+recheck: quarterly
+decisions:
+  - "build oc-sub instead of an existing tool"
+---
+
 # Prior art and interfaces for Claude Code subagents on opencode
 
 Research date: 2026-09-27. Written by the `researcher` opencode agent.

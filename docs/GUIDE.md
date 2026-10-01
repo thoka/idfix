@@ -88,6 +88,25 @@ claude plugin marketplace remove opencode-subagents
 
    On Linux, the check `kvm-access` tests that you can read and write `/dev/kvm`. The sandbox needs this access. Without it, `sbx create` and the start of a sandbox fail with an error that does not name the cause, and `oc-sub up` stops before its first `sbx` call. To repair it, run `oc-sub doctor --fix-as-root`. It does the same as `--fix`, and it also runs `sudo chmod 0666 /dev/kvm`. sudo may ask for your password, so run it in a terminal. The repair lasts until the next WSL restart, because WSL then creates `/dev/kvm` again. A permanent repair is a task of the machine setup.
 
+   The check `research-due` reminds you when the facts of a research report went stale. It never fails. Reports without a recheck head do not count, and without any head in the project it passes with the note "no report has a recheck head". See "Recheck heads of research reports" below for the head and the recheck process.
+
+### Recheck heads of research reports
+
+A research report records facts with a date, but nothing told you when a fact goes stale or which decision rests on it. So a report can start with a YAML front matter head:
+
+```
+---
+checked: 2026-10-01
+recheck: monthly
+decisions:
+  - "PLAN step 16: DeepInfra as a direct provider"
+---
+```
+
+`checked` is the date of the last check of the facts (YYYY-MM-DD) and is required when `recheck` is set. `recheck` is one of `weekly`, `biweekly`, `monthly`, `quarterly`, `yearly` (counted from `checked`), a date (YYYY-MM-DD), or a trigger text that starts with `on ` (for example `on new opencode release`). A trigger is never due by date; the `research-due` check lists it as information only. `decisions` is a list of short texts that name the plan items that rest on the facts.
+
+When the `research-due` check warns that a report is due, recheck the facts with a researcher run. A recheck that finds no change sets `checked` to the date of the recheck. A recheck that finds a change also appends a section `## Recheck YYYY-MM-DD` with only the changes.
+
    Then start the server and check the key and the shared rules:
 
    ```

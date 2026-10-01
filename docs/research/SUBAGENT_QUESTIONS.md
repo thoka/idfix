@@ -1,3 +1,10 @@
+---
+checked: 2026-09-28
+recheck: on new opencode release
+decisions:
+  - "stay on opencode 1.18.32"
+---
+
 # Answering a subagent's questions and permission requests as the orchestrator
 
 Research date: 2026-09-28. Written by the `researcher` opencode agent (step 4 of [PLAN.md](../PLAN.md)).

@@ -33,9 +33,9 @@ Step 16 is on `alpha` ([GUIDE.md](GUIDE.md), [DEEPINFRA_KEY_PATH.md](research/DE
 2. The opencode estimate uses the undiscounted models.dev price, so it shows twice the real cost.
 3. An existing sandbox gets the network allow rule for `api.deepinfra.com` only together with the first secret set.
 
-### 2b. `oc-sub say` keeps the model of the run (in progress)
+### 2b. Known gap: subagents ignore `--model`
 
-Root cause: `run --model` sets the model only on the first message, and `say` sends no model, so a follow-up falls back to the model of the agent file. The fix (worktree `say-model`) reuses the model of the last user message and adds `say --model`. Known gap: a subagent such as `reader` always uses the model of its agent file, so `--model` never reaches it.
+`say` keeps the model of the run since commit a56c099 (see [HISTORY.md](HISTORY.md#step-2b-say-keeps-the-model-of-the-run)). A subagent such as `reader` still uses the model of its agent file, so `--model` never reaches it.
 
 ### 3. Step 12: a working mise inside the sandbox (in progress)
 

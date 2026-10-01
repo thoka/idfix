@@ -355,3 +355,7 @@ Lessons of this day in `~/dv/meta/agents/lessons/`: `sbx-clone-mode-fails-silent
 Done on 2026-10-01. Root cause: `watch` and `log` read the real cost from the OpenRouter key usage, so a DeepInfra run showed $0, and overlapping runs mixed their costs.
 
 `src/proxycost.ts` sums the `cost` of the proxy `end` lines over the session tree (`SessionTree.ids`), across every `serve-*.log` and `proxy-*.log` in the state folder. Session IDs are unique, so no port mapping is needed. If the log has no line for the tree, the old OpenRouter line stays. The line reads `real cost $0.0550 from the cost proxy (48 requests, deepinfra $0.0550)`. A DeepInfra coder run wrote the step, and it was the live test of itself (see [EXPERIENCE.md](EXPERIENCE.md)). Known gap: the reader scans whole log files on each call, which gets slow once the logs grow large.
+
+## Step 2b: say keeps the model of the run
+
+Root cause: `run --model` set the model only on the first message, and `say` sent no model, so opencode fell back to the model of the agent file. A DeepInfra run moved to OpenRouter on the first follow-up, and no error showed it. The proxy log of the research run of step 18 showed 3 DeepInfra and 60 OpenRouter requests. `say` now sends the model of the last user message, and `--model PROVIDER/MODEL` overrides it. A coder run made the change (cost $0.0237 real, partly on DeepInfra before its stream error). The review added one fix: `--agent` on a session without a user message goes on without a model. 829 tests pass.

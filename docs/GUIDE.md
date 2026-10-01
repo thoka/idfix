@@ -281,6 +281,8 @@ Set it up:
    oc-sub run --agent coder --dir <worktree> --model deepinfra/zai-org/GLM-5.3-Flash --brief brief.md
    ```
 
+   The `reader` subagent of a research run has no model of its own, so it uses the model of the run too ([SUBAGENT_MODEL.md](research/SUBAGENT_MODEL.md)).
+
 What `up` does:
 
 - **Sandbox mode.** The real key stays on the host, as with OpenRouter (research: [DEEPINFRA_KEY_PATH.md](research/DEEPINFRA_KEY_PATH.md), option A). Once per sandbox, `up` runs:

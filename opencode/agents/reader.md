@@ -3,7 +3,8 @@ description: Fetches one or a few web pages and returns only the parts that answ
 mode: subagent
 hidden: true
 steps: 6
-model: openrouter/z-ai/glm-5.3-flash
+# No model: a subagent without one inherits the model of the calling session,
+# so `oc-sub run --model` reaches the reader too (docs/research/SUBAGENT_MODEL.md).
 # GLM can spend its whole output budget on thinking. This caps it.
 reasoning:
   effort: low

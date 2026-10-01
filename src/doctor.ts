@@ -11,7 +11,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpat
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
-import { defaultKvmDeps, execFailedMessage, hostRefsKeepingCommit, KVM_CHMOD_COMMAND, kvmAccessCheck, miseInstallsDir, missingCloneMessage, missingMountsMessage, parseFeatureBranches, parseWorktrees, readSandboxState, RECREATE_REF_FORMAT, recreateSandbox, sandboxName, sandboxRecreateCase, sandboxRecreateFix, sandboxStatePath, defaultRunner, type KvmDeps, type Runner, type SandboxState } from "./sandbox";
+import { defaultKvmDeps, execFailedMessage, hostRefsKeepingCommit, KVM_CHMOD_COMMAND, kvmAccessCheck, miseBin as miseBinOf, miseInstallsDir, missingCloneMessage, missingMountsMessage, parseFeatureBranches, parseWorktrees, readSandboxState, RECREATE_REF_FORMAT, recreateSandbox, sandboxName, sandboxRecreateCase, sandboxRecreateFix, sandboxStatePath, defaultRunner, type KvmDeps, type Runner, type SandboxState } from "./sandbox";
 import { projectRootOfRun } from "./keys";
 import { sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
@@ -73,6 +73,12 @@ export type DoctorDeps = {
   claudeBin: string;
   /** The runner for the `claude` calls of the fix actions. */
   claudeRunner: Runner;
+  /** The name of the `mise` binary, for the `opencode-version` check. */
+  miseBin: string;
+  /** The runner for the `mise` calls. */
+  miseRunner: Runner;
+  /** The global mise configuration file, named in the fix of `opencode-version`. */
+  globalMiseConfig: string;
   /**
    * Replace the file at `file` with a symlink to `target`. Writes the new
    * link under a temp name in the same folder and renames it over the old
@@ -140,7 +146,18 @@ export function defaultReplaceWithSymlink(file: string, target: string): void {
   renameSync(tmp, file);
 }
 
-/** The default dependencies, with the real file system, git, and `sbx`. */
+/**
+ * The global mise configuration file: `MISE_GLOBAL_CONFIG_FILE`, else
+ * `$XDG_CONFIG_HOME/mise/config.toml`, else `~/.config/mise/config.toml`.
+ */
+export function globalMiseConfigPath(env: Env): string {
+  const file = env.MISE_GLOBAL_CONFIG_FILE;
+  if (file !== undefined && file.length > 0) return file;
+  const configHome = env.XDG_CONFIG_HOME !== undefined && env.XDG_CONFIG_HOME.length > 0 ? env.XDG_CONFIG_HOME : path.join(env.HOME ?? homedir(), ".config");
+  return path.join(configHome, "mise", "config.toml");
+}
+
+/** The default dependencies, with the real file system, git, `sbx`, and `mise`. */
 export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorDeps> = {}): DoctorDeps {
   const root = path.resolve(dir);
   const stat = (file: string) => {
@@ -197,6 +214,9 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     runner: defaultRunner,
     claudeBin: env.CLAUDE_BIN !== undefined && env.CLAUDE_BIN.length > 0 ? env.CLAUDE_BIN : "claude",
     claudeRunner: defaultRunner,
+    miseBin: miseBinOf(env),
+    miseRunner: defaultRunner,
+    globalMiseConfig: globalMiseConfigPath(env),
     replaceWithSymlink: defaultReplaceWithSymlink,
     kvm: defaultKvmDeps,
     rootRunner: defaultRootRunner,
@@ -771,6 +791,91 @@ export async function serverPluginFix(deps: DoctorDeps, _result: CheckResult, _c
   return { ok, note: notes.join(", ") };
 }
 
+/**
+ * The `opencode` tool entry of a mise configuration file: a string, or the
+ * `version` of a table such as `{ version = "1.18.32" }`. Null when the file
+ * is missing, is not valid TOML, or has no such entry.
+ */
+export function miseToolVersion(text: string | null, tool: string): string | null {
+  if (text === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = Bun.TOML.parse(text);
+  } catch {
+    return null;
+  }
+  const tools = (parsed as Record<string, unknown>).tools;
+  if (typeof tools !== "object" || tools === null) return null;
+  const entry = (tools as Record<string, unknown>)[tool];
+  if (typeof entry === "string") return entry;
+  if (typeof entry === "object" && entry !== null) {
+    const version = (entry as Record<string, unknown>).version;
+    if (typeof version === "string") return version;
+  }
+  return null;
+}
+
+/**
+ * Whether the project runs the opencode version that oc-sub is tested with.
+ * The tested version is the `opencode` pin in the `mise.toml` of this
+ * repository. The version of the project is what `mise current opencode`
+ * resolves in the project root, so a pin in the project `mise.toml` and the
+ * fallback of the global mise configuration (often "latest") both count.
+ * A pin other than the tested one (the project pin, else the global pin)
+ * warns even when it resolves to the tested version today, because the
+ * next release changes it silently.
+ *
+ * Both server modes start `opencode` from PATH. In sandbox mode, `up` runs
+ * `mise env -C <root> --json` on the host and puts the tool folders of the
+ * project (inside the mounted mise installs folder) in front of the sandbox
+ * PATH, so the sandbox server runs the opencode that mise resolves for the
+ * project. Only when that folder is missing from the tool PATH does the
+ * opencode of the sandbox image run. In host mode, the server runs the
+ * opencode of the PATH of the shell that calls `oc-sub up`.
+ *
+ * There is no fix action yet; step 15e (`doctor --renovate`) adds one.
+ */
+function opencodeVersionCheck(deps: DoctorDeps): CheckResult {
+  const testedFile = path.join(deps.pluginRepoRoot, "mise.toml");
+  const tested = miseToolVersion(deps.readText(testedFile), "opencode");
+  if (tested === null) return result("opencode-version", "skip", `no opencode pin in ${testedFile}`);
+  const current = deps.miseRunner([deps.miseBin, "current", "opencode"], { cwd: deps.root });
+  const resolved = current.stdout.trim().split(/\s+/)[0] ?? "";
+  if (current.exitCode !== 0) {
+    return result("opencode-version", "skip", `${deps.miseBin} current opencode exited with code ${current.exitCode}`);
+  }
+  if (resolved.length === 0) return result("opencode-version", "skip", `${deps.miseBin} current opencode printed no version`);
+  const projectFile = path.join(deps.root, "mise.toml");
+  const projectPin = miseToolVersion(deps.readText(projectFile), "opencode");
+  const globalPin = projectPin === null ? miseToolVersion(deps.readText(deps.globalMiseConfig), "opencode") : null;
+  // The pin that decides the version: the project pin, else the global pin.
+  const pin = projectPin ?? globalPin;
+  const file = projectPin !== null ? projectFile : deps.globalMiseConfig;
+  const source = projectPin !== null
+    ? `the pin opencode = "${projectPin}" in ${projectFile}`
+    : globalPin !== null
+      ? `the pin opencode = "${globalPin}" in the global mise configuration ${deps.globalMiseConfig}`
+      : `the global mise configuration ${deps.globalMiseConfig}`;
+  const fix = `set opencode = "${tested}" in ${file} and run mise install`;
+  // A pin other than the tested one (for example "latest") warns even when it
+  // resolves to the tested version today: the next release breaks it silently.
+  if (pin !== null && pin !== tested) {
+    return result(
+      "opencode-version",
+      "warn",
+      `${source} resolves to opencode ${resolved} now, but oc-sub is tested only with ${tested}; the next release can change it`,
+      fix,
+    );
+  }
+  if (resolved === tested) return result("opencode-version", "pass", `the project runs opencode ${resolved}, the tested version`);
+  return result(
+    "opencode-version",
+    "warn",
+    `the project runs opencode ${resolved} (from ${source}), but oc-sub is tested with ${tested}`,
+    fix,
+  );
+}
+
 /** The fast checks: `up` and `run` run them on every invocation. */
 export const FAST_CHECKS: Check[] = [
   { name: "env-files", run: envFilesCheck },
@@ -783,6 +888,8 @@ export const FAST_CHECKS: Check[] = [
 
 /** The slow checks: only `oc-sub doctor` runs them. */
 export const SLOW_CHECKS: Check[] = [
+  // First: it only spawns mise, and no other check or fix depends on it.
+  { name: "opencode-version", run: opencodeVersionCheck },
   { name: "plugin-fresh", run: pluginFreshCheck, fix: pluginFreshFix },
   // After plugin-fresh, so a plugin update comes before the sync and the restart.
   { name: "server-plugin", run: serverPluginCheck, fix: serverPluginFix },

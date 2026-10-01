@@ -12,11 +12,13 @@ import {
   PLUGIN_UPDATE_FIX,
   defaultReplaceWithSymlink,
   gateFastChecks,
+  globalMiseConfigPath,
   globalRulesFix,
   isPermissionOnlyAgent,
   kvmAccessRootFix,
   doctor,
   makeDoctorDeps,
+  miseToolVersion,
   pluginFreshFix,
   runChecks,
   runFastChecksFor,
@@ -92,6 +94,13 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     runner: () => ({ stdout: "", exitCode: 0 }),
     claudeBin: "claude",
     claudeRunner: () => ({ stdout: "", exitCode: 0 }),
+    // No test may call the real mise. Without /plugin/mise.toml in the fake
+    // file system, opencode-version skips before it calls the runner.
+    miseBin: "mise",
+    miseRunner: () => {
+      throw new Error("the mise runner must not run in this test");
+    },
+    globalMiseConfig: "/home/u/.config/mise/config.toml",
     // The fake swap turns the file entry into a symlink entry, so a re-run of
     // the checks sees the fixed state.
     replaceWithSymlink: (file, target) => files.set(file, { link: target }),
@@ -1762,5 +1771,160 @@ describe("recreateSandbox", () => {
     }
     expect(err).toEqual(["up printed a line"]);
     expect(out).toEqual(["after"]);
+  });
+});
+
+describe("the opencode-version check", () => {
+  const TESTED = '[tools]\nbun = "1.4.2"\nopencode = "1.18.32"\n';
+  const check = (deps: DoctorDeps) => byName(results(deps, SLOW_CHECKS), "opencode-version");
+  /** Fake deps with the given files and a mise runner that prints `stdout` and records its calls. */
+  function versionDeps(files: Record<string, string>, stdout: string, exitCode = 0) {
+    const calls: { cmd: readonly string[]; cwd?: string }[] = [];
+    const entries: Record<string, { content: string }> = {};
+    for (const [file, content] of Object.entries(files)) entries[file] = { content };
+    const deps = makeDeps(
+      { files: map(entries) },
+      {
+        miseRunner: (cmd, opts) => {
+          calls.push({ cmd, cwd: opts?.cwd });
+          return { stdout, exitCode };
+        },
+      },
+    );
+    return { deps, calls };
+  }
+
+  test("is a slow check and keeps server-plugin right after plugin-fresh", () => {
+    const names = SLOW_CHECKS.map((c) => c.name);
+    expect(names).toContain("opencode-version");
+    expect(FAST_CHECKS.map((c) => c.name)).not.toContain("opencode-version");
+    expect(names.indexOf("opencode-version")).toBeLessThan(names.indexOf("server-plugin"));
+    expect(ALL_CHECKS.find((c) => c.name === "opencode-version")?.fix).toBeUndefined();
+  });
+
+  test("passes when mise resolves the tested version in the project root", () => {
+    const { deps, calls } = versionDeps({ "/plugin/mise.toml": TESTED }, "1.18.32\n");
+    const res = check(deps);
+    expect(res?.status).toBe("pass");
+    expect(res?.message).toContain("1.18.32");
+    expect(calls).toEqual([{ cmd: ["mise", "current", "opencode"], cwd: "/repo" }]);
+  });
+
+  test("warns and names the project pin when the project mise.toml pins opencode", () => {
+    const { deps } = versionDeps(
+      { "/plugin/mise.toml": TESTED, "/repo/mise.toml": '[tools]\nopencode = "latest"\n' },
+      "1.19.0\n",
+    );
+    const res = check(deps);
+    expect(res?.status).toBe("warn");
+    expect(res?.message).toContain("1.19.0");
+    expect(res?.message).toContain("1.18.32");
+    expect(res?.message).toContain('opencode = "latest"');
+    expect(res?.message).toContain("/repo/mise.toml");
+    expect(res?.fix).toBe('set opencode = "1.18.32" in /repo/mise.toml and run mise install');
+  });
+
+  test("warns and names the global configuration when the project has no pin", () => {
+    const { deps } = versionDeps(
+      { "/plugin/mise.toml": TESTED, "/repo/mise.toml": '[tools]\nbun = "1.4.2"\n' },
+      "1.19.0\n",
+    );
+    const res = check(deps);
+    expect(res?.status).toBe("warn");
+    expect(res?.message).toContain("global mise configuration");
+    expect(res?.fix).toBe('set opencode = "1.18.32" in /home/u/.config/mise/config.toml and run mise install');
+  });
+
+  test("warns when the project pins latest, even if it resolves to the tested version now", () => {
+    const { deps } = versionDeps(
+      { "/plugin/mise.toml": TESTED, "/repo/mise.toml": '[tools]\nopencode = "latest"\n' },
+      "1.18.32\n",
+    );
+    const res = check(deps);
+    expect(res?.status).toBe("warn");
+    expect(res?.message).toContain('opencode = "latest"');
+    expect(res?.message).toContain("/repo/mise.toml");
+    expect(res?.message).toContain("resolves to opencode 1.18.32");
+    expect(res?.fix).toBe('set opencode = "1.18.32" in /repo/mise.toml and run mise install');
+  });
+
+  test("warns when the global configuration pins latest and the project has no pin", () => {
+    const { deps } = versionDeps(
+      { "/plugin/mise.toml": TESTED, "/home/u/.config/mise/config.toml": '[tools]\nopencode = "latest"\n' },
+      "1.18.32\n",
+    );
+    const res = check(deps);
+    expect(res?.status).toBe("warn");
+    expect(res?.message).toContain('opencode = "latest"');
+    expect(res?.message).toContain("global mise configuration /home/u/.config/mise/config.toml");
+    expect(res?.message).toContain("resolves to opencode 1.18.32");
+    expect(res?.fix).toBe('set opencode = "1.18.32" in /home/u/.config/mise/config.toml and run mise install');
+  });
+
+  test("passes when the project pins the tested version, whatever the global pin is", () => {
+    const { deps } = versionDeps(
+      {
+        "/plugin/mise.toml": TESTED,
+        "/repo/mise.toml": '[tools]\nopencode = "1.18.32"\n',
+        "/home/u/.config/mise/config.toml": '[tools]\nopencode = "latest"\n',
+      },
+      "1.18.32\n",
+    );
+    expect(check(deps)?.status).toBe("pass");
+  });
+
+  test("reads the tested version from a table with version", () => {
+    const { deps } = versionDeps(
+      { "/plugin/mise.toml": '[tools]\nopencode = { version = "1.18.32" }\n' },
+      "1.18.32",
+    );
+    expect(check(deps)?.status).toBe("pass");
+  });
+
+  test("takes the first token of the mise output", () => {
+    const { deps } = versionDeps({ "/plugin/mise.toml": TESTED }, "1.18.32 1.17.0\n");
+    expect(check(deps)?.status).toBe("pass");
+  });
+
+  test("skips without an opencode pin in the plugin repository and never calls mise", () => {
+    const { deps, calls } = versionDeps({ "/plugin/mise.toml": '[tools]\nbun = "1.4.2"\n' }, "1.18.32");
+    const res = check(deps);
+    expect(res?.status).toBe("skip");
+    expect(res?.message).toContain("/plugin/mise.toml");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("skips when the plugin mise.toml is not valid TOML", () => {
+    const { deps } = versionDeps({ "/plugin/mise.toml": "[tools\nopencode = " }, "1.18.32");
+    expect(check(deps)?.status).toBe("skip");
+  });
+
+  test("skips when mise fails", () => {
+    const { deps } = versionDeps({ "/plugin/mise.toml": TESTED }, "", 1);
+    const res = check(deps);
+    expect(res?.status).toBe("skip");
+    expect(res?.message).toContain("code 1");
+  });
+
+  test("skips when mise prints no version", () => {
+    const { deps } = versionDeps({ "/plugin/mise.toml": TESTED }, "  \n");
+    expect(check(deps)?.status).toBe("skip");
+  });
+});
+
+describe("globalMiseConfigPath", () => {
+  test("prefers MISE_GLOBAL_CONFIG_FILE, then XDG_CONFIG_HOME, then HOME", () => {
+    expect(globalMiseConfigPath({ MISE_GLOBAL_CONFIG_FILE: "/etc/m.toml", HOME: "/h" })).toBe("/etc/m.toml");
+    expect(globalMiseConfigPath({ XDG_CONFIG_HOME: "/x", HOME: "/h" })).toBe("/x/mise/config.toml");
+    expect(globalMiseConfigPath({ HOME: "/h" })).toBe("/h/.config/mise/config.toml");
+  });
+});
+
+describe("miseToolVersion", () => {
+  test("reads a string, a table, and nothing", () => {
+    expect(miseToolVersion('[tools]\nopencode = "1.2.3"', "opencode")).toBe("1.2.3");
+    expect(miseToolVersion('[tools]\nopencode = { version = "1.2.3" }', "opencode")).toBe("1.2.3");
+    expect(miseToolVersion('[tools]\nbun = "1"', "opencode")).toBeNull();
+    expect(miseToolVersion(null, "opencode")).toBeNull();
   });
 });

@@ -819,7 +819,7 @@ export function missingMountsMessage(name: string, missing: readonly string[], p
  * ends the sessions of the sandbox.
  */
 export function sandboxRecreateFix(name: string): string {
-  return `Remove it with: oc-sub doctor --fix --force. It recreates the sandbox in clone mode with all required mounts. To do it by hand: sbx rm --force ${name}, then oc-sub up.`;
+  return `Recreate it with: oc-sub doctor --fix --force. It recreates the sandbox in clone mode with all required mounts. To do it by hand: sbx rm --force ${name}, then oc-sub up.`;
 }
 
 /**

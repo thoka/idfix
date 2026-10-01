@@ -84,7 +84,6 @@ describe("TopView", () => {
       <TopView start={async () => source} initialAll={false} scopeLabel="~/dv/opencode-subagents" />,
     );
     await tick();
-    const plain = (frame: string | undefined) => stripVTControlCharacters(frame ?? "");
     const frame = plain(lastFrame());
     expect(frame).toMatch(/session +worktree +agent +state/);
     expect(frame.split("\n")[0]).not.toContain("project");

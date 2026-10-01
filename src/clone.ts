@@ -22,6 +22,8 @@ import {
   miseInstallsDir,
   projectToolPath,
   readSandboxState,
+  sandboxMiseBinDir,
+  sandboxMiseEnv,
   sandboxStatePath,
   sandboxToolPathEntry,
   shellQuote,
@@ -114,8 +116,11 @@ export const HOST_REMOTE = "host";
  * When the project sets a `setup` command in `.opencode/oc-sub.json`, it
  * runs that command inside the new worktree after a successful `git
  * worktree add` (for example `bun install`, because the worktree holds
- * only tracked files and no `node_modules`). `--no-setup` skips it. On a
- * failing setup it prints the output, tells how to run the command by
+ * only tracked files and no `node_modules`). With a sandbox mise, `mise
+ * install` runs first in the same `sh -c`, so a tool that only the `mise.toml`
+ * of the worktree names exists before the setup command. Without a setup
+ * command, a sandbox mise still runs `mise install`. `--no-setup` skips all
+ * of it. On a failing command it prints the output, tells how to run it by
  * hand, keeps the worktree, and exits 1.
  */
 export function worktree(
@@ -173,34 +178,51 @@ export function worktree(
 
   // The worktree holds only tracked files, so it has no `node_modules`. The
   // project can set a setup command in `.opencode/oc-sub.json`; run it once
-  // inside the new worktree, with the PATH of the sandbox server, so that
-  // the mise tools of the project (bun) are found. `mise install` already
-  // ran in `upSandbox`, so `worktree` only reads the tool folders here.
-  const setup = args.noSetup === true ? undefined : deps.setupCommand(root);
-  if (setup !== undefined) {
-    console.log(`setup: ${setup}`);
+  // inside the new worktree. First `mise install` installs the tools of the
+  // `mise.toml` of the worktree (a worktree can name a tool that the host
+  // never installed), then the setup command runs in the same `sh -c`. The
+  // PATH puts the tool folders of the project and the bin folder of the
+  // sandbox mise in front, and the `sandboxMiseEnv` variables give the
+  // sandbox mise its settings, like the holder command in `upSandbox`. With
+  // `--no-setup` nothing runs; without a sandbox mise the old behavior
+  // stays: only the setup command, with the tool PATH of the host.
+  if (args.noSetup !== true) {
+    const setup = deps.setupCommand(root);
     const toolPath = projectToolPath(
       run([miseBin(env), "env", "-C", root, "--json"], { cwd: root }).stdout,
       miseInstallsDir(env),
     );
-    const setupCmd = [
-      bin,
-      "exec",
-      "-w",
-      worktreePath,
-      "-e",
-      sandboxToolPathEntry(toolPath),
-      name,
-      "sh",
-      "-c",
-      `exec 2>&1; ${setup}`,
-    ];
-    const setupRun = run(setupCmd);
-    if (setupRun.exitCode !== 0) {
-      if (setupRun.stdout.length > 0) console.error(setupRun.stdout);
-      console.error(`error: the setup command failed in ${worktreePath} (exit ${setupRun.exitCode})`);
-      console.error(`run it again by hand: ${setupCmd.map(shellQuote).join(" ")}`);
-      return 1;
+    const miseBinDir = sandboxMiseBinDir(run, env, root);
+    const inner =
+      miseBinDir !== undefined
+        ? setup !== undefined
+          ? `exec 2>&1; mise install && ${setup}`
+          : "exec 2>&1; mise install"
+        : setup !== undefined
+          ? `exec 2>&1; ${setup}`
+          : undefined;
+    if (inner !== undefined) {
+      console.log(`setup: ${setup ?? "mise install"}`);
+      const setupCmd = [
+        bin,
+        "exec",
+        "-w",
+        worktreePath,
+        "-e",
+        sandboxToolPathEntry(toolPath, miseBinDir),
+        ...sandboxMiseEnv(miseInstallsDir(env), root).flatMap((entry) => ["-e", entry]),
+        name,
+        "sh",
+        "-c",
+        inner,
+      ];
+      const setupRun = run(setupCmd);
+      if (setupRun.exitCode !== 0) {
+        if (setupRun.stdout.length > 0) console.error(setupRun.stdout);
+        console.error(`error: the setup command failed in ${worktreePath} (exit ${setupRun.exitCode})`);
+        console.error(`run it again by hand: ${setupCmd.map(shellQuote).join(" ")}`);
+        return 1;
+      }
     }
   }
 

@@ -33,6 +33,7 @@ import {
   sandboxConfigContent,
   sandboxHolderScript,
   sandboxMiseEnv,
+  sandboxMiseBinDir,
   sandboxName,
   sandboxRecreateFix,
   sandboxMountPlan,
@@ -405,13 +406,14 @@ describe("mise helpers", () => {
     expect(parseBinPaths("\n  \n")).toBe(null);
   });
 
-  test("sandboxMiseEnv lists the five mise settings of the server", () => {
+  test("sandboxMiseEnv lists the six mise settings of the server", () => {
     expect(sandboxMiseEnv("/installs", "/repo")).toEqual([
       "MISE_SHARED_INSTALL_DIRS=/installs",
       "MISE_TRUSTED_CONFIG_PATHS=/repo",
       `MISE_DATA_DIR=${SANDBOX_HOME}/.local/share/mise`,
       `MISE_CACHE_DIR=${SANDBOX_HOME}/.cache/mise`,
       `MISE_STATE_DIR=${SANDBOX_HOME}/.local/state/mise`,
+      "MISE_DISABLE_UPDATE_WARNING=true",
     ]);
   });
 
@@ -424,6 +426,47 @@ describe("mise helpers", () => {
       `PATH=/installs/mise/2026.10.1/bin:${SANDBOX_PATH}`,
     );
     expect(sandboxToolPathEntry("")).toBe(`PATH=${SANDBOX_PATH}`);
+  });
+
+  test("sandboxMiseBinDir returns the bin folder of the host mise version inside the installs folder", () => {
+    const calls: string[][] = [];
+    const runner: Runner = (cmd) => {
+      calls.push([...cmd]);
+      if (cmd[1] === "--version") return { stdout: "2026.10.1 linux-x64\n", exitCode: 0 };
+      if (cmd[1] === "bin-paths")
+        return { stdout: "/home/u/.local/share/mise/installs/aqua-jdx-mise/2026.10.1/mise/bin\n", exitCode: 0 };
+      return { stdout: "", exitCode: 0 };
+    };
+    const env = { HOME: "/home/u" } as never;
+    expect(sandboxMiseBinDir(runner, env, "/repo")).toBe("/home/u/.local/share/mise/installs/aqua-jdx-mise/2026.10.1/mise/bin");
+    // It installs the exact host version into the shared installs folder.
+    expect(calls.map((c) => c.join(" "))).toContain(`mise install ${MISE_TOOL}@2026.10.1`);
+  });
+
+  test("sandboxMiseBinDir warns and returns undefined without a version", () => {
+    const err = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const runner: Runner = () => ({ stdout: "", exitCode: 0 });
+      expect(sandboxMiseBinDir(runner, { HOME: "/home/u" } as never, "/repo")).toBeUndefined();
+      expect(err.mock.calls.join("\n")).toContain("the sandbox gets no mise");
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  test("sandboxMiseBinDir warns and returns undefined when the bin folder lies outside the installs folder", () => {
+    const err = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const runner: Runner = (cmd) => {
+        if (cmd[1] === "--version") return { stdout: "2026.10.1 linux-x64\n", exitCode: 0 };
+        if (cmd[1] === "bin-paths") return { stdout: "/opt/other-mise/bin\n", exitCode: 0 };
+        return { stdout: "", exitCode: 0 };
+      };
+      expect(sandboxMiseBinDir(runner, { HOME: "/home/u" } as never, "/repo")).toBeUndefined();
+      expect(err.mock.calls.join("\n")).toContain("lies outside the installs folder");
+    } finally {
+      err.mockRestore();
+    }
   });
 
   test("deniesNetwork reads the first line of the policy check", () => {
@@ -446,11 +489,13 @@ describe("mise helpers", () => {
     expect(listsCloneRemote("", "oc-sub-t")).toBe(false);
   });
 
-  test("sandboxRecreateFix names sbx rm and the clone-mode recreate", () => {
+  test("sandboxRecreateFix names doctor --fix --force first and sbx rm as the fallback", () => {
     const fix = sandboxRecreateFix("oc-sub-t");
+    expect(fix).toContain("oc-sub doctor --fix --force");
+    expect(fix).toContain("clone mode");
+    // The manual commands stay as the fallback in the same text.
     expect(fix).toContain("sbx rm --force oc-sub-t");
     expect(fix).toContain("oc-sub up");
-    expect(fix).toContain("clone mode");
   });
 });
 

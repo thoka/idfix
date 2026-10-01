@@ -507,7 +507,50 @@ export function sandboxMiseEnv(installsDir: string, projectRoot: string): string
     `MISE_DATA_DIR=${homeData}`,
     `MISE_CACHE_DIR=${SANDBOX_HOME}/.cache/mise`,
     `MISE_STATE_DIR=${SANDBOX_HOME}/.local/state/mise`,
+    // The sandbox mise sits on a read-only mount, so `mise self-update`
+    // cannot run. The env form of the mise setting `disable_update_warning`
+    // turns off the "mise version ... available" warning and its hint to run
+    // `mise self-update` (tested live with mise 2026.9.9).
+    "MISE_DISABLE_UPDATE_WARNING=true",
   ];
+}
+
+/**
+ * The bin folder of the sandbox mise, or undefined without one. It asks the
+ * host mise for its version, installs that exact version as the tool
+ * `aqua:jdx/mise` in the shared installs folder (which the sandbox mounts
+ * read-only), and takes the bin folder from `mise bin-paths`. The bin folder
+ * must lie inside the installs folder. On any failure it prints a warning
+ * and returns undefined, so mise inside the sandbox stays a comfort, not a
+ * must (step 12). `upSandbox` and `worktree` both use it, so they never
+ * differ.
+ */
+export function sandboxMiseBinDir(runner: Runner, env: Env, root: string): string | undefined {
+  const mise = miseBin(env);
+  const installsDir = miseInstallsDir(env);
+  const version = parseMiseVersion(runner([mise, "--version"]).stdout);
+  if (version === null) {
+    console.error(`warning: cannot read the version of "${mise}" with mise --version, the sandbox gets no mise`);
+    return undefined;
+  }
+  const miseInstall = runner([mise, "install", `${MISE_TOOL}@${version}`], { cwd: root });
+  if (miseInstall.exitCode !== 0) {
+    console.error(`warning: mise install ${MISE_TOOL}@${version} failed, the sandbox gets no mise`);
+    printStderr(miseInstall);
+    return undefined;
+  }
+  const binDir = parseBinPaths(runner([mise, "bin-paths", `${MISE_TOOL}@${version}`]).stdout);
+  if (binDir === null) {
+    console.error(`warning: mise bin-paths prints no bin folder for ${MISE_TOOL}@${version}, the sandbox gets no mise`);
+    return undefined;
+  }
+  if (!isInsideRoot(binDir, installsDir)) {
+    console.error(
+      `warning: the bin folder ${binDir} of ${MISE_TOOL}@${version} lies outside the installs folder ${installsDir}, the sandbox gets no mise`,
+    );
+    return undefined;
+  }
+  return binDir;
 }
 
 /**
@@ -776,7 +819,7 @@ export function missingMountsMessage(name: string, missing: readonly string[], p
  * ends the sessions of the sandbox.
  */
 export function sandboxRecreateFix(name: string): string {
-  return `Remove it with: sbx rm --force ${name}, then run oc-sub up. It creates the sandbox again in clone mode with all required mounts.`;
+  return `Remove it with: oc-sub doctor --fix --force. It recreates the sandbox in clone mode with all required mounts. To do it by hand: sbx rm --force ${name}, then oc-sub up.`;
 }
 
 /**
@@ -1157,33 +1200,8 @@ export async function upSandbox(
 
   // mise inside the sandbox is a comfort, not a must (step 12): an agent can
   // run `mise x <tool>@latest -- <cmd>` there and install a tool it needs.
-  // up asks the host mise for its version and installs that exact version as
-  // the tool `aqua:jdx/mise` in the shared installs folder, which the sandbox
-  // mounts read-only. The bin folder comes from `mise bin-paths` and must lie
-  // inside the installs folder. On any failure it prints a warning and goes
-  // on without sandbox mise.
-  const version = parseMiseVersion(deps.runner([mise, "--version"]).stdout);
-  let miseBinDir: string | undefined;
-  if (version === null) {
-    console.error(`warning: cannot read the version of "${mise}" with mise --version, the sandbox gets no mise`);
-  } else {
-    const miseInstall = deps.runner([mise, "install", `${MISE_TOOL}@${version}`], { cwd: root });
-    if (miseInstall.exitCode !== 0) {
-      console.error(`warning: mise install ${MISE_TOOL}@${version} failed, the sandbox gets no mise`);
-      printStderr(miseInstall);
-    } else {
-      const binDir = parseBinPaths(deps.runner([mise, "bin-paths", `${MISE_TOOL}@${version}`]).stdout);
-      if (binDir === null) {
-        console.error(`warning: mise bin-paths prints no bin folder for ${MISE_TOOL}@${version}, the sandbox gets no mise`);
-      } else if (!isInsideRoot(binDir, installsDir)) {
-        console.error(
-          `warning: the bin folder ${binDir} of ${MISE_TOOL}@${version} lies outside the installs folder ${installsDir}, the sandbox gets no mise`,
-        );
-      } else {
-        miseBinDir = binDir;
-      }
-    }
-  }
+  // See `sandboxMiseBinDir`.
+  const miseBinDir = sandboxMiseBinDir(deps.runner, env, root);
 
   // The cost proxy runs next to the server in the sandbox, from the bundle
   // inside the mounted plugin folder. Its bun comes from the mounted mise

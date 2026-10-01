@@ -1662,7 +1662,7 @@ describe("the sandbox-mounts fix (step 15d)", () => {
     } finally {
       logSpy.mockRestore();
     }
-    expect(lines).toContain("fixing sandbox-mounts: Remove it with: sbx rm --force oc-sub-repo, then run oc-sub up. It creates the sandbox again in clone mode with all required mounts.");
+    expect(lines).toContain("fixing sandbox-mounts: Remove it with: oc-sub doctor --fix --force. It recreates the sandbox in clone mode with all required mounts. To do it by hand: sbx rm --force oc-sub-repo, then oc-sub up.");
     expect(lines).toContain("fixed sandbox-mounts: recreated");
     // The re-run of the checks still fails: the fake runner does not change
     // the sandbox, so the exit code is 1.

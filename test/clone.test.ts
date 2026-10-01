@@ -32,6 +32,21 @@ const ROOT = "/repo";
 const NAME = "oc-sub-test";
 const STATE: SandboxState = { name: NAME, root: ROOT, port: 18768 };
 
+/** The version and bin folder that the faked host mise reports (step 12). */
+const MISE_VERSION = "2026.10.1";
+const MISE_BIN_DIR = "/home/u/.local/share/mise/installs/aqua-jdx-mise/2026.10.1/mise/bin";
+
+/**
+ * The answers of the host mise that give `worktree` a sandbox mise: a
+ * version, and a bin folder inside the installs folder. The fake runner
+ * falls through to its own answer for every other command.
+ */
+function miseAnswer(cmd: readonly string[]): { stdout: string } | undefined {
+  if (cmd[0] === "mise" && cmd[1] === "--version") return { stdout: `${MISE_VERSION} linux-x64\n` };
+  if (cmd[0] === "mise" && cmd[1] === "bin-paths") return { stdout: `${MISE_BIN_DIR}\n` };
+  return undefined;
+}
+
 async function makeDeps(overrides: Partial<CloneDeps> = {}): Promise<{ env: Record<string, string> } & CloneDeps> {
   const env = { XDG_STATE_HOME: tempDir() };
   await writeSandboxState(sandboxStatePath(env as never, "test"), STATE);
@@ -257,7 +272,7 @@ describe("worktree", () => {
     expect(callsOf(calls, (c) => c.includes("fetch")).length).toBe(0);
   });
 
-  test("runs the setup command with the sandbox PATH after the worktree add", async () => {
+  test("runs the setup command with the sandbox PATH and the mise variables after the worktree add", async () => {
     const deps = await makeDeps();
     const { calls, runner } = fakeRunner((cmd) => {
       if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
@@ -265,7 +280,7 @@ describe("worktree", () => {
       if (cmd[0] === "mise" && cmd[1] === "env") {
         return { stdout: JSON.stringify({ PATH: "/home/u/.local/share/mise/installs/bun/bin:/usr/bin" }) };
       }
-      return {};
+      return miseAnswer(cmd) ?? {};
     });
     const code = worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
       ...deps,
@@ -280,28 +295,125 @@ describe("worktree", () => {
     const setupIndex = indexOf((c) => c.includes("sh") && c.includes("-c"));
     expect(addIndex).toBeGreaterThanOrEqual(0);
     expect(setupIndex).toBeGreaterThan(addIndex);
-    // The exact setup command, with the tool path from the faked mise env.
+    // The exact setup command: the tool path first, then the bin folder of
+    // the sandbox mise, then the mise variables, and `mise install` before
+    // the setup command in the same `sh -c`.
+    const installsDir = "/home/u/.local/share/mise/installs";
     expect(calls[setupIndex]!.cmd).toEqual([
       "sbx",
       "exec",
       "-w",
       runWorktreePath(ROOT, "14b"),
       "-e",
-      "PATH=/home/u/.local/share/mise/installs/bun/bin:/home/agent/.local/bin:/usr/local/share/npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      `PATH=/home/u/.local/share/mise/installs/bun/bin:${MISE_BIN_DIR}:/home/agent/.local/bin:/usr/local/share/npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+      "-e",
+      `MISE_SHARED_INSTALL_DIRS=${installsDir}`,
+      "-e",
+      "MISE_TRUSTED_CONFIG_PATHS=/repo",
+      "-e",
+      "MISE_DATA_DIR=/home/agent/.local/share/mise",
+      "-e",
+      "MISE_CACHE_DIR=/home/agent/.cache/mise",
+      "-e",
+      "MISE_STATE_DIR=/home/agent/.local/state/mise",
+      "-e",
+      "MISE_DISABLE_UPDATE_WARNING=true",
       NAME,
       "sh",
       "-c",
-      "exec 2>&1; bun install --frozen-lockfile",
+      "exec 2>&1; mise install && bun install --frozen-lockfile",
     ]);
   });
 
-  test("runs no setup without a setup command", async () => {
+  test("runs `mise install` alone when the project has no setup command and the sandbox has mise", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
+      return miseAnswer(cmd) ?? {};
+    });
+    const code = worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+      ...deps,
+      runner,
+      setupCommand: () => undefined,
+    });
+    expect(code).toBe(0);
+    const setup = callsOf(calls, (c) => c.includes("sh") && c.includes("-c"));
+    expect(setup).toHaveLength(1);
+    expect(setup[0]!.at(-1)).toBe("exec 2>&1; mise install");
+  });
+
+  test("keeps the old command when the sandbox gets no mise", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
+      // `mise env` answers, `mise --version` does not: no sandbox mise.
+      if (cmd[0] === "mise" && cmd[1] === "env") {
+        return { stdout: JSON.stringify({ PATH: "/home/u/.local/share/mise/installs/bun/bin" }) };
+      }
+      return {};
+    });
+    const code = worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+      ...deps,
+      runner,
+      setupCommand: () => "bun install",
+    });
+    expect(code).toBe(0);
+    const setup = callsOf(calls, (c) => c.includes("sh") && c.includes("-c"));
+    expect(setup).toHaveLength(1);
+    expect(setup[0]!.at(-1)).toBe("exec 2>&1; bun install");
+    // The command stays the old one, and the PATH entry has no mise bin
+    // folder. The mise variables still go through: they configure the state
+    // folders of mise and never hurt without a mise on the PATH.
+    const envArgs = setup[0]!.filter((arg) => arg.startsWith("MISE_"));
+    expect(envArgs).toEqual([
+      "MISE_SHARED_INSTALL_DIRS=/home/u/.local/share/mise/installs",
+      "MISE_TRUSTED_CONFIG_PATHS=/repo",
+      "MISE_DATA_DIR=/home/agent/.local/share/mise",
+      "MISE_CACHE_DIR=/home/agent/.cache/mise",
+      "MISE_STATE_DIR=/home/agent/.local/state/mise",
+      "MISE_DISABLE_UPDATE_WARNING=true",
+    ]);
+  });
+
+  test("a failing `mise install` fails like a failing setup command and returns 1", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
+      const mise = miseAnswer(cmd);
+      if (mise !== undefined) return mise;
+      if (cmd.includes("sh") && cmd.includes("-c")) return { stdout: "mise install failed\n", exitCode: 5 };
+      return {};
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let code: number;
+    try {
+      code = worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+        ...deps,
+        runner,
+        setupCommand: () => "bun install",
+      });
+    } finally {
+      console.error = err;
+    }
+    expect(code).toBe(1);
+    expect(errors).toContain("mise install failed\n");
+    expect(errors).toContain(`error: the setup command failed in ${runWorktreePath(ROOT, "14b")} (exit 5)`);
+    // The setup command never ran: it sits behind `mise install &&`.
+    const setup = callsOf(calls, (c) => c.includes("sh") && c.includes("-c"));
+    expect(setup).toHaveLength(1);
+    expect(setup[0]!.at(-1)).toBe("exec 2>&1; mise install && bun install");
+  });
+
+  test("runs no sh -c without a setup command and without a sandbox mise", async () => {
     const deps = await makeDeps();
     const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 1 } : {}));
     const code = worktree({ step: "14b" }, deps.env as never, { ...deps, runner, setupCommand: () => undefined });
     expect(code).toBe(0);
     expect(callsOf(calls, (c) => c.includes("sh") && c.includes("-c")).length).toBe(0);
-    expect(callsOf(calls, (c) => c[0] === "mise").length).toBe(0);
+    // Without a sandbox mise, no `mise install` of the sandbox tool runs.
+    expect(callsOf(calls, (c) => c[0] === "mise" && c[1] === "install").length).toBe(0);
   });
 
   test("runs no setup with --no-setup", async () => {

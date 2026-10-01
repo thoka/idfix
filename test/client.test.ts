@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assertOk, errorMessage, probeServer, requireServer, ServerAuthError, ServerDownError, unwrap } from "../src/client";
+import { assertOk, errorMessage, probeServer, requireServer, ServerAuthError, ServerDownError, unwrap, type ServerState } from "../src/client";
 
 describe("unwrap and assertOk", () => {
   test("returns the data when present", () => {
@@ -56,15 +56,18 @@ describe("probeServer", () => {
 });
 
 describe("requireServer", () => {
-  test("throws ServerDownError with the URL when nothing answers", async () => {
-    // Reserve a port, then free it, so that nothing listens there.
-    const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("") });
-    const url = `http://127.0.0.1:${probe.port}`;
-    probe.stop(true);
-    const error = await requireServer(url, {}).catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(ServerDownError);
-    expect((error as ServerDownError).message).toBe(`no server on ${url}. Start it with: oc-sub up`);
-  });
+  /** Build a fake probe from a list of states, counting the calls. */
+  function fakeProbe(states: ServerState[]): { probe: (url: string, env: Env, timeoutMs: number) => Promise<ServerState>; calls: () => number } {
+    let count = 0;
+    return {
+      probe: () => {
+        const state = states[Math.min(count, states.length - 1)];
+        count += 1;
+        return Promise.resolve(state);
+      },
+      calls: () => count,
+    };
+  }
 
   test("passes when the server is healthy", async () => {
     const server = Bun.serve({
@@ -77,6 +80,31 @@ describe("requireServer", () => {
     } finally {
       server.stop(true);
     }
+  });
+
+  test("retries a busy server and passes when it comes up", async () => {
+    const fake = fakeProbe([{ state: "down" }, { state: "down" }, { state: "up", version: "1.0.0" }]);
+    await requireServer("http://127.0.0.1:1", {}, { probe: fake.probe, pauseMs: 0 });
+    expect(fake.calls()).toBe(3);
+  });
+
+  test("throws ServerDownError after the last down try", async () => {
+    const fake = fakeProbe([{ state: "down" }]);
+    const error = await requireServer("http://127.0.0.1:1", {}, { probe: fake.probe, pauseMs: 0 }).catch(
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(ServerDownError);
+    expect((error as ServerDownError).message).toBe("no server on http://127.0.0.1:1. Start it with: oc-sub up");
+    expect(fake.calls()).toBe(3);
+  });
+
+  test("throws ServerAuthError at once without retrying", async () => {
+    const fake = fakeProbe([{ state: "unauthorized" }]);
+    const error = await requireServer("http://127.0.0.1:1", {}, { probe: fake.probe, pauseMs: 0 }).catch(
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(ServerAuthError);
+    expect(fake.calls()).toBe(1);
   });
 });
 

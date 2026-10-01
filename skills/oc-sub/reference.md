@@ -59,7 +59,7 @@ Every command accepts `--url URL`. The URL comes from `--url`, then the environm
 
 Exit codes: 0 for success, 1 for an error (including a shared OpenRouter key in `run`), 2 for wrong arguments, 3 when `watch` found a pending question or permission request (the run is paused), and 4 when `watch` saw a warning sign in the run (see [Guards](#guards)).
 
-If no server runs, `status` and `top --once` print `no server on <url>` and exit with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
+If no server runs, `status` and `top --once` print `no server on <url>` and exit with code 0. The other commands exit with code 1 and tell you to run `oc-sub up`. Before they report a missing server, they retry the health check up to 3 times (5 seconds per try, 1 second pause), so a busy server is not mistaken for a missing one. If the server rejects the password in `OPENCODE_SERVER_PASSWORD`, every command exits with code 1 and says so.
 
 ## Doctor checks
 

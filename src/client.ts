@@ -64,13 +64,36 @@ export class ServerAuthError extends Error {
   }
 }
 
+/** Pause between health check tries, in milliseconds. */
+export const RETRY_PAUSE_MS = 1000;
+
 /**
  * Throw ServerDownError or ServerAuthError when the server cannot be used.
  * Commands call this first, so that a missing server or a wrong password
- * gives a clear message and not a raw fetch error.
+ * gives a clear message and not a raw fetch error. A busy server can miss
+ * the first health check, so this probes up to `tries` times (default 3,
+ * 5 seconds per try, 1 second pause between tries). It stops at once on
+ * "up", and "unauthorized" fails at once because a retry does not fix a
+ * wrong password. Tests can inject `probe` to avoid a real server and waits.
  */
-export async function requireServer(baseUrl: string, env: Env): Promise<void> {
-  assertUsable(await probeServer(baseUrl, env, 2000), baseUrl, env);
+export async function requireServer(
+  baseUrl: string,
+  env: Env,
+  options: {
+    probe?: (url: string, env: Env, timeoutMs: number) => Promise<ServerState>;
+    tries?: number;
+    pauseMs?: number;
+  } = {},
+): Promise<void> {
+  const { probe = probeServer, tries = 3, pauseMs = RETRY_PAUSE_MS } = options;
+  const timeoutMs = 5000;
+  for (let attempt = 1; ; attempt += 1) {
+    const state = await probe(baseUrl, env, timeoutMs);
+    if (state.state === "up") return;
+    if (state.state === "unauthorized") assertUsable(state, baseUrl, env);
+    if (attempt >= tries) assertUsable(state, baseUrl, env);
+    await Bun.sleep(pauseMs);
+  }
 }
 
 export function assertUsable(server: ServerState, baseUrl: string, env: Env): void {

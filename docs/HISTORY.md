@@ -380,7 +380,7 @@ Done on 2026-10-01. Root cause of the false stall: a long model request sends no
 
 ## Research on 2026-10-01
 
-Six GLM researcher runs for $0.1501 in total:
+Five GLM researcher runs for $0.1361 in total:
 
 - [RENOVATE_STANDARD.md](research/RENOVATE_STANDARD.md) (step 15e, $0.0308): a stateless `--renovate` that reuses the fix pass, a clean git tree as a precondition, no state file, and no commits by default.
 - [DEEPINFRA_LOGPROB.md](research/DEEPINFRA_LOGPROB.md) (step 16, $0.0321): no public report of the error, the client never asks for log probabilities, and opencode 1.18.32 does not retry this error class (opencode issue #21893). A proxy retry is safe only before the first content chunk.
@@ -418,4 +418,4 @@ Done on 2026-10-01. `oc-sub trace` cuts a session tree into steps (`step-start` 
 
 ## Cost of the session of 2026-10-01, evening
 
-All GLM runs went through OpenRouter. Research: $0.1623 in seven runs. Coding: about $0.89 in ten runs and one follow-up (the type check run not counted). Probes: $0.0002 (chat) and $0.0000185 (decisions), plus $0.0011 for the live Jev tagging.
+All GLM runs went through OpenRouter. Research: $0.1483 in six runs. Coding: $0.9232 in eleven runs, including one follow-up (the type check run not counted). Probes: $0.0002 (chat) and $0.0000185 (decisions), plus $0.0011 for the live Jev tagging.

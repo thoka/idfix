@@ -80,6 +80,8 @@ Checks the health of the host server (`GET /global/health`). When nothing answer
 
 `up` also needs the shared agents folder: `OC_SUB_SHARED_DIR`, else `$HOME/dv/meta/agents`. It holds your global rules in `AGENTS.md` and your skills in `skills/<name>/SKILL.md`. It is the only source, and `up` never copies it. When `<shared>/AGENTS.md` is missing, `up` stops with an error that names the path and `OC_SUB_SHARED_DIR`. Otherwise `up` sets `OPENCODE_CONFIG_CONTENT` for the child, with the rules file under `instructions` and the skills folder under `skills.paths`. The reason: opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever `OPENCODE_CONFIG_DIR` is set, and `up` always sets it. An absolute path in `instructions` still loads (see `docs/research/OPENCODE_RULES.md`). If the environment already sets `OPENCODE_CONFIG_CONTENT`, `up` keeps it and prints a warning, because the shared entries are then not added.
 
+DeepInfra is an optional second model provider. When the project has the key file `~/.config/<project>/deepinfra.key`, `up` sets it up: in sandbox mode the key stays on the host as a custom secret of `sbx`, and in host mode the server gets `DEEPINFRA_API_KEY` (the environment first, then the key file). A run picks it with `--model deepinfra/zai-org/GLM-5.3-Flash`. DeepInfra serves this model only in fp4 precision, see `docs/research/DEEPINFRA.md`. The setup and the cost log are in `docs/GUIDE.md`, section "DeepInfra as a direct provider".
+
 One server serves many project folders, so its state lives in one folder per user, `$XDG_STATE_HOME/oc-sub/` (default `~/.local/state/oc-sub/`):
 
 - `serve-<port>.log` holds the output of the server.
@@ -285,6 +287,7 @@ The checks:
 | `opencode-release` | The latest opencode release (`mise latest opencode`) is not newer than the tested version, or not newer than the reviewed version in `opencode-review.json` of the oc-sub repository. It reminds you to review a new release from time to time. A failed or empty `mise latest` call (no network) skips the check, and so does a missing tested pin. | Warn. Read the release notes of the new version, then either raise the pin in the `mise.toml` of oc-sub and run the tests, or record the decision in `opencode-review.json`. No `--fix` action. |
 | `plugin-fresh` | The installed plugin commit matches `origin/alpha` of the plugin repository. | Warn. `--fix` runs the plugin update commands that the fix names. |
 | `sandbox-mounts` | When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires (a folder inside the project root is not mounted, the clone holds it), the project has the `sandbox-<name>` git remote of clone mode, and the clone exists inside the sandbox (`git -C <root> rev-parse --git-dir`). | Run `sbx rm --force NAME` and then `oc-sub up`, which creates the sandbox again in clone mode. |
+| `deepinfra-key` | The optional DeepInfra key file `~/.config/<project>/deepinfra.key` has mode 600 or stricter. It only reads the mode, never the content. Without the file, it skips (DeepInfra is off). | Warn only. Other users may read the key. Run `chmod 600` on the file. |
 
 The fast checks `env-files` to `agent-copies` also run on every `oc-sub up` and `oc-sub run`. A fail stops the command with exit code 1 before anything changes state and before any paid call, and names the fixes plus the hint `run oc-sub doctor for details`. A warn prints one line and the command continues. The checks take about 1 ms. When they take over 50 ms, the command prints a warning with the time.
 
@@ -329,7 +332,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 - `src/detect.ts` — the guards of `watch`: loop, stall, and reasoning detectors (pure)
 - `src/tree.ts` — the descendant sessions of a session, their messages, and their cost
 - `src/requests.ts` — pending questions and permissions: list, filter, format, answer
-- `src/keys.ts` — OpenRouter key handling: fingerprint, key sources, key check, shared-key refusal
+- `src/keys.ts` — OpenRouter key handling: fingerprint, key sources, key check, shared-key refusal; the DeepInfra key path and placeholder
 - `src/runs.ts` — run records in `.opencode/runs/` and in the state folder, real-cost line
 - `src/realcost.ts` — the real-cost output of `watch` and `log`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)

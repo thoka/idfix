@@ -1,6 +1,8 @@
 /**
- * The cost proxy: a small Bun HTTP pass-through between opencode and
- * OpenRouter. It forwards every request to the upstream base URL, streams the
+ * The cost proxy: a small Bun HTTP pass-through between opencode and its
+ * model providers, OpenRouter and DeepInfra. A request path that starts with
+ * `/deepinfra/` goes to DeepInfra with that prefix removed; every other path
+ * goes to OpenRouter. It forwards every request to the upstream base URL, streams the
  * response back without buffering, and writes one JSON log line per request
  * event to stdout (tagged with `"source":"oc-sub-cost-proxy"`). See
  * docs/research/COST_PROXY.md.
@@ -20,10 +22,44 @@ export const LOG_SOURCE = "oc-sub-cost-proxy";
  */
 export const DEFAULT_UPSTREAM = "https://openrouter.ai/api";
 
+/**
+ * The DeepInfra origin. opencode points the deepinfra provider at
+ * `http://127.0.0.1:PORT/deepinfra/v1`, and its SDK appends
+ * `/openai/chat/completions`. The proxy removes the `/deepinfra` prefix, so
+ * `/deepinfra/v1/openai/chat/completions` goes to
+ * `https://api.deepinfra.com/v1/openai/chat/completions`.
+ */
+export const DEFAULT_DEEPINFRA_UPSTREAM = "https://api.deepinfra.com";
+
+/** The path prefix that selects the DeepInfra upstream. */
+export const DEEPINFRA_PREFIX = "/deepinfra";
+
+/** The name of an upstream, as the `upstream` field of each log line shows it. */
+export type UpstreamName = "openrouter" | "deepinfra";
+
+/**
+ * The upstream of one request path and the URL the proxy fetches. Pure.
+ * Only `/deepinfra` itself and paths below `/deepinfra/` go to DeepInfra, so
+ * a path such as `/deepinfra-x` still goes to OpenRouter.
+ */
+export function routeRequest(
+  pathname: string,
+  search: string,
+  upstream: string,
+  deepinfraUpstream: string,
+): { upstream: UpstreamName; target: string } {
+  if (pathname === DEEPINFRA_PREFIX || pathname.startsWith(`${DEEPINFRA_PREFIX}/`)) {
+    return { upstream: "deepinfra", target: deepinfraUpstream + pathname.slice(DEEPINFRA_PREFIX.length) + search };
+  }
+  return { upstream: "openrouter", target: upstream + pathname + search };
+}
+
 export interface StartProxyOptions {
   port: number;
   hostname?: string;
   upstream?: string;
+  /** The DeepInfra origin; the default is `DEFAULT_DEEPINFRA_UPSTREAM`. */
+  deepinfraUpstream?: string;
   /** Writes one log line per event. Default: `console.log(JSON.stringify(line))`. */
   log?: (line: Record<string, unknown>) => void;
   /** Upstream fetch, injectable for tests. */
@@ -32,6 +68,7 @@ export interface StartProxyOptions {
 
 type RequestState = {
   request: number;
+  upstream: UpstreamName;
   session: string | null;
   parentSession: string | null;
   method: string;
@@ -45,6 +82,7 @@ export function startProxy({
   port,
   hostname = "127.0.0.1",
   upstream = DEFAULT_UPSTREAM,
+  deepinfraUpstream = DEFAULT_DEEPINFRA_UPSTREAM,
   log = (line) => console.log(JSON.stringify(line)),
   fetchImpl = fetch,
 }: StartProxyOptions): Bun.Server<never> {
@@ -62,6 +100,7 @@ export function startProxy({
       event: "end",
       time: new Date().toISOString(),
       request: state.request,
+      upstream: state.upstream,
       session: state.session,
       parentSession: state.parentSession,
       method: state.method,
@@ -96,8 +135,10 @@ export function startProxy({
     idleTimeout: 0,
     async fetch(req) {
       const url = new URL(req.url);
+      const route = routeRequest(url.pathname, url.search, upstream, deepinfraUpstream);
       const state: RequestState = {
         request: nextRequest++,
+        upstream: route.upstream,
         session: req.headers.get("X-Session-Id"),
         parentSession: req.headers.get("x-parent-session-id"),
         method: req.method,
@@ -109,6 +150,7 @@ export function startProxy({
         event: "start",
         time: new Date().toISOString(),
         request: state.request,
+        upstream: state.upstream,
         session: state.session,
         parentSession: state.parentSession,
         method: state.method,
@@ -123,7 +165,7 @@ export function startProxy({
       headers.delete("accept-encoding");
       let res: Response;
       try {
-        res = await fetchImpl(upstream + url.pathname + url.search, {
+        res = await fetchImpl(route.target, {
           method: req.method,
           headers,
           body: req.body,

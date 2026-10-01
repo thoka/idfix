@@ -170,3 +170,32 @@ describe("usageOf", () => {
     });
   });
 });
+
+describe("usageOf with a DeepInfra usage object", () => {
+  test("reads estimated_cost into cost when cost is absent", () => {
+    expect(usageOf({ prompt_tokens: 15, completion_tokens: 16, total_tokens: 31, estimated_cost: 0.0000268 }).cost).toBe(
+      0.0000268,
+    );
+  });
+
+  test("prefers cost over estimated_cost", () => {
+    expect(usageOf({ cost: 0.5, estimated_cost: 0.1 }).cost).toBe(0.5);
+  });
+
+  test("reads estimated_cost from the last chunk of a DeepInfra stream", () => {
+    const tap = createSseTap();
+    tap.push(`data: ${JSON.stringify({ id: "chatcmpl-1", model: "zai-org/GLM-5.3-Flash", choices: [{ delta: { content: "Hi" } }] })}\n\n`);
+    tap.push(
+      `data: ${JSON.stringify({
+        id: "chatcmpl-1",
+        model: "zai-org/GLM-5.3-Flash",
+        choices: [{ delta: {}, finish_reason: "stop" }],
+        usage: { prompt_tokens: 15, completion_tokens: 16, estimated_cost: 0.0000268 },
+      })}\n\ndata: [DONE]\n\n`,
+    );
+    const result = tap.result();
+    expect(result.usage.cost).toBe(0.0000268);
+    expect(result.provider).toBeNull();
+    expect(result.model).toBe("zai-org/GLM-5.3-Flash");
+  });
+});

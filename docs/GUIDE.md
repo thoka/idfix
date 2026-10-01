@@ -220,10 +220,10 @@ In clone mode, the worktree of a run lives only inside the sandbox clone, at `<r
 
 ## Cost proxy
 
-The module `src/proxy/` holds a small pass-through HTTP proxy between opencode and OpenRouter (plan step 11b, research in `docs/research/COST_PROXY.md`). It appends the request path to the upstream URL (default `https://openrouter.ai/api`), so `/v1/chat/completions` goes to `https://openrouter.ai/api/v1/chat/completions`. It streams the response back without buffering, and writes one JSON log line per request to stdout:
+The module `src/proxy/` holds a small pass-through HTTP proxy between opencode and its model providers (plan step 11b, research in `docs/research/COST_PROXY.md`). It appends the request path to the upstream URL (default `https://openrouter.ai/api`), so `/v1/chat/completions` goes to `https://openrouter.ai/api/v1/chat/completions`. A path that starts with `/deepinfra/` goes to DeepInfra instead (see [DeepInfra as a direct provider](#deepinfra-as-a-direct-provider)). It streams the response back without buffering, and writes one JSON log line per request to stdout:
 
-- A `start` line when the request opens: the opencode session (`X-Session-Id` header), the parent session, the method, and the path.
-- An `end` line when the response ends: the status, the latency, the generation id, the provider, the model, the real cost from the last stream chunk (`usage.cost`), the token counts, and the finish reason.
+- A `start` line when the request opens: the upstream (`openrouter` or `deepinfra`), the opencode session (`X-Session-Id` header), the parent session, the method, and the path.
+- An `end` line when the response ends: the upstream, the status, the latency, the generation id, the provider, the model, the real cost from the last stream chunk (`usage.cost` of OpenRouter, or `usage.estimated_cost` of DeepInfra), the token counts, and the finish reason.
 
 The log lines carry the tag `"source":"oc-sub-cost-proxy"`. The proxy never logs the `Authorization` header or any request body, so the key stays out of the log in host mode. For a manual test run: `bun src/proxy/main.ts --port 4097`.
 
@@ -247,6 +247,57 @@ The log lines carry the tag `"source":"oc-sub-cost-proxy"`. The proxy never logs
   ```
 
   The flag works in sandbox mode and in host mode, and the server then calls OpenRouter directly.
+
+## DeepInfra as a direct provider
+
+opencode has a built-in provider `deepinfra`. DeepInfra serves GLM 5.3 Flash (`zai-org/GLM-5.3-Flash`) directly, at about half the price of the OpenRouter providers of oc-sub. `oc-sub up` sets it up for a project when the project has a DeepInfra key file. Without that file, nothing changes.
+
+**Precision risk.** DeepInfra serves GLM 5.3 Flash only in fp4 precision. An fp4 provider was the main suspect of the broken-output incident of 2026-09-28, so the OpenRouter routing of oc-sub excludes fp4 providers. Use DeepInfra for runs whose result you check closely, and compare it with the OpenRouter model. See [DEEPINFRA.md](research/DEEPINFRA.md).
+
+Set it up:
+
+1. Create a DeepInfra API key in the DeepInfra dashboard. Put it into the project key file, next to the OpenRouter key file. The file holds only the key. Never commit it.
+
+   ```
+   ~/.config/<project>/deepinfra.key     # mode 600
+   ```
+
+   `oc-sub doctor` shows the `deepinfra-key` check: a pass with mode 600, a warn with a wider mode (fix: `chmod 600 <file>`), and a skip without the file. The check never reads the key.
+
+2. Start the server again, so that `up` sets DeepInfra up:
+
+   ```
+   oc-sub restart
+   ```
+
+   A recreate of the sandbox also works (`oc-sub doctor --fix --force` for a stale sandbox, or `sbx rm --force oc-sub-<project>` and then `oc-sub up`).
+
+3. Start a run with the DeepInfra model. The model ID has a slash; `--model` splits at the first slash only, so the provider is `deepinfra` and the model is `zai-org/GLM-5.3-Flash`:
+
+   ```
+   oc-sub run --agent coder --dir <worktree> --model deepinfra/zai-org/GLM-5.3-Flash --brief brief.md
+   ```
+
+What `up` does:
+
+- **Sandbox mode.** The real key stays on the host, as with OpenRouter (research: [DEEPINFRA_KEY_PATH.md](research/DEEPINFRA_KEY_PATH.md), option A). Once per sandbox, `up` runs:
+
+  ```
+  sbx policy allow network --sandbox oc-sub-<project> api.deepinfra.com:443
+  sbx secret set-custom --sandbox oc-sub-<project> --host api.deepinfra.com --env DEEPINFRA_API_KEY --placeholder oc-sub-deepinfra-proxy-managed --command 'cat <config>/<project>/deepinfra.key'
+  ```
+
+  The sandbox allows only GET and HEAD to every host, and a model call is a POST, so the DeepInfra API needs its own allow rule. `up` checks `sbx secret ls --sandbox oc-sub-<project>` first and skips both commands when a secret with `deepinfra` in its name is listed. The holder command passes `-e DEEPINFRA_API_KEY=oc-sub-deepinfra-proxy-managed` to the server. The proxy of `sbx` replaces this placeholder with the real key in the request headers of every request to `api.deepinfra.com`.
+- **Host mode** (`up --no-sandbox`). The server gets `DEEPINFRA_API_KEY`: the value of the environment first, else the content of the DeepInfra key file of the project of the current folder.
+- **Cost proxy.** With the proxy on (the default), `OPENCODE_CONFIG_CONTENT` sets `provider.deepinfra.options.baseURL` to `http://127.0.0.1:<proxy port>/deepinfra/v1`. The SDK of opencode appends `/openai/chat/completions`. The proxy sends every path that starts with `/deepinfra/` to `https://api.deepinfra.com` without that prefix, and every other path to OpenRouter. With `--no-cost-proxy`, opencode calls DeepInfra directly.
+
+Where the cost shows: in the proxy log (`serve-<port>.log` in sandbox mode, `proxy-<port>.log` in host mode). Each line has the field `upstream`, `openrouter` or `deepinfra`, so the cost of each provider stays apart. For DeepInfra, the `cost` field comes from `usage.estimated_cost` of the response, in USD. The `provider` field is empty for DeepInfra, because its chunks carry no provider name.
+
+Known gaps:
+
+- The cost estimate of opencode for DeepInfra uses the models.dev prices without the current 50% discount, so it shows about twice the real cost. The proxy log has the real cost.
+- `oc-sub run` still checks the OpenRouter key and reads the real cost from the OpenRouter key usage. A DeepInfra run therefore shows a real cost of about zero there. Read the proxy log, or the DeepInfra dashboard, for the cost of a DeepInfra run.
+- In host mode, one server serves several projects, but it gets the DeepInfra key of one project: the project of the folder where `up` ran.
 
 ## Security
 

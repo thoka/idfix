@@ -15,7 +15,7 @@ import type { CheckResult } from "./doctor";
 import { busySessions, formatBusyLine, isAlive, waitUntilGone } from "./down";
 import { assertUsable, probeServer } from "./client";
 import { resolveServerUrl } from "./config";
-import { gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOfRun } from "./keys";
+import { DEEPINFRA_HOST, DEEPINFRA_PLACEHOLDER, deepinfraKeyPath, gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOfRun } from "./keys";
 import { stateDir, serveDirsPath, serveLogPath, servePidPath, servePluginPath, readPid, readDirs, removeFiles } from "./state";
 import { sharedAgentsDir, sharedConfigEntries } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
@@ -51,6 +51,14 @@ export const NETWORK_DENY_HOSTS = [
  */
 export const EXA_HOST = "mcp.exa.ai:443";
 
+/**
+ * The DeepInfra API with its port, for the network allow rule of a sandbox
+ * with DeepInfra. The sandbox allows only GET and HEAD to every host, and the
+ * model calls are POST requests. The host is public, so the deny list never
+ * matches it.
+ */
+export const DEEPINFRA_NETWORK_HOST = `${DEEPINFRA_HOST}:443`;
+
 const HEALTH_TIMEOUT_MS = 60_000;
 const HEALTH_INTERVAL_MS = 300;
 
@@ -63,6 +71,16 @@ export const SANDBOX_PROXY_PORT = 4097;
 /** The base URL that points the openrouter provider of opencode at the proxy. */
 export function proxyBaseUrl(port: number): string {
   return `http://127.0.0.1:${port}/v1`;
+}
+
+/**
+ * The base URL that points the deepinfra provider of opencode at the proxy.
+ * The SDK `@ai-sdk/deepinfra` appends `/openai/chat/completions` to its base
+ * URL (default `https://api.deepinfra.com/v1`), so the base ends in `/v1`,
+ * not in `/v1/openai`. The proxy removes the `/deepinfra` prefix.
+ */
+export function deepinfraProxyBaseUrl(port: number): string {
+  return `http://127.0.0.1:${port}/deepinfra/v1`;
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -85,9 +103,11 @@ export const SANDBOX_BASH_AGENTS = ["coder", "researcher"] as const;
  * is the boundary.
  *
  * With `proxyUrl`, it also points the openrouter provider at the cost
- * proxy that runs next to the server in the sandbox (step 11c).
+ * proxy that runs next to the server in the sandbox (step 11c). With
+ * `deepinfraProxyUrl`, it points the deepinfra provider at the same proxy
+ * (step 16).
  */
-export function sandboxConfigContent(sharedDir: string, proxyUrl?: string): string {
+export function sandboxConfigContent(sharedDir: string, proxyUrl?: string, deepinfraProxyUrl?: string): string {
   const agents: Record<string, { permission: { bash: string; external_directory: string } }> = {};
   for (const agent of SANDBOX_BASH_AGENTS) {
     agents[agent] = { permission: { bash: "allow", external_directory: "allow" } };
@@ -100,9 +120,24 @@ export function sandboxConfigContent(sharedDir: string, proxyUrl?: string): stri
   return JSON.stringify({
     agent: agents,
     mcp: { "mcp-gateway": { enabled: false } },
-    ...(proxyUrl !== undefined ? { provider: { openrouter: { options: { baseURL: proxyUrl } } } } : {}),
+    ...providerEntries(proxyUrl, deepinfraProxyUrl),
     ...sharedConfigEntries(sharedDir),
   });
+}
+
+/**
+ * The `provider` entry of `OPENCODE_CONFIG_CONTENT` that points the providers
+ * at the cost proxy, or an empty object without any proxy URL. Both server
+ * modes use it.
+ */
+export function providerEntries(
+  proxyUrl?: string,
+  deepinfraProxyUrl?: string,
+): { provider?: Record<string, { options: { baseURL: string } }> } {
+  const provider: Record<string, { options: { baseURL: string } }> = {};
+  if (proxyUrl !== undefined) provider.openrouter = { options: { baseURL: proxyUrl } };
+  if (deepinfraProxyUrl !== undefined) provider.deepinfra = { options: { baseURL: deepinfraProxyUrl } };
+  return Object.keys(provider).length === 0 ? {} : { provider };
 }
 
 /** The name of the sandbox of a project: `oc-sub-<project>`, sanitized. */
@@ -590,6 +625,42 @@ export function listsOpenRouterSecret(stdout: string, name: string): boolean {
 }
 
 /**
+ * Whether the output of `sbx secret ls --sandbox NAME` lists the DeepInfra
+ * custom secret for that scope. The columns are `SCOPE TYPE NAME SECRET`.
+ * The name of a custom secret comes from its host (`api.deepinfra.com`), so
+ * any name that contains `deepinfra` counts.
+ */
+export function listsDeepInfraSecret(stdout: string, name: string): boolean {
+  return stdout.split("\n").some((line) => {
+    const [scope, , secretName] = line.trim().split(/\s+/);
+    return scope === name && secretName !== undefined && secretName.includes("deepinfra");
+  });
+}
+
+/**
+ * The `sbx` command that stores the DeepInfra key as a custom secret of one
+ * sandbox. `sbx` runs `cat` on the host when it needs the value, so the key
+ * never enters the sandbox; the sandbox sees only the placeholder.
+ */
+export function deepinfraSecretCommand(bin: string, name: string, keyPath: string): string[] {
+  return [
+    bin,
+    "secret",
+    "set-custom",
+    "--sandbox",
+    name,
+    "--host",
+    DEEPINFRA_HOST,
+    "--env",
+    "DEEPINFRA_API_KEY",
+    "--placeholder",
+    DEEPINFRA_PLACEHOLDER,
+    "--command",
+    `cat ${shellQuote(keyPath)}`,
+  ];
+}
+
+/**
  * Whether the line of `sbx ls` for the sandbox lists all the mounts. The
  * WORKSPACE column lists the mounts separated by `, `, each with its
  * read-only suffix such as `/home/u/plugin/opencode:ro`.
@@ -996,6 +1067,10 @@ export async function upSandbox(
     return 1;
   }
 
+  // DeepInfra is optional: only a project key file turns it on.
+  const deepinfraKey = deepinfraKeyPath(project, env);
+  const withDeepInfra = await deps.keyExists(deepinfraKey);
+
   const statePath = sandboxStatePath(env, project);
   const existing = readSandboxState(statePath);
 
@@ -1036,6 +1111,7 @@ export async function upSandbox(
   const configContent = sandboxConfigContent(
     sharedDir,
     args.noCostProxy ? undefined : proxyBaseUrl(SANDBOX_PROXY_PORT),
+    args.noCostProxy || !withDeepInfra ? undefined : deepinfraProxyBaseUrl(SANDBOX_PROXY_PORT),
   );
 
   // `sbx create` accepts read-only mounts only with relative paths, so the
@@ -1140,7 +1216,8 @@ export async function upSandbox(
     return 1;
   }
 
-  if (!listsOpenRouterSecret(deps.runner([bin, "secret", "ls", "--sandbox", name]).stdout, name)) {
+  const secrets = deps.runner([bin, "secret", "ls", "--sandbox", name]).stdout;
+  if (!listsOpenRouterSecret(secrets, name)) {
     const set = deps.runner([
       bin,
       "secret",
@@ -1153,6 +1230,26 @@ export async function upSandbox(
     ]);
     if (set.exitCode !== 0) {
       console.error(`error: sbx secret set failed for ${name}`);
+      printStderr(set);
+      return 1;
+    }
+  }
+
+  // DeepInfra (step 16): the key stays on the host as a custom secret of
+  // this sandbox, like the openrouter one. The model calls are POST
+  // requests, and the sandbox allows only GET and HEAD to every host, so the
+  // DeepInfra API gets its own allow rule. Both run once per sandbox: when
+  // the secret is listed, up skips them.
+  if (withDeepInfra && !listsDeepInfraSecret(secrets, name)) {
+    const allow = deps.runner([bin, "policy", "allow", "network", "--sandbox", name, DEEPINFRA_NETWORK_HOST]);
+    if (allow.exitCode !== 0) {
+      console.error(`error: sbx policy allow network for ${DEEPINFRA_NETWORK_HOST} failed for ${name}`);
+      printStderr(allow);
+      return 1;
+    }
+    const set = deps.runner(deepinfraSecretCommand(bin, name, deepinfraKey));
+    if (set.exitCode !== 0) {
+      console.error(`error: sbx secret set-custom for DeepInfra failed for ${name}`);
       printStderr(set);
       return 1;
     }
@@ -1265,6 +1362,9 @@ export async function upSandbox(
       // The tool folders of the project come first, so that the versions of
       // `mise.toml` win over the tools of the sandbox image.
       sandboxToolPathEntry(toolPath),
+      // With DeepInfra, the server gets the placeholder; the proxy of `sbx`
+      // puts the real key into the requests to the DeepInfra API.
+      ...(withDeepInfra ? ["-e", `DEEPINFRA_API_KEY=${DEEPINFRA_PLACEHOLDER}`] : []),
       name,
       ...holderArgs,
     ],

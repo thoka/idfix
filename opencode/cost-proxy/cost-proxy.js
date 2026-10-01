@@ -376,7 +376,7 @@ function usageOf(value) {
   const completionDetails = typeof usage.completion_tokens_details === "object" && usage.completion_tokens_details !== null ? usage.completion_tokens_details : {};
   const promptDetails = typeof usage.prompt_tokens_details === "object" && usage.prompt_tokens_details !== null ? usage.prompt_tokens_details : {};
   return {
-    cost: num(usage.cost),
+    cost: num(usage.cost) ?? num(usage.estimated_cost),
     upstreamCost: num(details.upstream_inference_cost),
     input: num(usage.prompt_tokens),
     output: num(usage.completion_tokens),
@@ -438,11 +438,20 @@ function createSseTap() {
 // src/proxy/proxy.ts
 var LOG_SOURCE = "oc-sub-cost-proxy";
 var DEFAULT_UPSTREAM = "https://openrouter.ai/api";
+var DEFAULT_DEEPINFRA_UPSTREAM = "https://api.deepinfra.com";
+var DEEPINFRA_PREFIX = "/deepinfra";
+function routeRequest(pathname, search, upstream, deepinfraUpstream) {
+  if (pathname === DEEPINFRA_PREFIX || pathname.startsWith(`${DEEPINFRA_PREFIX}/`)) {
+    return { upstream: "deepinfra", target: deepinfraUpstream + pathname.slice(DEEPINFRA_PREFIX.length) + search };
+  }
+  return { upstream: "openrouter", target: upstream + pathname + search };
+}
 var decoder = new TextDecoder;
 function startProxy({
   port,
   hostname = "127.0.0.1",
   upstream = DEFAULT_UPSTREAM,
+  deepinfraUpstream = DEFAULT_DEEPINFRA_UPSTREAM,
   log = (line) => console.log(JSON.stringify(line)),
   fetchImpl = fetch
 }) {
@@ -453,6 +462,7 @@ function startProxy({
       event: "end",
       time: new Date().toISOString(),
       request: state.request,
+      upstream: state.upstream,
       session: state.session,
       parentSession: state.parentSession,
       method: state.method,
@@ -481,8 +491,10 @@ function startProxy({
     idleTimeout: 0,
     async fetch(req) {
       const url = new URL(req.url);
+      const route = routeRequest(url.pathname, url.search, upstream, deepinfraUpstream);
       const state = {
         request: nextRequest++,
+        upstream: route.upstream,
         session: req.headers.get("X-Session-Id"),
         parentSession: req.headers.get("x-parent-session-id"),
         method: req.method,
@@ -494,6 +506,7 @@ function startProxy({
         event: "start",
         time: new Date().toISOString(),
         request: state.request,
+        upstream: state.upstream,
         session: state.session,
         parentSession: state.parentSession,
         method: state.method,
@@ -504,7 +517,7 @@ function startProxy({
       headers.delete("accept-encoding");
       let res;
       try {
-        res = await fetchImpl(upstream + url.pathname + url.search, {
+        res = await fetchImpl(route.target, {
           method: req.method,
           headers,
           body: req.body,
@@ -589,12 +602,14 @@ function argOf(name) {
 var port = Number(argOf("--port") ?? "4097");
 var hostname = argOf("--hostname") ?? "127.0.0.1";
 var upstream = argOf("--upstream");
-var server = startProxy({ port, hostname, upstream });
+var deepinfraUpstream = argOf("--deepinfra-upstream");
+var server = startProxy({ port, hostname, upstream, deepinfraUpstream });
 console.log(JSON.stringify({
   source: "oc-sub-cost-proxy",
   event: "listening",
   time: new Date().toISOString(),
   hostname: server.hostname,
   port: server.port,
-  upstream: upstream ?? DEFAULT_UPSTREAM
+  upstream: upstream ?? DEFAULT_UPSTREAM,
+  deepinfraUpstream: deepinfraUpstream ?? DEFAULT_DEEPINFRA_UPSTREAM
 }));

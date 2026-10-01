@@ -46,6 +46,41 @@ export function projectKeyPath(project: string, env: Env): string {
   return path.join(configHome(env), project, "openrouter.key");
 }
 
+/**
+ * The optional DeepInfra project key file `<configHome>/<project>/deepinfra.key`.
+ * Only when it exists does `up` set DeepInfra up (step 16).
+ */
+export function deepinfraKeyPath(project: string, env: Env): string {
+  return path.join(configHome(env), project, "deepinfra.key");
+}
+
+/** The DeepInfra API host, the target of the custom secret of `sbx`. */
+export const DEEPINFRA_HOST = "api.deepinfra.com";
+
+/**
+ * The value that the sandbox server gets as `DEEPINFRA_API_KEY`. The proxy of
+ * `sbx` replaces it with the real key in the request headers of every request
+ * to `DEEPINFRA_HOST`. One fixed value, so the `-e` option of the holder and
+ * the `--placeholder` of the secret always match.
+ */
+export const DEEPINFRA_PLACEHOLDER = "oc-sub-deepinfra-proxy-managed";
+
+/**
+ * The DeepInfra key for a host server: the environment variable
+ * `DEEPINFRA_API_KEY` first, then the project key file, else undefined. The
+ * same order as the OpenRouter key. The key is never printed or logged.
+ */
+export function hostDeepInfraKey(
+  env: Env,
+  keyFile: string,
+  readText: (file: string) => string | null,
+): string | undefined {
+  const fromEnv = env.DEEPINFRA_API_KEY?.trim();
+  if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
+  const fromFile = readText(keyFile)?.trim();
+  return fromFile !== undefined && fromFile.length > 0 ? fromFile : undefined;
+}
+
 /** The global opencode auth file `<dataHome>/opencode/auth.json`. */
 export function authJsonPath(env: Env): string {
   return path.join(dataHome(env), "opencode", "auth.json");

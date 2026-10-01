@@ -32,6 +32,9 @@ function makeDeps(overrides: Partial<UpDeps> = {}): UpDeps {
     bunBin: () => "/opt/bun/bin/bun",
     spawnServe: () => ({ pid: 1001, exitCode: () => null }),
     spawnProxy: () => ({ pid: 1002, exitCode: () => null }),
+    projectName: () => "test",
+    // No DeepInfra key file unless a test sets one; never the real file.
+    readKeyFile: () => null,
     ...overrides,
   };
 }
@@ -270,5 +273,76 @@ describe("--no-cost-proxy parsing", () => {
   test("rejects a value and stays unknown for other commands", () => {
     expect(() => parseArgs(["up", "--no-cost-proxy=1"])).toThrow(/takes no value/);
     expect(() => parseArgs(["ping", "--no-cost-proxy"])).toThrow(/unknown option/);
+  });
+});
+
+describe("DeepInfra in host mode (step 16)", () => {
+  /** Runs host up and returns the env that the server got. */
+  async function serveEnvOf(
+    env: Record<string, string>,
+    opts: { keyFile?: string; noCostProxy?: boolean } = {},
+  ): Promise<{ serveEnv: Record<string, string | undefined>; readFiles: string[] }> {
+    const readFiles: string[] = [];
+    let serveEnvSeen: Record<string, string | undefined> = {};
+    const deps = makeDeps({
+      readKeyFile: (file) => {
+        readFiles.push(file);
+        return file.endsWith("deepinfra.key") ? (opts.keyFile ?? null) : null;
+      },
+      spawnServe: (_cmd, _log, _pid, serveEnvArg) => {
+        serveEnvSeen = { ...serveEnvArg };
+        return { pid: 1001, exitCode: () => null };
+      },
+    });
+    const result = await up({ port: 8790, noCostProxy: opts.noCostProxy }, env, deps);
+    expect(result).toBe(0);
+    return { serveEnv: serveEnvSeen, readFiles };
+  }
+
+  function providerOf(serve: Record<string, string | undefined>): Record<string, { options: { baseURL: string } }> | undefined {
+    return (JSON.parse(serve.OPENCODE_CONFIG_CONTENT as string) as { provider?: Record<string, { options: { baseURL: string } }> }).provider;
+  }
+
+  test("with the key file, the server gets the key and the deepinfra baseURL of the proxy", async () => {
+    const env = { ...makeEnv(), XDG_CONFIG_HOME: "/cfg" };
+    const { serveEnv: serve, readFiles } = await serveEnvOf(env, { keyFile: "file-key\n" });
+    expect(readFiles).toEqual(["/cfg/test/deepinfra.key"]);
+    expect(serve.DEEPINFRA_API_KEY).toBe("file-key");
+    expect(providerOf(serve)?.deepinfra).toEqual({ options: { baseURL: "http://127.0.0.1:8791/deepinfra/v1" } });
+    expect(providerOf(serve)?.openrouter).toEqual({ options: { baseURL: "http://127.0.0.1:8791/v1" } });
+  });
+
+  test("the environment variable comes first, and the file is not read", async () => {
+    const env = { ...makeEnv(), XDG_CONFIG_HOME: "/cfg", DEEPINFRA_API_KEY: "env-key" };
+    const { serveEnv: serve, readFiles } = await serveEnvOf(env, { keyFile: "file-key" });
+    expect(serve.DEEPINFRA_API_KEY).toBe("env-key");
+    expect(readFiles).toEqual([]);
+    expect(providerOf(serve)?.deepinfra).toBeDefined();
+  });
+
+  test("without the env variable and the key file, nothing changes", async () => {
+    const env = { ...makeEnv(), XDG_CONFIG_HOME: "/cfg" };
+    const { serveEnv: serve } = await serveEnvOf(env);
+    expect(serve.DEEPINFRA_API_KEY).toBeUndefined();
+    expect(providerOf(serve)?.deepinfra).toBeUndefined();
+  });
+
+  test("with --no-cost-proxy, the server gets the key but no proxy baseURL", async () => {
+    const env = { ...makeEnv(), XDG_CONFIG_HOME: "/cfg" };
+    const { serveEnv: serve } = await serveEnvOf(env, { keyFile: "file-key", noCostProxy: true });
+    expect(serve.DEEPINFRA_API_KEY).toBe("file-key");
+    expect(providerOf(serve)).toBeUndefined();
+  });
+
+  test("serveEnv sets the deepinfra entries only with their options", () => {
+    const { env } = serveEnv({ HOME: "/home/u" }, "/plugin/opencode", "/srv/agents", {
+      proxyUrl: "http://127.0.0.1:8791/v1",
+      deepinfraProxyUrl: "http://127.0.0.1:8791/deepinfra/v1",
+      deepinfraKey: "k",
+    });
+    expect(env.DEEPINFRA_API_KEY).toBe("k");
+    expect(providerOf(env)?.deepinfra).toEqual({ options: { baseURL: "http://127.0.0.1:8791/deepinfra/v1" } });
+    const plain = serveEnv({ HOME: "/home/u" }, "/plugin/opencode", "/srv/agents").env;
+    expect(plain.DEEPINFRA_API_KEY).toBeUndefined();
   });
 });

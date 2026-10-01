@@ -1,6 +1,6 @@
-import { proxyBaseUrl } from "../src/sandbox";
+import { deepinfraProxyBaseUrl, proxyBaseUrl } from "../src/sandbox";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { startProxy } from "../src/proxy/proxy";
+import { routeRequest, startProxy } from "../src/proxy/proxy";
 
 // A fake upstream with the real OpenRouter response shapes from
 // docs/research/COST_PROXY.md section 2. It serves on a random port and can
@@ -384,6 +384,81 @@ describe("upstream URL", () => {
       const base = proxyBaseUrl(server.port as number);
       await fetch(`${base}/chat/completions`, { method: "POST", body: "{}" });
       expect(seen).toEqual(["https://openrouter.ai/api/v1/chat/completions"]);
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+describe("DeepInfra routing", () => {
+  test("routeRequest sends /deepinfra/ paths to DeepInfra without the prefix", () => {
+    const or = "https://openrouter.ai/api";
+    const di = "https://api.deepinfra.com";
+    expect(routeRequest("/deepinfra/v1/openai/chat/completions", "?a=1", or, di)).toEqual({
+      upstream: "deepinfra",
+      target: "https://api.deepinfra.com/v1/openai/chat/completions?a=1",
+    });
+    expect(routeRequest("/v1/chat/completions", "", or, di)).toEqual({
+      upstream: "openrouter",
+      target: "https://openrouter.ai/api/v1/chat/completions",
+    });
+    // Only the exact prefix segment selects DeepInfra.
+    expect(routeRequest("/deepinfra-x/v1", "", or, di).upstream).toBe("openrouter");
+  });
+
+  test("one proxy serves both providers and tags each log line with its upstream", async () => {
+    const seen: string[] = [];
+    const lines: LogLine[] = [];
+    const server = startProxy({
+      port: 0,
+      log: (line) => lines.push(structuredClone(line)),
+      fetchImpl: (async (input: string | URL | Request) => {
+        const target = String(input);
+        seen.push(target);
+        const usage = target.includes("deepinfra")
+          ? { prompt_tokens: 15, completion_tokens: 16, total_tokens: 31, estimated_cost: 0.0000268 }
+          : { prompt_tokens: 194, completion_tokens: 2, cost: 0.00123 };
+        return Response.json({ id: "gen-1", model: "m", choices: [{ finish_reason: "stop" }], usage });
+      }) as unknown as typeof fetch,
+    });
+    try {
+      const port = server.port as number;
+      await (await fetch(`${proxyBaseUrl(port)}/chat/completions`, { method: "POST", body: "{}" })).text();
+      // The deepinfra SDK appends /openai/chat/completions to its base URL.
+      await (await fetch(`${deepinfraProxyBaseUrl(port)}/openai/chat/completions`, { method: "POST", body: "{}" })).text();
+      expect(seen).toEqual([
+        "https://openrouter.ai/api/v1/chat/completions",
+        "https://api.deepinfra.com/v1/openai/chat/completions",
+      ]);
+      const ends = lines.filter((line) => line.event === "end");
+      expect(ends.map((line) => [line.upstream, line.cost])).toEqual([
+        ["openrouter", 0.00123],
+        ["deepinfra", 0.0000268],
+      ]);
+      const starts = lines.filter((line) => line.event === "start");
+      expect(starts.map((line) => line.upstream)).toEqual(["openrouter", "deepinfra"]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("never logs the Authorization header of a DeepInfra request", async () => {
+    const lines: LogLine[] = [];
+    const server = startProxy({
+      port: 0,
+      log: (line) => lines.push(structuredClone(line)),
+      fetchImpl: (async () => Response.json({ ok: true })) as unknown as typeof fetch,
+    });
+    try {
+      const port = server.port as number;
+      await (
+        await fetch(`${deepinfraProxyBaseUrl(port)}/openai/chat/completions`, {
+          method: "POST",
+          headers: { Authorization: "Bearer secret-deepinfra-value" },
+          body: "{}",
+        })
+      ).text();
+      expect(JSON.stringify(lines)).not.toContain("secret-deepinfra-value");
     } finally {
       server.stop(true);
     }

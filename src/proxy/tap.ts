@@ -1,10 +1,15 @@
 /**
- * Pure collectors for the fields of an OpenRouter response. The proxy uses
+ * Pure collectors for the fields of an OpenRouter or DeepInfra response. The proxy uses
  * them while the response bytes pass through, without buffering.
  *
  * Facts from docs/research/COST_PROXY.md section 2: every SSE chunk carries a
  * top-level `provider`, and the last chunk carries the `usage` object with
  * `cost` and the token counts. The generation id is the top-level `id`.
+ *
+ * DeepInfra uses the same OpenAI chunk shape, but its `usage` carries the
+ * real cost in USD as `estimated_cost` instead of `cost`, and its chunks
+ * carry no `provider` (docs/research/DEEPINFRA.md section 4). The tap reads
+ * `estimated_cost` into the same `cost` field when `cost` is absent.
  */
 import { createParser } from "eventsource-parser";
 
@@ -57,7 +62,10 @@ function str(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
-/** Reads the fields of one OpenRouter `usage` object, or null. */
+/**
+ * Reads the fields of one `usage` object. The cost is OpenRouter's `cost`,
+ * else DeepInfra's `estimated_cost`, else null.
+ */
 export function usageOf(value: unknown): Usage {
   if (value === null || typeof value !== "object") return { ...EMPTY_USAGE };
   const usage = value as Record<string, unknown>;
@@ -71,7 +79,7 @@ export function usageOf(value: unknown): Usage {
     ? (usage.prompt_tokens_details as Record<string, unknown>)
     : {};
   return {
-    cost: num(usage.cost),
+    cost: num(usage.cost) ?? num(usage.estimated_cost),
     upstreamCost: num(details.upstream_inference_cost),
     input: num(usage.prompt_tokens),
     output: num(usage.completion_tokens),

@@ -11,6 +11,13 @@ describe("splitModel", () => {
     expect(splitModel("a/b/c")).toEqual({ providerID: "a", modelID: "b/c" });
   });
 
+  test("keeps the slash of a DeepInfra model ID in the model ID", () => {
+    expect(splitModel("deepinfra/zai-org/GLM-5.3-Flash")).toEqual({
+      providerID: "deepinfra",
+      modelID: "zai-org/GLM-5.3-Flash",
+    });
+  });
+
   test("rejects a value without a slash", () => {
     expect(() => splitModel("glm")).toThrow("PROVIDER/MODEL");
     expect(() => splitModel("/glm")).toThrow("PROVIDER/MODEL");
@@ -22,6 +29,11 @@ describe("run --model argument", () => {
   test("parses and forwards the model flag", () => {
     const args = parseArgs(["run", "--agent", "coder", "--dir", "/x", "hi", "--model", "openrouter/glm-probe-baseten"]);
     expect(args.command === "run" && args.model).toBe("openrouter/glm-probe-baseten");
+  });
+
+  test("accepts a DeepInfra model with a slash in its model ID", () => {
+    const args = parseArgs(["run", "--agent", "coder", "--dir", "/x", "hi", "--model", "deepinfra/zai-org/GLM-5.3-Flash"]);
+    expect(args.command === "run" && args.model).toBe("deepinfra/zai-org/GLM-5.3-Flash");
   });
 
   test("rejects a model value without a slash", () => {

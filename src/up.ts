@@ -1,13 +1,16 @@
 /** `oc-sub up`: make sure an opencode server answers, start one if needed. */
-import { existsSync, openSync, closeSync, writeFileSync } from "node:fs";
+import { existsSync, openSync, closeSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { resolveTarget, type Env } from "./config";
 import { assertUsable, probeServer, type ServerState } from "./client";
 import { sharedAgentsFile, sharedConfigEntries, sharedAgentsDir } from "./shared";
+import { deepinfraKeyPath, hostDeepInfraKey, projectNameOf } from "./keys";
 import {
   miseInstallsDir,
   bunBinFromInstalls,
+  deepinfraProxyBaseUrl,
+  providerEntries,
   proxyBaseUrl,
   proxyLoopScript,
   spawnDetached,
@@ -48,9 +51,13 @@ export const PLUGIN_CONFIG_DIR = path.resolve(import.meta.dir, "..", "opencode")
  * `OPENCODE_CONFIG_DIR` is set (see docs/research/OPENCODE_RULES.md). So the
  * serve environment also sets `OPENCODE_CONFIG_CONTENT` with the shared rules
  * file in `instructions` and the shared skills folder in `skills.paths`. With
- * `proxyUrl`, it also points the openrouter provider at the cost proxy. An
- * existing `OPENCODE_CONFIG_CONTENT` stays and gives a warning, because the
- * shared entries are then not added.
+ * `proxyUrl`, it also points the openrouter provider at the cost proxy, and
+ * with `deepinfraProxyUrl` the deepinfra provider. An existing
+ * `OPENCODE_CONFIG_CONTENT` stays and gives a warning, because the shared
+ * entries are then not added.
+ *
+ * With `deepinfraKey`, the serve environment sets `DEEPINFRA_API_KEY`, so the
+ * built-in deepinfra provider of opencode has its key (step 16).
  *
  * opencode offers the websearch tool to an OpenRouter model only when
  * `OPENCODE_ENABLE_EXA` is truthy. The researcher needs it to read web pages.
@@ -61,7 +68,7 @@ export function serveEnv(
   env: Env,
   pluginConfigDir: string = PLUGIN_CONFIG_DIR,
   sharedDir: string = sharedAgentsDir(env),
-  opts: { proxyUrl?: string } = {},
+  opts: { proxyUrl?: string; deepinfraProxyUrl?: string; deepinfraKey?: string } = {},
 ): { env: Env; warnings: string[] } {
   const exa = { OPENCODE_ENABLE_EXA: env.OPENCODE_ENABLE_EXA ?? "1" };
   const warnings: string[] = [];
@@ -85,12 +92,12 @@ export function serveEnv(
     );
   } else {
     const content = sharedConfigEntries(sharedDir);
-    withConfigDir.OPENCODE_CONFIG_CONTENT = JSON.stringify(
-      opts.proxyUrl !== undefined
-        ? { ...content, provider: { openrouter: { options: { baseURL: opts.proxyUrl } } } }
-        : content,
-    );
+    withConfigDir.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+      ...content,
+      ...providerEntries(opts.proxyUrl, opts.deepinfraProxyUrl),
+    });
   }
+  if (opts.deepinfraKey !== undefined) withConfigDir.DEEPINFRA_API_KEY = opts.deepinfraKey;
   return { env: { ...withConfigDir, ...exa }, warnings };
 }
 
@@ -106,6 +113,10 @@ export type UpDeps = {
   spawnProxy: (cmd: readonly string[], logPath: string, pidPath: string) => ServeProcess;
   /** The plugin folder that `up` syncs from; the default is `PLUGIN_CONFIG_DIR`. */
   pluginSource?: string;
+  /** The project name of a directory, for the DeepInfra key file. */
+  projectName: (directory: string) => string;
+  /** The content of a key file, or null when it is missing. The tests replace it. */
+  readKeyFile: (file: string) => string | null;
 };
 
 /** The default dependencies, with the real bun from PATH and real spawns. */
@@ -135,6 +146,14 @@ export const defaultUpDeps: UpDeps = {
     return { pid: proc.pid, exitCode: () => proc.exitCode };
   },
   spawnProxy: spawnDetached,
+  projectName: projectNameOf,
+  readKeyFile: (file) => {
+    try {
+      return readFileSync(file, "utf8");
+    } catch {
+      return null;
+    }
+  },
 };
 
 export async function up(
@@ -193,8 +212,18 @@ export async function up(
     return 1;
   }
 
+  // DeepInfra is optional (step 16): `DEEPINFRA_API_KEY` of the environment
+  // first, then the DeepInfra key file of the project of the current folder.
+  // Without either, nothing changes.
+  const deepinfraKey = hostDeepInfraKey(
+    env,
+    deepinfraKeyPath(deps.projectName(process.cwd()), env),
+    deps.readKeyFile,
+  );
   const serve = serveEnv(env, pluginDir, sharedAgentsDir(env), {
     proxyUrl: args.noCostProxy ? undefined : proxyBaseUrl(proxyPort),
+    deepinfraProxyUrl: args.noCostProxy || deepinfraKey === undefined ? undefined : deepinfraProxyBaseUrl(proxyPort),
+    deepinfraKey,
   });
   for (const warning of serve.warnings) console.error(`warning: ${warning}`);
 

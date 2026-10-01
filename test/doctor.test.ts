@@ -130,6 +130,9 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     recreateSandbox: async () => {
       throw new Error("no sandbox may be recreated in this test");
     },
+    // No DeepInfra key file by default, so deepinfra-key skips.
+    deepinfraKeyFile: "/home/u/.config/repo/deepinfra.key",
+    fileMode: () => null,
     ...overrides,
   };
   return deps;
@@ -2014,5 +2017,44 @@ describe("miseToolVersion", () => {
     expect(miseToolVersion('[tools]\nopencode = { version = "1.2.3" }', "opencode")).toBe("1.2.3");
     expect(miseToolVersion('[tools]\nbun = "1"', "opencode")).toBeNull();
     expect(miseToolVersion(null, "opencode")).toBeNull();
+  });
+});
+
+describe("deepinfra-key check (step 16)", () => {
+  test("skips without the key file", () => {
+    const check = byName(results(makeDeps(), SLOW_CHECKS), "deepinfra-key");
+    expect(check?.status).toBe("skip");
+    expect(check?.message).toContain("/home/u/.config/repo/deepinfra.key");
+  });
+
+  test("passes with mode 600", () => {
+    const check = byName(results(makeDeps({}, { fileMode: () => 0o600 }), SLOW_CHECKS), "deepinfra-key");
+    expect(check?.status).toBe("pass");
+    expect(check?.message).toContain("mode 600");
+  });
+
+  test("warns with a wider mode and names chmod 600", () => {
+    const check = byName(results(makeDeps({}, { fileMode: () => 0o644 }), SLOW_CHECKS), "deepinfra-key");
+    expect(check?.status).toBe("warn");
+    expect(check?.message).toContain("mode 644");
+    expect(check?.fix).toBe("chmod 600 /home/u/.config/repo/deepinfra.key");
+  });
+
+  test("only looks at the mode, never at the content", () => {
+    const read: string[] = [];
+    const deps = makeDeps({}, {
+      fileMode: () => 0o600,
+      readText: (file) => {
+        read.push(file);
+        return null;
+      },
+    });
+    byName(results(deps, SLOW_CHECKS), "deepinfra-key");
+    expect(read.filter((file) => file.endsWith("deepinfra.key"))).toEqual([]);
+  });
+
+  test("makeDoctorDeps puts the key file into the config folder of the project", () => {
+    const deps = makeDoctorDeps({ XDG_CONFIG_HOME: "/cfg", HOME: "/home/u" }, "/work/myproj");
+    expect(deps.deepinfraKeyFile).toBe("/cfg/myproj/deepinfra.key");
   });
 });

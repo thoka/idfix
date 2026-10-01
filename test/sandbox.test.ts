@@ -49,7 +49,13 @@ import {
   writeSandboxState,
   type Runner,
   type SandboxDeps,
+  DEEPINFRA_NETWORK_HOST,
+  deepinfraProxyBaseUrl,
+  deepinfraSecretCommand,
+  listsDeepInfraSecret,
+  providerEntries,
 } from "../src/sandbox";
+import { DEEPINFRA_PLACEHOLDER } from "../src/keys";
 import { sharedAgentsDir } from "../src/shared";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
 import { pluginDataDir, pluginDigest, proxyBundleIn } from "../src/plugin-sync";
@@ -132,7 +138,9 @@ function subcommands(calls: Call[]): string[] {
 function makeDeps(overrides: Partial<SandboxDeps> = {}): SandboxDeps {
   return {
     runner: () => ({ stdout: "", exitCode: 0 }),
-    keyExists: () => true,
+    // The openrouter key file exists; the optional DeepInfra key file does
+    // not, so DeepInfra stays off unless a test turns it on.
+    keyExists: (file) => !file.endsWith("deepinfra.key"),
     isPortFree: () => true,
     probe: async () => ({ state: "down" }),
     spawnServe: () => ({ pid: 4242, exitCode: () => null }),
@@ -1465,5 +1473,148 @@ describe("cloneStatus and printStderr", () => {
     printStderr({ stdout: "", exitCode: 1 }, (line) => lines.push(line));
     printStderr({ stdout: "", exitCode: 1, stderr: "  \n" }, (line) => lines.push(line));
     expect(lines).toEqual(["  a", "  b"]);
+  });
+});
+
+describe("DeepInfra in sandbox mode (step 16)", () => {
+  const SECRETS_OPENROUTER = "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n";
+  const SECRETS_BOTH = `${SECRETS_OPENROUTER}oc-sub-test   custom    api.deepinfra.com   (stored)\n`;
+  const PORTS = "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n";
+
+  /** An up of an existing sandbox, with the given secret list and key files. */
+  async function upExisting(opts: { secrets: string; deepinfraKey: boolean; noCostProxy?: boolean }) {
+    const env = makeEnv();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: opts.secrets };
+      if (isSubcommand(cmd, "ports")) return { stdout: PORTS };
+      if (isSubcommand(cmd, "policy") && cmd[2] === "check") return DENIED;
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return { stdout: "", exitCode: 0 };
+    });
+    const holderCommands: string[][] = [];
+    let probes = 0;
+    const result = await upSandbox({ noCostProxy: opts.noCostProxy }, env, makeDeps({
+      runner,
+      keyExists: (file) => opts.deepinfraKey || !file.endsWith("deepinfra.key"),
+      probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
+      spawnServe: (cmd) => {
+        holderCommands.push([...cmd]);
+        return { pid: 4242, exitCode: () => null };
+      },
+    }));
+    return { env, calls, result, holder: holderCommands[0] ?? [] };
+  }
+
+  function configOf(holder: string[]): { provider?: Record<string, { options: { baseURL: string } }> } {
+    const flag = holder.find((arg) => arg.startsWith("OPENCODE_CONFIG_CONTENT=")) ?? "";
+    return JSON.parse(flag.slice("OPENCODE_CONFIG_CONTENT=".length));
+  }
+
+  test("deepinfraProxyBaseUrl ends in /deepinfra/v1, because the SDK appends /openai", () => {
+    expect(deepinfraProxyBaseUrl(4097)).toBe("http://127.0.0.1:4097/deepinfra/v1");
+  });
+
+  test("listsDeepInfraSecret finds the custom secret of the sandbox only", () => {
+    expect(listsDeepInfraSecret(SECRETS_BOTH, "oc-sub-test")).toBe(true);
+    expect(listsDeepInfraSecret(SECRETS_OPENROUTER, "oc-sub-test")).toBe(false);
+    expect(listsDeepInfraSecret(SECRETS_BOTH, "oc-sub-other")).toBe(false);
+    expect(listsDeepInfraSecret("No secrets found.\n", "oc-sub-test")).toBe(false);
+  });
+
+  test("deepinfraSecretCommand scopes the custom secret to the sandbox and the host", () => {
+    expect(deepinfraSecretCommand("sbx", "oc-sub-test", "/home/u/.config/test/deepinfra.key")).toEqual([
+      "sbx", "secret", "set-custom", "--sandbox", "oc-sub-test", "--host", "api.deepinfra.com",
+      "--env", "DEEPINFRA_API_KEY", "--placeholder", DEEPINFRA_PLACEHOLDER,
+      "--command", "cat '/home/u/.config/test/deepinfra.key'",
+    ]);
+  });
+
+  test("providerEntries sets each provider only with its proxy URL", () => {
+    expect(providerEntries()).toEqual({});
+    expect(providerEntries("http://p/v1")).toEqual({ provider: { openrouter: { options: { baseURL: "http://p/v1" } } } });
+    expect(providerEntries("http://p/v1", "http://p/deepinfra/v1")).toEqual({
+      provider: {
+        openrouter: { options: { baseURL: "http://p/v1" } },
+        deepinfra: { options: { baseURL: "http://p/deepinfra/v1" } },
+      },
+    });
+  });
+
+  test("with the key file and no secret, up allows the API host, sets the secret, and passes the placeholder", async () => {
+    const { env, calls, result, holder } = await upExisting({ secrets: SECRETS_OPENROUTER, deepinfraKey: true });
+    expect(result).toBe(0);
+    const keyPath = path.join(env.XDG_CONFIG_HOME as string, "test", "deepinfra.key");
+    const allowIndex = calls.findIndex((call) => call.cmd.includes(DEEPINFRA_NETWORK_HOST));
+    expect(calls[allowIndex]?.cmd).toEqual([
+      "sbx", "policy", "allow", "network", "--sandbox", "oc-sub-test", "api.deepinfra.com:443",
+    ]);
+    expect(calls[allowIndex + 1]?.cmd).toEqual(deepinfraSecretCommand("sbx", "oc-sub-test", keyPath));
+    // The secret list runs once and serves both providers.
+    expect(calls.filter((call) => call.cmd[1] === "secret" && call.cmd[2] === "ls")).toHaveLength(1);
+    // The placeholder goes in with -e, before the sandbox name.
+    const envIndex = holder.indexOf(`DEEPINFRA_API_KEY=${DEEPINFRA_PLACEHOLDER}`);
+    expect(holder[envIndex - 1]).toBe("-e");
+    expect(envIndex).toBeLessThan(holder.indexOf("oc-sub-test"));
+    expect(configOf(holder).provider?.deepinfra).toEqual({
+      options: { baseURL: deepinfraProxyBaseUrl(SANDBOX_PROXY_PORT) },
+    });
+    expect(configOf(holder).provider?.openrouter).toEqual({ options: { baseURL: proxyBaseUrl(SANDBOX_PROXY_PORT) } });
+  });
+
+  test("with the secret listed, up skips the allow rule and the secret", async () => {
+    const { calls, result, holder } = await upExisting({ secrets: SECRETS_BOTH, deepinfraKey: true });
+    expect(result).toBe(0);
+    expect(calls.some((call) => call.cmd.includes("set-custom"))).toBe(false);
+    expect(calls.some((call) => call.cmd.includes(DEEPINFRA_NETWORK_HOST))).toBe(false);
+    expect(holder).toContain(`DEEPINFRA_API_KEY=${DEEPINFRA_PLACEHOLDER}`);
+  });
+
+  test("without the key file, up sets nothing up for DeepInfra", async () => {
+    const { calls, result, holder } = await upExisting({ secrets: SECRETS_OPENROUTER, deepinfraKey: false });
+    expect(result).toBe(0);
+    expect(calls.some((call) => call.cmd.includes("set-custom"))).toBe(false);
+    expect(calls.some((call) => call.cmd.includes(DEEPINFRA_NETWORK_HOST))).toBe(false);
+    expect(holder.some((arg) => arg.startsWith("DEEPINFRA_API_KEY="))).toBe(false);
+    expect(configOf(holder).provider?.deepinfra).toBeUndefined();
+  });
+
+  test("with --no-cost-proxy, opencode calls DeepInfra directly with the placeholder", async () => {
+    const { result, holder } = await upExisting({ secrets: SECRETS_BOTH, deepinfraKey: true, noCostProxy: true });
+    expect(result).toBe(0);
+    expect(holder).toContain(`DEEPINFRA_API_KEY=${DEEPINFRA_PLACEHOLDER}`);
+    expect(configOf(holder).provider).toBeUndefined();
+  });
+
+  test("a failed set-custom stops up before a server starts", async () => {
+    const env = makeEnv();
+    const { runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: SECRETS_OPENROUTER };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "set-custom") return { exitCode: 1, stderr: "unknown flag" };
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return { stdout: "", exitCode: 0 };
+    });
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, env, makeDeps({
+        runner,
+        keyExists: () => true,
+        spawnServe: () => {
+          throw new Error("no server may start");
+        },
+      }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    expect(errors.join("\n")).toContain("set-custom");
+  });
+
+  test("the deny list never matches the DeepInfra API host", () => {
+    for (const host of NETWORK_DENY_HOSTS) expect(DEEPINFRA_NETWORK_HOST.startsWith(host)).toBe(false);
   });
 });

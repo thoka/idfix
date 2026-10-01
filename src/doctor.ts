@@ -7,12 +7,12 @@
  * Every dependency is injected, so the tests use fakes like in
  * `test/sandbox.test.ts`.
  */
-import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, statSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
 import { defaultKvmDeps, execFailedMessage, hostRefsKeepingCommit, KVM_CHMOD_COMMAND, kvmAccessCheck, miseBin as miseBinOf, miseInstallsDir, missingCloneMessage, missingMountsMessage, parseFeatureBranches, parseWorktrees, readSandboxState, RECREATE_REF_FORMAT, recreateSandbox, sandboxName, sandboxRecreateCase, sandboxRecreateFix, sandboxStatePath, defaultRunner, type KvmDeps, type Runner, type SandboxState } from "./sandbox";
-import { projectRootOfRun } from "./keys";
+import { deepinfraKeyPath, projectRootOfRun } from "./keys";
 import { sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
 import { pluginDataDir, pluginDigest, syncPluginDir } from "./plugin-sync";
@@ -110,6 +110,10 @@ export type DoctorDeps = {
    * first, then `sbx rm --force NAME`, then `oc-sub up` (step 15d).
    */
   recreateSandbox: (name: string, root: string, stopServer: boolean) => Promise<FixOutcome>;
+  /** The optional DeepInfra key file of the project (step 16). */
+  deepinfraKeyFile: string;
+  /** The permission bits of a file, or null when it does not exist. Never reads content. */
+  fileMode: (file: string) => number | null;
 };
 
 /** A runner whose child process shares the terminal of this process. */
@@ -227,6 +231,14 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     restartServer: (server) => restartServer(server, env),
     serverBusy: (server) => busyCheck(server, env),
     recreateSandbox: (name, rootDir, stopServer) => recreateSandbox(name, rootDir, stopServer, env),
+    deepinfraKeyFile: deepinfraKeyPath(path.basename(root), env),
+    fileMode: (file) => {
+      try {
+        return statSync(file).mode & 0o777;
+      } catch {
+        return null;
+      }
+    },
   };
   return { ...deps, ...overrides };
 }
@@ -939,6 +951,26 @@ function opencodeReviewCheck(deps: DoctorDeps): CheckResult {
   );
 }
 
+/**
+ * The `deepinfra-key` check: the optional DeepInfra key file of the project.
+ * Absent is a skip (DeepInfra stays off), mode 600 or stricter is a pass, and
+ * a mode that lets the group or other users read it is a warn. It only looks
+ * at the mode and never reads the content.
+ */
+export function deepinfraKeyCheck(deps: DoctorDeps): CheckResult {
+  const file = deps.deepinfraKeyFile;
+  const mode = deps.fileMode(file);
+  if (mode === null) return result("deepinfra-key", "skip", `no DeepInfra key file ${file}; DeepInfra is off`);
+  const octal = mode.toString(8).padStart(3, "0");
+  if ((mode & 0o077) === 0) return result("deepinfra-key", "pass", `${file} exists with mode ${octal}`);
+  return result(
+    "deepinfra-key",
+    "warn",
+    `${file} has mode ${octal}; other users may read the key`,
+    `chmod 600 ${file}`,
+  );
+}
+
 /** The fast checks: `up` and `run` run them on every invocation. */
 export const FAST_CHECKS: Check[] = [
   { name: "env-files", run: envFilesCheck },
@@ -960,6 +992,7 @@ export const SLOW_CHECKS: Check[] = [
   // Before sandbox-mounts: without KVM access, the sandbox cannot start.
   { name: "kvm-access", run: (deps) => kvmAccessCheck(deps.kvm), rootFix: kvmAccessRootFix },
   { name: "sandbox-mounts", run: sandboxMountsCheck, fix: sandboxMountsFix },
+  { name: "deepinfra-key", run: deepinfraKeyCheck },
 ];
 
 /** All checks in their fixed order. */

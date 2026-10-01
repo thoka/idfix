@@ -124,3 +124,7 @@ Five runs of `probe/run.ts --providers deepinfra --runs 5`, pinned to DeepInfra 
 | Z.AI (fp8), 2026-09-30 | 4/4 passed runs | 3.7 s | 19.2 | 28 s | 323 to 466 | $0.0000 to $0.0037 |
 
 The short probe task shows no broken output on fp4. The time to the first token is about twice as long as at Z.AI. The real cost delta of one run is too small to compare: OpenRouter counts a request a minute or two late, so single deltas range from $0 to twice the estimate. The whole probe cost $0.018 at OpenRouter. The probe task is short, but the broken-output incident happened in long runs. So the next measurement is real coder steps on DeepInfra, with the cost summed over the whole run.
+
+## First real coder run on DeepInfra direct (step 16) on 2026-10-01
+
+The coder fixed the flaky `TopView` test with `--model deepinfra/zai-org/GLM-5.3-Flash` (session `ses_f0a2e867fffe79wsa3HWQL0oOf`). It took 2m43s and 21 tool calls, and it named the right cause. The diff was correct, with one redundant line, and the full suite passed (812 of 812). All 20 model requests returned status 200, with no rate limit and no broken output. The proxy log sums the cost to $0.0115 for 270,593 input tokens (155,648 cached) and 2,259 output tokens. The opencode estimate at the Z.AI list price is $0.0230, so DeepInfra costs half. The OpenRouter real cost line shows $0, because the run did not use OpenRouter.

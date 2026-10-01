@@ -23,12 +23,16 @@ The workflow in this project (clone mode):
 
 ### 1. Bugs found on 2026-10-01
 
-- The test "TopView > shows the rows, the detail of the first row, and the footer" in `test/top-view.test.tsx` reads the live servers of the machine. It fails while a real server runs on port 18768. The test must inject the server list.
 - Live test of the `.gitignore` fix (commit e2714c5): the synced folder of this project already holds a copied `.gitignore`, so only the tests prove the fix. The recreate of the other sandboxes (open task of the user) is the live test.
 
-### 2. Step 16: DeepInfra as a direct provider
+### 2. Step 16: DeepInfra as a direct provider, live test
 
-The user bought DeepInfra credits on 2026-10-01. The project key is in `~/.config/opencode-subagents/deepinfra.key`. DeepInfra serves GLM 5.3 Flash only in fp4, for $0.075 input and $0.25 output per million tokens ([DEEPINFRA.md](research/DEEPINFRA.md)). The probe through OpenRouter passed 5 of 5 ([EXPERIENCE.md](EXPERIENCE.md)), but a real run through OpenRouter got 429 from the shared DeepInfra pool of OpenRouter. So oc-sub calls DeepInfra directly with the key of the user. The key stays on the host through `sbx secret set-custom --host api.deepinfra.com` ([DEEPINFRA_KEY_PATH.md](research/DEEPINFRA_KEY_PATH.md)). The cost proxy routes `/deepinfra/` to DeepInfra and logs `usage.estimated_cost`. A Claude subagent implements it in `.worktrees/16-deepinfra-direct`. After the merge, the main thread does the live test: `oc-sub restart`, then two or three real coder runs with `--model deepinfra/zai-org/GLM-5.3-Flash`, with the cost from the proxy log and from `GET /payment/usage/{api_token}`.
+Step 16 is on `alpha`: `up` registers the key from `~/.config/<project>/deepinfra.key` as an `sbx` custom secret for `api.deepinfra.com`, the sandbox sees only a placeholder, and the cost proxy logs `usage.estimated_cost` with `"upstream":"deepinfra"` ([GUIDE.md](GUIDE.md), [DEEPINFRA_KEY_PATH.md](research/DEEPINFRA_KEY_PATH.md)). The first live coder run passed review (see [EXPERIENCE.md](EXPERIENCE.md)). Open:
+
+1. One or two longer coder runs on DeepInfra, because the fp4 incident happened in long runs. Then the user decides whether DeepInfra becomes the default.
+2. `watch` and `log` show a real cost of $0 for a DeepInfra run, because they read the OpenRouter key usage. They must sum the proxy log instead (this joins step 11d).
+3. The opencode estimate uses the undiscounted models.dev price, so it shows twice the real cost.
+4. An existing sandbox gets the network allow rule for `api.deepinfra.com` only together with the first secret set.
 
 ### 3. Step 12: a working mise inside the sandbox
 

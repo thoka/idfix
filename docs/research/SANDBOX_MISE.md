@@ -121,3 +121,79 @@ files are trusted without manual `mise trust`. Verified end-to-end inside a live
 - The `shared_install_dirs` feature is still marked `[experimental]` upstream; behavior
   changes (e.g. manifest handling, PR #13693 layout changes) should be re-checked on mise
   upgrades.
+
+## Findings of step 12 (2026-10-01, tested live in the sandbox)
+
+The step implements the second design: the host mise installs its own version as a tool
+(`mise install mise@<version>` in `upSandbox`), no entry in `mise.toml`. Tested live as
+user `agent` inside a sandbox with the release tarball of mise 2026.9.16 in
+`/tmp/opencode/mise-bin` (deleted after the tests; never in the repository).
+
+### Which home is writable for the server user?
+
+```
+id            # uid=1000(agent) gid=1000(agent) groups=1000(agent),27(sudo),1001(docker)
+echo $HOME    # /home/agent
+ls -ld /home/toka/.local/share    # drwxr-xr-x root root   (not writable for agent)
+ls -ld /home/agent                # drwxr-xr-x agent agent (writable)
+ls -ld /home/agent/.local/share   # drwxr-xr-x agent agent (writable)
+```
+
+The writable home of the sandbox user is `/home/agent`. The plan was right:
+`/home/toka/.local/share` belongs to root inside the sandbox. So the server mise gets
+explicit `MISE_DATA_DIR=/home/agent/.local/share/mise`, `MISE_CACHE_DIR=/home/agent/.cache/mise`,
+and `MISE_STATE_DIR=/home/agent/.local/state/mise` (the mise defaults, pinned so that no
+inherited host value can point into the read-only mount).
+
+### Is a mise binary in the installs mount?
+
+`ls /home/toka/.local/share/mise/installs/mise` failed with "No such file or directory":
+the host of this session has not run the new `up` yet, so no mise is mounted. The live test
+used the downloaded tarball instead.
+
+### Do the planned variables work, and is MISE_EXPERIMENTAL=1 needed?
+
+```
+export PATH=/tmp/opencode/mise-bin/mise/bin:$PATH
+export MISE_DATA_DIR=/tmp/opencode/mise-data
+export MISE_CACHE_DIR=/tmp/opencode/mise-cache
+export MISE_STATE_DIR=/tmp/opencode/mise-state
+export MISE_SHARED_INSTALL_DIRS=/home/toka/.local/share/mise/installs
+unset MISE_EXPERIMENTAL
+cd /home/toka/dv/opencode-subagents/.worktrees/12-sandbox-mise
+mise ls bun
+# bun  1.4.2 (shared)  .../mise.toml  1.4.2   -> host version found, without MISE_EXPERIMENTAL
+mise x ripgrep@latest -- rg --version
+# rg 15.0.0 (printed), downloaded fresh into /tmp/opencode/mise-data/installs/ripgrep
+export MISE_TRUSTED_CONFIG_PATHS=/home/toka/dv/opencode-subagents
+mise env --json >/dev/null
+# no trust error: the worktree mise.toml under the main checkout is trusted
+```
+
+Answers:
+
+- `MISE_EXPERIMENTAL=1` is **not needed**: `MISE_SHARED_INSTALL_DIRS` works without it on
+  mise 2026.9.16 (and the earlier research already saw the same on 2026.9.16).
+- The host installs mount is found read-only and host versions show as `(shared)`.
+- New tools install into the writable data dir; the mount is never written.
+- `MISE_TRUSTED_CONFIG_PATHS=<project root>` trusts the config of the project root and,
+  because mise trusts every config file under a trusted path, also the `mise.toml` of each
+  worktree of the project. No `mise trust` needed.
+
+### Correction after the live host run (2026-10-01, review of step 12)
+
+The tool name `mise` does not exist in the mise tool registry: on the host,
+`mise install mise@2026.9.9` fails with `mise not found in mise tool registry`. The
+working tool name is `aqua:jdx/mise`:
+
+```
+mise install aqua:jdx/mise@2026.9.9
+# puts the binary at <installs>/aqua-jdx-mise/2026.9.9/mise/bin/mise
+mise bin-paths aqua:jdx/mise@2026.9.9
+# prints exactly that bin folder
+```
+
+So `upSandbox` must not build the bin folder from a fixed layout. It installs
+`aqua:jdx/mise@<version>` and asks the host mise with `mise bin-paths` for the bin
+folder; it uses the first line only when it lies inside the installs folder, and warns
+and goes on without sandbox mise otherwise.

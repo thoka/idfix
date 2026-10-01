@@ -16,7 +16,10 @@ import {
   listsName,
   miseBin,
   miseInstallsDir,
+  MISE_TOOL,
   NETWORK_DENY_HOSTS,
+  parseBinPaths,
+  parseMiseVersion,
   parseSandboxState,
   pickPort,
   projectRoot,
@@ -29,6 +32,7 @@ import {
   SANDBOX_PROXY_PORT,
   sandboxConfigContent,
   sandboxHolderScript,
+  sandboxMiseEnv,
   sandboxName,
   sandboxRecreateFix,
   sandboxMountPlan,
@@ -41,7 +45,9 @@ import {
   missingCloneMessage,
   sandboxUrlFor,
   SANDBOX_BASH_AGENTS,
+  SANDBOX_HOME,
   SANDBOX_PATH,
+  sandboxToolPathEntry,
   shellQuote,
   upSandbox,
   usedSandboxPorts,
@@ -111,14 +117,29 @@ const DENIED = { stdout: "Denied: host.docker.internal:8767\n" };
 /** What `git remote` prints in a project whose sandbox is in clone mode. */
 const GIT_REMOTE = { stdout: "origin\nsandbox-oc-sub-test\n" };
 
-/** A fake runner whose answers come from a per-subcommand script. */
-function fakeRunner(answer: (cmd: readonly string[]) => { stdout?: string; exitCode?: number; stderr?: string }): {
+/** The version that the tests report for an unhandled `mise --version`. */
+const MISE_VERSION = "2026.10.1";
+
+/**
+ * A fake runner whose answers come from a per-subcommand script. By default
+ * it answers `mise --version` with a version, so the mise steps of step 12
+ * run in every sandbox test; `miseVersion: null` simulates a host mise
+ * whose version cannot be read.
+ */
+function fakeRunner(
+  answer: (cmd: readonly string[]) => { stdout?: string; exitCode?: number; stderr?: string },
+  opts: { miseVersion?: string | null } = {},
+): {
   calls: Call[];
   runner: Runner;
 } {
   const calls: Call[] = [];
-  const runner: Runner = (cmd, opts) => {
-    calls.push({ cmd: [...cmd], cwd: opts?.cwd });
+  const runner: Runner = (cmd, opts2) => {
+    calls.push({ cmd: [...cmd], cwd: opts2?.cwd });
+    if (cmd[0] === "mise" && cmd[1] === "--version") {
+      if (opts.miseVersion === null) return { stdout: "mise: cannot read the version\n", exitCode: 1, stderr: "" };
+      return { stdout: `${opts.miseVersion ?? MISE_VERSION} linux-x64\n`, exitCode: 0, stderr: "" };
+    }
     const { stdout = "", exitCode = 0, stderr } = answer(cmd);
     return stderr === undefined ? { stdout, exitCode } : { stdout, exitCode, stderr };
   };
@@ -364,6 +385,45 @@ describe("mise helpers", () => {
     expect(projectToolPath("{}", "/installs")).toBe("");
     expect(projectToolPath('{"PATH":"x"}', "/installs")).toBe("");
     expect(projectToolPath('{"PATH":["/installs/a"]}', "/installs")).toBe("");
+  });
+
+  test("parseMiseVersion takes the first version-looking token", () => {
+    expect(parseMiseVersion("2026.10.1 linux-x64\n")).toBe("2026.10.1");
+    expect(parseMiseVersion("2026.10.1 linux-x64 (2026-09-28)\n")).toBe("2026.10.1");
+    expect(parseMiseVersion("v2026.10.1\n")).toBe("2026.10.1");
+    expect(parseMiseVersion("")).toBe(null);
+    expect(parseMiseVersion("warning: something failed\n")).toBe(null);
+    expect(parseMiseVersion("\n")).toBe(null);
+  });
+
+  test("parseBinPaths takes the first non-empty line", () => {
+    expect(parseBinPaths("/installs/aqua-jdx-mise/2026.10.1/mise/bin\n")).toBe(
+      "/installs/aqua-jdx-mise/2026.10.1/mise/bin",
+    );
+    expect(parseBinPaths("\n/other/bin\n/third/bin\n")).toBe("/other/bin");
+    expect(parseBinPaths("")).toBe(null);
+    expect(parseBinPaths("\n  \n")).toBe(null);
+  });
+
+  test("sandboxMiseEnv lists the five mise settings of the server", () => {
+    expect(sandboxMiseEnv("/installs", "/repo")).toEqual([
+      "MISE_SHARED_INSTALL_DIRS=/installs",
+      "MISE_TRUSTED_CONFIG_PATHS=/repo",
+      `MISE_DATA_DIR=${SANDBOX_HOME}/.local/share/mise`,
+      `MISE_CACHE_DIR=${SANDBOX_HOME}/.cache/mise`,
+      `MISE_STATE_DIR=${SANDBOX_HOME}/.local/state/mise`,
+    ]);
+  });
+
+  test("sandboxToolPathEntry puts the project tools first, the mise bin second, and the sandbox PATH last", () => {
+    expect(sandboxToolPathEntry("/installs/bun/1.4.2/bin")).toBe(`PATH=/installs/bun/1.4.2/bin:${SANDBOX_PATH}`);
+    expect(sandboxToolPathEntry("/installs/bun/1.4.2/bin", "/installs/mise/2026.10.1/bin")).toBe(
+      `PATH=/installs/bun/1.4.2/bin:/installs/mise/2026.10.1/bin:${SANDBOX_PATH}`,
+    );
+    expect(sandboxToolPathEntry("", "/installs/mise/2026.10.1/bin")).toBe(
+      `PATH=/installs/mise/2026.10.1/bin:${SANDBOX_PATH}`,
+    );
+    expect(sandboxToolPathEntry("")).toBe(`PATH=${SANDBOX_PATH}`);
   });
 
   test("deniesNetwork reads the first line of the policy check", () => {
@@ -716,7 +776,7 @@ describe("cost proxy wiring (sandbox mode)", () => {
     expect(errors.join("\n")).toContain("no bun in the mise installs folder");
     expect(errors.join("\n")).toContain("--no-cost-proxy");
     // The bun check runs right after `mise env`, before any sandbox call.
-    expect(subcommands(calls)).toEqual(["mise", "mise"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise"]);
   });
 });
 
@@ -765,7 +825,7 @@ describe("upSandbox", () => {
     }
     expect(result).toBe(1);
     expect(errors.join("\n")).toContain(`sbx rm --force oc-sub-test`);
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls"]);
   });
 
   test("a failed readability check of the shared rules stops up before the server starts", async () => {
@@ -813,7 +873,7 @@ describe("upSandbox", () => {
     });
     const result = await upSandbox({}, env, makeDeps({ runner, probe: async () => ({ state: "up", version: "1.18.32" }) }));
     expect(result).toBe(0);
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec", "git", "secret", "exec", "ports", "ports", "ports", "policy", "policy", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "exec", "git", "secret", "exec", "ports", "ports", "ports", "policy", "policy", "exec"]);
   });
 
   test("a publish that fails without the port in a second list is an error", async () => {
@@ -841,7 +901,7 @@ describe("upSandbox", () => {
     });
     const result = await upSandbox({}, env, makeDeps({ runner }));
     expect(result).toBe(1);
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec", "git", "secret", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "exec", "git", "secret", "exec"]);
   });
 
   test("refuses without the project key file and calls no sbx", async () => {
@@ -880,6 +940,11 @@ describe("upSandbox", () => {
       if (cmd[0] === "mise" && cmd[1] === "env") {
         return { stdout: JSON.stringify({ PATH: `${toolBin}:/usr/local/bin` }) };
       }
+      // `mise bin-paths aqua:jdx/mise@<version>`: the bin folder of the
+      // installed mise, inside the installs folder.
+      if (cmd[0] === "mise" && cmd[1] === "bin-paths") {
+        return { stdout: `${miseInstallsDir(env)}/aqua-jdx-mise/${MISE_VERSION}/mise/bin\n` };
+      }
       if (isSubcommand(cmd, "policy") && cmd[2] === "check") return DENIED;
       if (cmd[0] === "git") return GIT_REMOTE;
       return { stdout: "", exitCode: 0 };
@@ -896,7 +961,7 @@ describe("upSandbox", () => {
     expect(result).toBe(1);
 
     expect(subcommands(calls)).toEqual([
-      "mise", "mise", "ls", "create", "policy", "policy", "policy", "exec", "git",
+      "mise", "mise", "mise", "mise", "mise", "ls", "create", "policy", "policy", "policy", "exec", "git",
       "secret", "secret", "exec", "ports", "ports", "policy", "policy", "exec",
     ]);
     // `mise install` and `mise env` run in the project root.
@@ -904,10 +969,14 @@ describe("upSandbox", () => {
     expect(calls[0]?.cwd).toBe("/repo");
     expect(calls[1]?.cmd).toEqual([miseBin(env), "env", "-C", "/repo", "--json"]);
     expect(calls[1]?.cwd).toBe("/repo");
+    // Step 12: the mise of the sandbox follows the version of the host mise.
+    expect(calls[2]?.cmd).toEqual([miseBin(env), "--version"]);
+    expect(calls[3]?.cmd).toEqual([miseBin(env), "install", `${MISE_TOOL}@${MISE_VERSION}`]);
+    expect(calls[4]?.cmd).toEqual([miseBin(env), "bin-paths", `${MISE_TOOL}@${MISE_VERSION}`]);
     // The create runs with the working directory `/` and mounts the plugin
     // folder, the mise installs folder, and the shared agents folder
     // read-only, all relative from `/`.
-    expect(calls[3]?.cmd).toEqual([
+    expect(calls[6]?.cmd).toEqual([
       "sbx",
       "create",
       "--clone",
@@ -919,21 +988,21 @@ describe("upSandbox", () => {
       `${relativeMount("/", miseInstallsDir(env))}:ro`,
       `${relativeMount("/", sharedAgentsDir(env))}:ro`,
     ]);
-    expect(calls[3]?.cwd).toBe("/");
-    expect(calls[4]?.cmd).toEqual([
+    expect(calls[6]?.cwd).toBe("/");
+    expect(calls[7]?.cmd).toEqual([
       "sbx", "policy", "allow", "network", "--sandbox", "oc-sub-test", "**", "--method", "GET,HEAD",
     ]);
-    expect(calls[5]?.cmd).toEqual([
+    expect(calls[8]?.cmd).toEqual([
       "sbx", "policy", "allow", "network", "--sandbox", "oc-sub-test", EXA_HOST,
     ]);
-    expect(calls[6]?.cmd).toEqual([
+    expect(calls[9]?.cmd).toEqual([
       "sbx", "policy", "deny", "network", "--sandbox", "oc-sub-test", NETWORK_DENY_HOSTS.join(","),
     ]);
     // The clone check runs right after the create and its network rules.
-    expect(calls[7]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "git", "-C", "/repo", "rev-parse", "--git-dir"]);
+    expect(calls[10]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "git", "-C", "/repo", "rev-parse", "--git-dir"]);
     // The clone mode check follows the clone check.
-    expect(calls[8]?.cmd).toEqual(["git", "-C", "/repo", "remote"]);
-    expect(calls[10]?.cmd).toEqual([
+    expect(calls[11]?.cmd).toEqual(["git", "-C", "/repo", "remote"]);
+    expect(calls[13]?.cmd).toEqual([
       "sbx",
       "secret",
       "set",
@@ -943,13 +1012,13 @@ describe("upSandbox", () => {
       "--command",
       `cat ${shellQuote(path.join(env.XDG_CONFIG_HOME as string, "test", "openrouter.key"))}`,
     ]);
-    expect(calls[11]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "sh", "-c", placeholderKeyScript("test")]);
-    expect(calls[13]?.cmd).toEqual(["sbx", "ports", "oc-sub-test", "--publish", "18768:4096"]);
+    expect(calls[14]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "sh", "-c", placeholderKeyScript("test")]);
+    expect(calls[16]?.cmd).toEqual(["sbx", "ports", "oc-sub-test", "--publish", "18768:4096"]);
     // The checks of the network rules, before the server starts.
-    expect(calls[14]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "host.docker.internal:8767"]);
-    expect(calls[15]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "localhost:8767"]);
+    expect(calls[17]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "host.docker.internal:8767"]);
+    expect(calls[18]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "localhost:8767"]);
     // The readability check of the shared rules, before the server starts.
-    expect(calls[16]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "test", "-r", `${sharedAgentsDir(env)}/AGENTS.md`]);
+    expect(calls[19]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "test", "-r", `${sharedAgentsDir(env)}/AGENTS.md`]);
     expect(execCommands).toEqual([[
       "sbx",
       "exec",
@@ -962,7 +1031,10 @@ describe("upSandbox", () => {
       "-e",
       "OPENCODE_ENABLE_EXA=1",
       "-e",
-      `PATH=${toolBin}:${SANDBOX_PATH}`,
+      `PATH=${toolBin}:${miseInstallsDir(env)}/aqua-jdx-mise/${MISE_VERSION}/mise/bin:${SANDBOX_PATH}`,
+      // The mise of the sandbox: the host installs read-only, trust for the
+      // project root, and writable state folders in the sandbox home.
+      ...sandboxMiseEnv(miseInstallsDir(env), "/repo").flatMap((entry) => ["-e", entry]),
       "oc-sub-test",
       "sh",
       "-c",
@@ -971,6 +1043,125 @@ describe("upSandbox", () => {
     // The state file holds the name, the root, and the port.
     const state = readSandboxState(sandboxStatePath(env, "test"));
     expect(state).toEqual({ name: "oc-sub-test", root: "/repo", port: 18768 });
+  });
+
+  test("a mise whose version cannot be read warns and installs no sandbox mise", async () => {
+    const env = makeEnv();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "github\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "" };
+      if (cmd[0] === "mise" && cmd[1] === "env") {
+        return { stdout: JSON.stringify({ PATH: `${miseInstallsDir(env)}/bun/1.4.2/bin:/usr/local/bin` }) };
+      }
+      if (isSubcommand(cmd, "policy") && cmd[2] === "check") return DENIED;
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return { stdout: "", exitCode: 0 };
+    }, { miseVersion: null });
+    const holderArgs: string[][] = [];
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, env, makeDeps({
+        runner,
+        spawnServe: (cmd) => {
+          holderArgs.push([...cmd]);
+          return { pid: 4242, exitCode: () => 1 };
+        },
+      }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    expect(errors.join("\n")).toContain("the sandbox gets no mise");
+    // No `mise install mise@<version>`: the version is missing.
+    expect(calls.filter((call) => call.cmd[0] === "mise").map((call) => call.cmd[1])).toEqual([
+      "install", "env", "--version",
+    ]);
+    // The PATH entry of the holder has no mise folder, but the mise settings
+    // of the server are still there (mise may exist in the sandbox image).
+    const envArgs = holderArgs[0]?.filter((arg, i) => holderArgs[0]?.[i - 1] === "-e") ?? [];
+    expect(envArgs.some((arg) => arg.startsWith("PATH=") && arg.includes("mise/2026"))).toBe(false);
+    expect(envArgs).toContain("MISE_SHARED_INSTALL_DIRS=" + miseInstallsDir(env));
+  });
+
+  test("a failed mise install warns and goes on without sandbox mise", async () => {
+    const env = makeEnv();
+    const { calls, runner } = fakeRunner((cmd) => {
+      if (cmd[0] === "mise" && cmd[1] === "install" && cmd[2] !== undefined) {
+        return { stdout: "", exitCode: 1, stderr: "mise: download failed\n" };
+      }
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "github\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "" };
+      if (cmd[0] === "mise" && cmd[1] === "env") {
+        return { stdout: JSON.stringify({ PATH: `${miseInstallsDir(env)}/bun/1.4.2/bin:/usr/local/bin` }) };
+      }
+      if (isSubcommand(cmd, "policy") && cmd[2] === "check") return DENIED;
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return { stdout: "", exitCode: 0 };
+    });
+    const holderArgs: string[][] = [];
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, env, makeDeps({
+        runner,
+        spawnServe: (cmd) => {
+          holderArgs.push([...cmd]);
+          return { pid: 4242, exitCode: () => 1 };
+        },
+      }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    expect(errors.join("\n")).toContain(`mise install ${MISE_TOOL}@${MISE_VERSION} failed`);
+    expect(errors.join("\n")).toContain("mise: download failed");
+    const envArgs = holderArgs[0]?.filter((arg, i) => holderArgs[0]?.[i - 1] === "-e") ?? [];
+    expect(envArgs.some((arg) => arg.startsWith("PATH=") && arg.includes("mise/2026"))).toBe(false);
+  });
+
+  test("a bin folder of mise outside the installs folder warns and goes on", async () => {
+    const env = makeEnv();
+    const { runner } = fakeRunner((cmd) => {
+      if (cmd[0] === "mise" && cmd[1] === "bin-paths") {
+        return { stdout: "/opt/other-mise/aqua-jdx-mise/bin\n" };
+      }
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "github\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "" };
+      if (cmd[0] === "mise" && cmd[1] === "env") {
+        return { stdout: JSON.stringify({ PATH: `${miseInstallsDir(env)}/bun/1.4.2/bin:/usr/local/bin` }) };
+      }
+      if (isSubcommand(cmd, "policy") && cmd[2] === "check") return DENIED;
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return { stdout: "", exitCode: 0 };
+    });
+    const holderArgs: string[][] = [];
+    const errors: string[] = [];
+    const err = console.error;
+    console.error = (line: string) => errors.push(line);
+    let result: number;
+    try {
+      result = await upSandbox({}, env, makeDeps({
+        runner,
+        spawnServe: (cmd) => {
+          holderArgs.push([...cmd]);
+          return { pid: 4242, exitCode: () => 1 };
+        },
+      }));
+    } finally {
+      console.error = err;
+    }
+    expect(result).toBe(1);
+    expect(errors.join("\n")).toContain("lies outside the installs folder");
+    const envArgs = holderArgs[0]?.filter((arg, i) => holderArgs[0]?.[i - 1] === "-e") ?? [];
+    expect(envArgs.some((arg) => arg.startsWith("PATH=") && arg.includes("/opt/other-mise"))).toBe(false);
   });
 
   test("an existing sandbox without the installs mount stops up with a hint", async () => {
@@ -998,7 +1189,7 @@ describe("upSandbox", () => {
     expect(errors.join("\n")).toContain("oc-sub up");
     expect(errors.join("\n")).not.toContain("--sandbox");
     // No secret, no exec, no server.
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls"]);
   });
 
   test("a stopped clone-mode sandbox passes, because its start adds the remote again", async () => {
@@ -1022,7 +1213,7 @@ describe("upSandbox", () => {
       console.error = err;
     }
     expect(errors.join("\n")).not.toContain("not in clone mode");
-    expect(subcommands(calls).slice(0, 5)).toEqual(["mise", "mise", "ls", "exec", "git"]);
+    expect(subcommands(calls).slice(0, 8)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "exec", "git"]);
   });
 
   test("an existing direct-mount sandbox without the clone remote stops up with a hint", async () => {
@@ -1051,7 +1242,7 @@ describe("upSandbox", () => {
     expect(text).toContain("sbx rm --force oc-sub-test");
     expect(text).toContain("oc-sub up");
     // No secret, no exec, no server.
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec", "git"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "exec", "git"]);
   });
 
   test("an allowed policy check stops up before the server starts", async () => {
@@ -1071,7 +1262,7 @@ describe("upSandbox", () => {
     };
     const result = await upSandbox({}, env, makeDeps({ runner, spawnServe }));
     expect(result).toBe(1);
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec", "git", "secret", "exec", "ports", "policy"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "exec", "git", "secret", "exec", "ports", "policy"]);
   });
 
   test("a failed mise install stops up before any sbx call", async () => {
@@ -1120,7 +1311,7 @@ describe("upSandbox", () => {
     } finally {
       console.log = log;
     }
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec", "git", "secret", "exec", "ports", "policy", "policy", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "exec", "git", "secret", "exec", "ports", "policy", "policy", "exec"]);
     expect(output).toContain("http://127.0.0.1:18799 version 1.18.32");
     expect(output.join("\n")).not.toContain("OC_SUB_URL");
     expect(output.join("\n")).toContain("sandbox: oc-sub-test");
@@ -1277,6 +1468,10 @@ describe("upSandbox", () => {
       if (isSubcommand(cmd, "ls")) return { stdout: "other-sb\n" };
       // `sbx create` exits 0, but the clone check fails inside.
       if (isSubcommand(cmd, "exec") && cmd[3] === "git") return { stdout: "", exitCode: 128 };
+      // The mise of the sandbox installs without a warning.
+      if (cmd[0] === "mise" && cmd[1] === "bin-paths") {
+        return { stdout: `${miseInstallsDir(env)}/aqua-jdx-mise/${MISE_VERSION}/mise/bin\n` };
+      }
       return { stdout: "", exitCode: 0 };
     });
     const spawnServe = () => {
@@ -1298,7 +1493,7 @@ describe("upSandbox", () => {
     ]);
     expect(errors.join("\n")).toContain("sbx rm --force oc-sub-test");
     // No secret, no port, no server after the failed check.
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "create", "policy", "policy", "policy", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "create", "policy", "policy", "policy", "exec"]);
   });
 
   test("an existing sandbox without a clone stops up with the sbx rm --force fix", async () => {
@@ -1321,7 +1516,7 @@ describe("upSandbox", () => {
     expect(result).toBe(1);
     expect(errors.join("\n")).toContain("has no git clone at /repo");
     expect(errors.join("\n")).toContain("sbx rm --force oc-sub-test");
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "exec"]);
   });
 });
 
@@ -1429,7 +1624,7 @@ describe("the KVM gate and the stderr of sbx in upSandbox", () => {
     expect(text).toContain("error: sbx create failed for oc-sub-test");
     expect(text).toContain(`  ${SBX_START_ERROR}`);
     expect(text).toContain("sbx diagnose");
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "create"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "create"]);
   });
 
   test("a failed sbx exec of the clone check prints its stderr, not \"has no git clone\"", async () => {
@@ -1445,7 +1640,7 @@ describe("the KVM gate and the stderr of sbx in upSandbox", () => {
     expect(text).not.toContain("sbx rm --force");
     expect(text).toContain(SBX_START_ERROR);
     expect(text).toContain("sbx diagnose");
-    expect(subcommands(calls)).toEqual(["mise", "mise", "ls", "exec"]);
+    expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "exec"]);
   });
 });
 

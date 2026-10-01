@@ -435,13 +435,79 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+/** The home of the sandbox user; `SANDBOX_PATH` already hardcodes it. */
+export const SANDBOX_HOME = "/home/agent";
+
 /**
  * The PATH entry that puts the tool folders of the project in front of the
  * sandbox PATH. `upSandbox` (the holder command) and `worktree` (the setup
  * command) use it, so both find the mise tools of the project.
+ *
+ * `miseBinDir` is optional: the bin folder of the sandbox mise (step 12). It
+ * sits after the tool folders of the project and before the sandbox PATH, so
+ * a version of the project `mise.toml` wins over the sandbox mise, and the
+ * sandbox mise wins over a tool of the sandbox image.
  */
-export function sandboxToolPathEntry(toolPath: string): string {
-  return `PATH=${toolPath ? `${toolPath}:` : ""}${SANDBOX_PATH}`;
+export function sandboxToolPathEntry(toolPath: string, miseBinDir?: string): string {
+  const start = toolPath ? `${toolPath}:` : "";
+  const miseDir = miseBinDir ? `${miseBinDir}:` : "";
+  return `PATH=${start}${miseDir}${SANDBOX_PATH}`;
+}
+
+/**
+ * The name of mise in the mise tool registry. A plain `mise install
+ * mise@<version>` fails ("mise not found in mise tool registry"); the tool
+ * comes from the aqua backend.
+ */
+export const MISE_TOOL = "aqua:jdx/mise";
+
+/**
+ * The first version-looking token of the output of `mise --version`, for
+ * example `2026.10.1` from `2026.10.1 linux-x64`. Null when the output holds
+ * no such token, so that a warning or a git hash alone never installs mise.
+ */
+export function parseMiseVersion(stdout: string): string | null {
+  for (const token of stdout.trim().split(/\s+/)) {
+    if (/^v?\d+[\w.-]*$/.test(token)) return token.replace(/^v/, "");
+  }
+  return null;
+}
+
+/**
+ * The first non-empty line of the output of `mise bin-paths <tool>@<version>`,
+ * for example `<installs>/aqua-jdx-mise/<version>/mise/bin`. Null when the
+ * output holds no path. Pure.
+ */
+export function parseBinPaths(stdout: string): string | null {
+  const line = stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  return line ?? null;
+}
+
+/**
+ * The extra `-e` entries of the holder command that give the sandbox mise
+ * its settings (step 12): the read-only shared installs of the host, trust
+ * for the `mise.toml` of the project (and, with the shared trust folder
+ * semantics of mise, of its worktrees), and writable state folders in the
+ * home of the sandbox user, so mise never writes to the read-only mount.
+ * The defaults of mise already point to the home, but an explicit value
+ * wins over any inherited host value. mise trusts every config file under
+ * a trusted path, so the `mise.toml` of the project root also covers the
+ * `mise.toml` of each worktree of the project. `MISE_EXPERIMENTAL` is not
+ * needed: `shared_install_dirs` works without it (tested live, see
+ * docs/research/SANDBOX_MISE.md).
+ */
+export function sandboxMiseEnv(installsDir: string, projectRoot: string): string[] {
+  const homeData = `${SANDBOX_HOME}/.local/share/mise`;
+  return [
+    `MISE_SHARED_INSTALL_DIRS=${installsDir}`,
+    `MISE_TRUSTED_CONFIG_PATHS=${projectRoot}`,
+    `MISE_DATA_DIR=${homeData}`,
+    `MISE_CACHE_DIR=${SANDBOX_HOME}/.cache/mise`,
+    `MISE_STATE_DIR=${SANDBOX_HOME}/.local/state/mise`,
+  ];
 }
 
 /**
@@ -1078,7 +1144,7 @@ export async function upSandbox(
   // The tools of the project come from the mise of the host. The install
   // runs first, so that every tool of `mise.toml` exists. Then `mise env`
   // gives the tool folders of the project, and the holder command puts them
-  // at the start of the sandbox PATH. mise itself is not needed inside.
+  // at the start of the sandbox PATH.
   const mise = miseBin(env);
   const install = deps.runner([mise, "install"], { cwd: root });
   if (install.exitCode !== 0) {
@@ -1088,6 +1154,36 @@ export async function upSandbox(
   }
   const installsDir = miseInstallsDir(env);
   const toolPath = projectToolPath(deps.runner([mise, "env", "-C", root, "--json"], { cwd: root }).stdout, installsDir);
+
+  // mise inside the sandbox is a comfort, not a must (step 12): an agent can
+  // run `mise x <tool>@latest -- <cmd>` there and install a tool it needs.
+  // up asks the host mise for its version and installs that exact version as
+  // the tool `aqua:jdx/mise` in the shared installs folder, which the sandbox
+  // mounts read-only. The bin folder comes from `mise bin-paths` and must lie
+  // inside the installs folder. On any failure it prints a warning and goes
+  // on without sandbox mise.
+  const version = parseMiseVersion(deps.runner([mise, "--version"]).stdout);
+  let miseBinDir: string | undefined;
+  if (version === null) {
+    console.error(`warning: cannot read the version of "${mise}" with mise --version, the sandbox gets no mise`);
+  } else {
+    const miseInstall = deps.runner([mise, "install", `${MISE_TOOL}@${version}`], { cwd: root });
+    if (miseInstall.exitCode !== 0) {
+      console.error(`warning: mise install ${MISE_TOOL}@${version} failed, the sandbox gets no mise`);
+      printStderr(miseInstall);
+    } else {
+      const binDir = parseBinPaths(deps.runner([mise, "bin-paths", `${MISE_TOOL}@${version}`]).stdout);
+      if (binDir === null) {
+        console.error(`warning: mise bin-paths prints no bin folder for ${MISE_TOOL}@${version}, the sandbox gets no mise`);
+      } else if (!isInsideRoot(binDir, installsDir)) {
+        console.error(
+          `warning: the bin folder ${binDir} of ${MISE_TOOL}@${version} lies outside the installs folder ${installsDir}, the sandbox gets no mise`,
+        );
+      } else {
+        miseBinDir = binDir;
+      }
+    }
+  }
 
   // The cost proxy runs next to the server in the sandbox, from the bundle
   // inside the mounted plugin folder. Its bun comes from the mounted mise
@@ -1361,8 +1457,13 @@ export async function upSandbox(
       "OPENCODE_ENABLE_EXA=1",
       "-e",
       // The tool folders of the project come first, so that the versions of
-      // `mise.toml` win over the tools of the sandbox image.
-      sandboxToolPathEntry(toolPath),
+      // `mise.toml` win over the tools of the sandbox image. The mise of the
+      // sandbox (if installed) follows, so it wins over a tool of the image.
+      // With `sandboxMiseEnv`, the server runs a mise that sees the host
+      // versions read-only, trusts the project `mise.toml`, and installs new
+      // tools into its own home.
+      sandboxToolPathEntry(toolPath, miseBinDir),
+      ...sandboxMiseEnv(installsDir, root).flatMap((entry) => ["-e", entry]),
       // With DeepInfra, the server gets the placeholder; the proxy of `sbx`
       // puts the real key into the requests to the DeepInfra API.
       ...(withDeepInfra ? ["-e", `DEEPINFRA_API_KEY=${DEEPINFRA_PLACEHOLDER}`] : []),

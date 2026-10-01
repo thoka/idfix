@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   answerSchema,
+  buildDecisionsRequestBody,
   buildRequestBody,
+  decisionsResultLine,
+  DEFAULT_DECISIONS_MODEL,
+  formatDecisionsResult,
   formatResult,
+  probeDecisions,
   probeSlug,
   readKey,
   resultLine,
@@ -126,5 +131,101 @@ describe("probe/jev.ts", () => {
     expect(ok).toContain("Content: hi");
     expect(ok).toContain("Generation cost: $0.004200");
     expect(ok).not.toContain(KEY);
+  });
+});
+
+describe("probe/jev.ts decisions mode", () => {
+  const DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions";
+
+  test("buildDecisionsRequestBody uses the default model and the example state and questions", () => {
+    expect(DEFAULT_DECISIONS_MODEL).toBe("typesafe/jev-1.13");
+    const body = buildDecisionsRequestBody(DEFAULT_DECISIONS_MODEL) as Record<string, unknown>;
+    expect(body.model).toBe("typesafe/jev-1.13");
+    const state = body.state as Record<string, string>;
+    expect(state.tool_call).toContain("ls src");
+    expect(state.claim).toContain("only test files");
+    const questions = body.questions as Record<string, { type: string }>;
+    expect(questions.tag.type).toBe("choice");
+    expect(Object.keys(questions.tag.criteria as object)).toEqual(["ok", "wasted", "wrong-tool", "ungrounded-claim"]);
+    expect(questions.claim_supported.type).toBe("noul");
+  });
+
+  test("probeDecisions sends the request to the decisions URL with the body and no key leak", async () => {
+    let url = "";
+    let headers: Record<string, string> = {};
+    let sentBody = "";
+    const fetch = (async (u: string | URL | Request, init?: RequestInit) => {
+      url = String(u);
+      headers = (init?.headers ?? {}) as Record<string, string>;
+      sentBody = String(init?.body);
+      return new Response(
+        JSON.stringify({
+          id: "gen-dec-1",
+          model: "typesafe/jev-1.13-20260917",
+          provider: "TypeSafe",
+          answers: {
+            tag: { type: "choice", choice: "ungrounded-claim", confidence: 0.81, probabilities: { ok: 0.05, wasted: 0.04, "wrong-tool": 0.1, "ungrounded-claim": 0.81 } },
+            claim_supported: { type: "noul", noul: 0.12 },
+          },
+          usage: { input_tokens: 300, output_tokens: 40, cost: 0.0000126 },
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+    const result = await probeDecisions(DEFAULT_DECISIONS_MODEL, KEY, fetch);
+    expect(url).toBe(DECISIONS_URL);
+    expect(headers.Authorization).toBe(`Bearer ${KEY}`);
+    expect(JSON.parse(sentBody)).toEqual(buildDecisionsRequestBody(DEFAULT_DECISIONS_MODEL));
+    expect(result.status).toBe(200);
+    expect(result.errorText).toBeNull();
+    const body = result.body as { answers: Record<string, { choice?: string; noul?: number }>; usage: { cost: number } };
+    expect(body.answers.tag.choice).toBe("ungrounded-claim");
+    expect(body.answers.claim_supported.noul).toBe(0.12);
+    expect(body.usage.cost).toBeCloseTo(0.0000126, 9);
+  });
+
+  test("probeDecisions reports the error text of a 400", async () => {
+    const fetch = (async () =>
+      new Response(JSON.stringify({ error: { message: "unknown question type" } }), { status: 400 })) as typeof fetch;
+    const result = await probeDecisions(DEFAULT_DECISIONS_MODEL, KEY, fetch);
+    expect(result.status).toBe(400);
+    expect(result.errorText).toBe("unknown question type");
+  });
+
+  test("formatDecisionsResult prints both answers, the usage cost, and never the key", () => {
+    const body = {
+      model: "typesafe/jev-1.13-20260917",
+      provider: "TypeSafe",
+      answers: {
+        tag: { type: "choice", choice: "ungrounded-claim", confidence: 0.81, probabilities: { ok: 0.05, "ungrounded-claim": 0.81 } },
+        claim_supported: { type: "noul", noul: 0.12 },
+      },
+      usage: { input_tokens: 300, output_tokens: 40, cost: 0.0000126 },
+    };
+    const output = formatDecisionsResult(DEFAULT_DECISIONS_MODEL, 200, null, body);
+    expect(output).toContain("HTTP status: 200");
+    expect(output).toContain("Model: typesafe/jev-1.13-20260917");
+    expect(output).toContain("Provider: TypeSafe");
+    expect(output).toContain("ungrounded-claim");
+    expect(output).toContain("0.81");
+    expect(output).toContain("noul=0.12");
+    expect(output).toContain("Usage:");
+    expect(output).toContain("0.0000126");
+    expect(output).not.toContain(KEY);
+    const error = formatDecisionsResult(DEFAULT_DECISIONS_MODEL, 400, "unknown question type", null);
+    expect(error).toContain("Error: unknown question type");
+    expect(error).not.toContain(KEY);
+  });
+
+  test("decisionsResultLine holds the endpoint, the full request and response, and no key", () => {
+    const request = buildDecisionsRequestBody(DEFAULT_DECISIONS_MODEL);
+    const response = { model: "typesafe/jev-1.13-20260917", answers: { claim_supported: { type: "noul", noul: 0.12 } } };
+    const line = decisionsResultLine(DEFAULT_DECISIONS_MODEL, 200, request, response);
+    const parsed = JSON.parse(line) as Record<string, unknown>;
+    expect(parsed.endpoint).toBe("decisions");
+    expect(parsed.request).toEqual(request);
+    expect(parsed.response).toEqual(response);
+    expect(parsed.httpStatus).toBe(200);
+    expect(line).not.toContain(KEY);
   });
 });

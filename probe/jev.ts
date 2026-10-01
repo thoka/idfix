@@ -4,6 +4,9 @@
  * OpenRouter to learn whether the Jev slugs answer and what they cost.
  *
  *   bun probe/jev.ts [MODEL ...]        (default: typesafe/jev-router ~typesafe/jev-latest)
+ *   bun probe/jev.ts --decisions [--model SLUG]
+ *                                       (one request to /api/alpha/decisions,
+ *                                        default model typesafe/jev-1.13)
  *
  * The key comes from OPENROUTER_API_KEY, else from the project key file.
  * The key is never printed. Cost cap: two requests, 200 output tokens each.
@@ -17,6 +20,8 @@ import type { Env } from "../src/config";
 export const DEFAULT_MODELS = ["typesafe/jev-router", "~typesafe/jev-latest"] as const;
 
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions";
+export const DEFAULT_DECISIONS_MODEL = "typesafe/jev-1.13";
 const OPENROUTER_GENERATION_URL = "https://openrouter.ai/api/v1/generation?id=";
 const MAX_TOKENS = 200;
 const CONTENT_LIMIT = 1000;
@@ -181,6 +186,96 @@ export async function probeSlug(
   return { status, errorText, model, provider, content, usage, generationId, generationCost };
 }
 
+/** The decisions request body, the example of JEV_DECISIONS_API.md. Pure. */
+export function buildDecisionsRequestBody(model: string): object {
+  return {
+    model,
+    state: {
+      tool_call: "bash 'ls src'",
+      tool_output: "agents.ts\nconfig.ts\ndetect.ts\nmain.ts",
+      claim: "I listed the folder and it contains only test files.",
+    },
+    questions: {
+      tag: {
+        type: "choice",
+        instructions: "Which tag best fits this step?",
+        criteria: {
+          ok: "The step did what it intended and the claim matches the output.",
+          wasted: "The step repeated earlier work or was not needed.",
+          "wrong-tool": "The step used the wrong tool for the job.",
+          "ungrounded-claim": "The claim does not match the tool output.",
+        },
+      },
+      claim_supported: {
+        type: "noul",
+        instructions: "Does the tool output support the claim?",
+      },
+    },
+  };
+}
+
+/**
+ * One decisions request. Returns the full response body so the result line
+ * can pin the schema by example.
+ */
+export async function probeDecisions(
+  model: string,
+  key: string,
+  doFetch: typeof fetch,
+): Promise<{ status: number; errorText: string | null; body: unknown }> {
+  const response = await doFetch(OPENROUTER_DECISIONS_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify(buildDecisionsRequestBody(model)),
+  });
+  const status = response.status;
+  const body = (await response.json().catch(() => null)) as unknown;
+  let errorText: string | null = null;
+  if (status !== 200) {
+    const message = (body as { error?: { message?: unknown } } | null)?.error?.message;
+    errorText = typeof message === "string" ? message : `HTTP ${status}`;
+  }
+  return { status, errorText, body };
+}
+
+/** The console output for one decisions request, without the key. Pure. */
+export function formatDecisionsResult(model: string, status: number, errorText: string | null, body: unknown): string {
+  const lines = [`== decisions: ${model} ==`, `HTTP status: ${status}`];
+  if (errorText !== null) lines.push(`Error: ${errorText}`);
+  if (status === 200 && body !== null && typeof body === "object") {
+    const b = body as { model?: unknown; provider?: unknown; answers?: unknown; usage?: unknown };
+    if (typeof b.model === "string") lines.push(`Model: ${b.model}`);
+    if (typeof b.provider === "string") lines.push(`Provider: ${b.provider}`);
+    const answers = b.answers;
+    if (answers !== null && typeof answers === "object") {
+      for (const [id, answer] of Object.entries(answers as Record<string, unknown>)) {
+        const a = answer as { type?: unknown; choice?: unknown; confidence?: unknown; probabilities?: unknown; noul?: unknown };
+        if (a.type === "choice") {
+          lines.push(`Answer ${id}: choice=${JSON.stringify(a.choice)}, confidence=${a.confidence}, probabilities=${JSON.stringify(a.probabilities)}`);
+        } else if (a.type === "noul") {
+          lines.push(`Answer ${id}: noul=${a.noul}`);
+        } else {
+          lines.push(`Answer ${id}: ${JSON.stringify(answer)}`);
+        }
+      }
+    }
+    lines.push(`Usage: ${JSON.stringify(b.usage)}`);
+  }
+  return lines.join("\n");
+}
+
+/** One JSON line for the result file: the endpoint, the request, and the response. Pure. */
+export function decisionsResultLine(model: string, status: number, request: object, body: unknown): string {
+  return JSON.stringify({
+    date: new Date().toISOString(),
+    endpoint: "decisions",
+    model,
+    httpStatus: status,
+    request,
+    response: body,
+  });
+}
+
 function readFileSyncOrNull(file: string): string | null {
   try {
     return readFileSync(file, "utf8");
@@ -190,7 +285,6 @@ function readFileSyncOrNull(file: string): string | null {
 }
 
 export async function main(argv: readonly string[], env: Env = process.env): Promise<number> {
-  const slugs = argv.length > 0 ? [...argv] : [...DEFAULT_MODELS];
   const key = readKey(env, (file) => readFileSyncOrNull(file));
   if (key === null || key.length === 0) {
     console.error(`no key: set OPENROUTER_API_KEY or create ${projectKeyPath("opencode-subagents", env)}`);
@@ -200,6 +294,28 @@ export async function main(argv: readonly string[], env: Env = process.env): Pro
   await mkdir(resultsDir, { recursive: true });
   const date = new Date().toISOString().slice(0, 10);
   const resultsFile = path.join(resultsDir, `jev-${date}.jsonl`);
+
+  if (argv.includes("--decisions")) {
+    let model = DEFAULT_DECISIONS_MODEL;
+    const modelIndex = argv.indexOf("--model");
+    if (modelIndex >= 0) {
+      const value = argv[modelIndex + 1];
+      if (value === undefined || value.startsWith("--")) {
+        console.error("--model needs a slug argument");
+        return 2;
+      }
+      model = value;
+    }
+    const request = buildDecisionsRequestBody(model);
+    const result = await probeDecisions(model, key, fetch);
+    console.log(formatDecisionsResult(model, result.status, result.errorText, result.body));
+    await appendFile(resultsFile, `${decisionsResultLine(model, result.status, request, result.body)}\n`);
+    console.log(`results: ${resultsFile}`);
+    return result.status === 200 ? 0 : 1;
+  }
+
+  const positional = argv.filter((a) => a !== "--model");
+  const slugs = positional.length > 0 ? positional : [...DEFAULT_MODELS];
 
   let failures = 0;
   for (const slug of slugs) {

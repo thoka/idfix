@@ -170,7 +170,34 @@ Without a key the script exits 2 with a message.
 **Cost cap**: two requests, at most 200 output tokens each, plus the two
 generation lookups, which cost nothing. The script makes no other paid call.
 
+**Decisions mode** (`--decisions`, PLAN.md step 18): sends exactly one
+request to `POST https://openrouter.ai/api/alpha/decisions`, the
+non-chat Jev endpoint (see `docs/research/JEV_DECISIONS_API.md`):
+
+```
+bun probe/jev.ts --decisions [--model typesafe/jev-1.13]
+```
+
+The request holds the example of the report: the state of three fields
+(tool call `bash 'ls src'`, its output, and the claim), one Choice question
+`tag` with the four criteria `ok | wasted | wrong-tool | ungrounded-claim`,
+and one Noul question `claim_supported`. The model defaults to
+`typesafe/jev-1.13`; `--model SLUG` overrides it. The script prints the HTTP
+status, the error text if any, the `model` and `provider` of the response,
+each answer (for a Choice: the choice, the confidence, and the
+probabilities; for a Noul: the probability), and the `usage` block with
+`usage.cost`. One JSON line with `endpoint: "decisions"`, the full request
+body, and the full response body goes to the same result file as the chat
+probe; it holds no key.
+
+**Cost**: one request, input tokens only (output is free), about $0.00002
+for this small state at $0.042 per million input tokens. The exact cost is
+in `usage.cost` of the response.
+
 **Tests**: `test/probe-jev.test.ts` covers the request body (model,
 `max_tokens`, schema, state, questions), the key order, a 404 error text,
 the cost extraction and its retry limit, the JSONL line, and that the key
-never appears in the output or the result line, all with a fake fetch.
+never appears in the output or the result line, all with a fake fetch. For
+the decisions mode it covers the request body, the URL and headers with the
+body, a 200 response with both answers and the cost, a 400 error text, and
+the result line, also with a fake fetch.

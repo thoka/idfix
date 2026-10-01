@@ -134,3 +134,43 @@ the pending requests, the results writer, the clock): a passing run, a
 failed rule, a run that throws in the middle, the timeout, the control
 mode, the order of the steps (config before run), and the JSONL line. No
 paid call and no real `sbx` call runs in the tests.
+
+## Jev probe (`probe/jev.ts`)
+
+PLAN.md step 18: learn whether the Jev slugs on OpenRouter answer and what
+they cost. Run it on the host:
+
+```
+bun probe/jev.ts [MODEL ...]
+```
+
+Without arguments it probes two slugs: `typesafe/jev-router` (the only Jev
+entry in the public OpenRouter model list) and `~typesafe/jev-latest`
+(unconfirmed whether it serves direct requests, see TRACE_ANALYSIS.md
+"Jev API access"). Per slug it sends one non-streaming
+`POST /api/v1/chat/completions` with `max_tokens: 200`, a structured-output
+JSON schema (`response_format: { type: "json_schema", ... }`), and a short
+state: a fake agent step (tool call `bash ls src`, its output, and the claim
+"I listed the folder") plus two typed questions in the user message — one
+Choice ("which tag fits the step: ok | wasted | wrong-tool |
+hallucinated-claim") and one Noul ("does the result support the claim? yes
+or no"). The schema has one field per question (`tag`, `claim_supported`).
+
+It then prints per slug: the HTTP status, the error text if any, the
+`model` and `provider` fields of the response, the content (at most 1,000
+characters), the `usage` block, and the generation cost from
+`GET /api/v1/generation?id=<id>` (up to three tries, two seconds apart,
+because OpenRouter counts a request a minute or two late). One JSON line
+per slug goes to `probe/results/jev-<date>.jsonl`; it holds no key.
+
+The key comes from `OPENROUTER_API_KEY`, else from the project key file
+`~/.config/opencode-subagents/openrouter.key`. The key is never printed.
+Without a key the script exits 2 with a message.
+
+**Cost cap**: two requests, at most 200 output tokens each, plus the two
+generation lookups, which cost nothing. The script makes no other paid call.
+
+**Tests**: `test/probe-jev.test.ts` covers the request body (model,
+`max_tokens`, schema, state, questions), the key order, a 404 error text,
+the cost extraction and its retry limit, the JSONL line, and that the key
+never appears in the output or the result line, all with a fake fetch.

@@ -25,16 +25,21 @@ The workflow in this project (clone mode):
 
 - Live test of the `.gitignore` fix (commit e2714c5): the synced folder of this project already holds a copied `.gitignore`, so only the tests prove the fix. The recreate of the other sandboxes (open task of the user) is the live test.
 
-### 2. Step 16: DeepInfra as a direct provider, live test
+### 2. Step 16: DeepInfra as a direct provider, a known difficulty
 
-Step 16 is on `alpha`: `up` registers the key from `~/.config/<project>/deepinfra.key` as an `sbx` custom secret for `api.deepinfra.com`, the sandbox sees only a placeholder, and the cost proxy logs `usage.estimated_cost` with `"upstream":"deepinfra"` ([GUIDE.md](GUIDE.md), [DEEPINFRA_KEY_PATH.md](research/DEEPINFRA_KEY_PATH.md)). The first live coder run passed review (see [EXPERIENCE.md](EXPERIENCE.md)). Open:
+Step 16 is on `alpha` ([GUIDE.md](GUIDE.md), [DEEPINFRA_KEY_PATH.md](research/DEEPINFRA_KEY_PATH.md)). The user decided on 2026-10-01 to use DeepInfra until a difficulty shows. Two runs on 2026-10-01 stopped on the same DeepInfra error (see [EXPERIENCE.md](EXPERIENCE.md)), so runs went back to OpenRouter. Open:
 
-1. One more longer coder run on DeepInfra, because the fp4 incident happened in long runs. The first longer run (step 16c, 11 minutes, 48 requests) was clean. Then the user decides whether DeepInfra becomes the default.
-2. Done in step 16c: `watch` and `log` sum the proxy log for the real cost (see [HISTORY.md](HISTORY.md#step-16c-the-real-cost-from-the-proxy-log)).
-3. The opencode estimate uses the undiscounted models.dev price, so it shows twice the real cost.
-4. An existing sandbox gets the network allow rule for `api.deepinfra.com` only together with the first secret set.
+1. Root cause of the stream error `OpenAIChatCompletionStreamOut ... logprob ... Input should be a valid number`: DeepInfra sends a `null` log probability, its own validation rejects it, and opencode does not retry the error. Find out whether a request option avoids it, whether the cost proxy can retry a request that fails before the first content chunk, and whether DeepInfra knows the bug. Then the user decides whether DeepInfra comes back.
+2. The opencode estimate uses the undiscounted models.dev price, so it shows twice the real cost.
+3. An existing sandbox gets the network allow rule for `api.deepinfra.com` only together with the first secret set.
 
-### 3. Step 12: a working mise inside the sandbox
+### 2b. `oc-sub say` keeps the model of the run (in progress)
+
+Root cause: `run --model` sets the model only on the first message, and `say` sends no model, so a follow-up falls back to the model of the agent file. The fix (worktree `say-model`) reuses the model of the last user message and adds `say --model`. Known gap: a subagent such as `reader` always uses the model of its agent file, so `--model` never reaches it.
+
+### 3. Step 12: a working mise inside the sandbox (in progress)
+
+The coder run is in the worktree `12-sandbox-mise`. Change of the design: `up` installs the version of the host mise (`mise install mise@<host version>`) into the shared installs folder, instead of a `mise` entry in every project `mise.toml`. Follow-up: `oc-sub worktree` runs `mise install` inside the sandbox after the setup, so the tools of the worktree `mise.toml` exist before the agent starts.
 
 Root cause: the sandbox gets the tool folders of the host read-only, but no `mise` binary, so an agent cannot add a tool. On 2026-09-30, a coder in arch-helper needed `pwsh` and tried workarounds for a long time. The research is in [SANDBOX_MISE.md](research/SANDBOX_MISE.md).
 
@@ -81,6 +86,10 @@ Substeps:
 Cost estimate: one research run cost 0.058 USD ([EXPERIENCE.md](EXPERIENCE.md)). Ten rechecks a month cost about 0.60 USD, with a cap per run.
 
 Decision of the user before 17d: whether unattended paid runs are allowed, and the cap per month. Until then, 17c only warns, and the main thread starts the recheck.
+
+### 8. Step 18: learn from the traces of cheap agents
+
+The user decided on 2026-10-01 to build a pipeline over the stored opencode sessions and to use Jev for it. The research is in [TRACE_ANALYSIS.md](research/TRACE_ANALYSIS.md). Stage one is a script without a model: it cuts a session into steps and marks cheap signals. Stage two is Jev: it tags each step from a fixed list with typed questions. Stage three is a cheap GLM agent: it groups the tags over many runs and names changes to briefs, prompts, and tools. Open first: a probe of one or two requests through OpenRouter, to find out whether `~typesafe/jev-latest` accepts requests and keeps the typed question format (the public list shows only `typesafe/jev-router`). The direct Jev API costs $0.042 per million input tokens, but it needs its own key, and a limit per project is not documented.
 
 ### Later
 

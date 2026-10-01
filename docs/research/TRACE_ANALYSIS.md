@@ -1,4 +1,4 @@
-# Trace analysis for cheap agent runs (step 17)
+# Trace analysis for cheap agent runs (step 18)
 
 Researched 2026-10-01 in worktree `17-trace-research`. Sources are URLs or files with line evidence from the local opencode database and SDK.
 

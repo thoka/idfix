@@ -23,7 +23,6 @@ The workflow in this project (clone mode):
 
 ### 1. Bugs found on 2026-10-01
 
-- `oc-sub watch` ends with "no server on http://127.0.0.1:18768" and exit code 0 after one failed connection, while the server is alive and busy. A caller then reads a running run as finished. `watch` must retry for a grace time and exit non-zero.
 - The test "TopView > shows the rows, the detail of the first row, and the footer" in `test/top-view.test.tsx` reads the live servers of the machine. It fails while a real server runs on port 18768. The test must inject the server list.
 - Live test of the `.gitignore` fix (commit e2714c5): the synced folder of this project already holds a copied `.gitignore`, so only the tests prove the fix. The recreate of the other sandboxes (open task of the user) is the live test.
 

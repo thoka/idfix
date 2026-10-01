@@ -25,6 +25,7 @@ export type ParsedArgs =
   | { command: "ping"; url?: string; dir?: string; rules: boolean }
   | { command: "watch"; url?: string; session: string; dir?: string; json: boolean }
   | { command: "log"; url?: string; session: string; dir?: string }
+  | { command: "trace"; url?: string; session: string; dir?: string; out?: string }
   | { command: "abort"; url?: string; session: string; dir?: string }
   | {
       command: "answer";
@@ -298,6 +299,16 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "log": {
       const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "url"]), new Set<string>());
       return { command: "log", url: globals.url, session: requireSession(positionals), dir: optionalString(flags, "dir") };
+    }
+    case "trace": {
+      const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "url", "out"]), new Set<string>());
+      return {
+        command: "trace",
+        url: globals.url,
+        session: requireSession(positionals),
+        dir: optionalString(flags, "dir"),
+        out: optionalString(flags, "out"),
+      };
     }
     case "abort": {
       const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "url"]), new Set<string>());

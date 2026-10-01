@@ -12,6 +12,7 @@ import { ping } from "./ping";
 import { pingRules } from "./rules";
 import { watch } from "./watch";
 import { log } from "./log";
+import { trace } from "./trace";
 import { abort } from "./abort";
 import { answer } from "./answer";
 import { say } from "./say";
@@ -36,6 +37,7 @@ Usage:
   oc-sub ping --rules [--dir DIR]
   oc-sub watch SESSION [--dir DIR] [--json]
   oc-sub log SESSION [--dir DIR]
+  oc-sub trace SESSION [--dir DIR] [--out FILE]
   oc-sub abort SESSION [--dir DIR]
   oc-sub answer REQUEST_ID [--dir DIR] (--reply once|always|reject | --reject | ANSWER...)
   oc-sub say SESSION [--dir DIR] [--agent NAME] [--model PROVIDER/MODEL] TEXT
@@ -126,6 +128,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return watch(args);
     case "log":
       return log(args);
+    case "trace":
+      return trace(args);
     case "abort":
       return abort(args);
     case "answer":

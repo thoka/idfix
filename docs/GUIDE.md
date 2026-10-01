@@ -175,6 +175,23 @@ The project column shows the full project name. A project can set a short name f
 - **Abort**: tell Claude to stop the run, or run `oc-sub abort <session-id> --dir <worktree>`.
 - **Cost**: `oc-sub log <session-id> --dir <worktree>` prints the report of the agent and two cost lines in USD. The first line is the estimate of opencode: it multiplies the tokens by the prices in its model catalog from models.dev. The second line is the real cost. `watch` and `log` first sum the `cost` of the proxy log (`end` lines) over the session and all of its subagent sessions; when the proxy log has none of them, they fall back to the OpenRouter real cost: the growth of the usage of the project key during the run. Both lines cover the session and all of its subagent sessions. With subagents, the first line reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. The proxy line reads `real cost $0.0115 from the cost proxy (20 requests, deepinfra $0.0115)`: it sums the upstreams of the run, and lines with `cost: null` add a part like `2 requests without cost`. The fallback reads `real cost $0.0512 at OpenRouter (key usage since the start of the run)`. Other runs with the same key that overlap in time add their cost to the same number, so that line names them. OpenRouter counts a request a minute or two late, so a `log` some minutes later can show a slightly higher real cost. `opencode stats` shows the totals of all sessions. Claude reports the cost of each run to you.
 
+## Trace a run
+
+`oc-sub trace <session-id> --dir <worktree> [--out FILE]` analyzes a finished run without a model (stage one of the trace analysis, see `docs/research/TRACE_ANALYSIS.md`). It loads the session and all of its subagent sessions (as `log` does), cuts each session into steps, and writes one JSON line per step, to stdout or to `--out FILE`.
+
+A step is one assistant message span from a `step-start` part to its `step-finish` part, with the reasoning, text, tool, and patch parts in between. A message without `step-finish` (an aborted run) becomes an unfinished step with `finished: false`.
+
+Each record carries:
+
+- **IDs**: `sessionID`, `parentSessionID` (null for the main session), `messageID`, `partIDs` (the IDs of the span), and `stepIndex` within the session. Later stages can cite this evidence.
+- **Who**: `agent` and `model` of the message.
+- **Tools**: `tools`, one entry per tool call with the tool name, the main argument (file path, command, pattern), the status, and `failed`.
+- **Tokens**: `tokens` (input, output, reasoning, cache read) from the `step-finish` part, and `durationMs` from the tool times when the parts carry times.
+- **Signals**: `toolError` (a call failed), `duplicateCall` (same tool and main argument as an earlier call in the session), `rereadFile` (a read of a file the session already read and did not change since), `reeditFile` (a second edit of the same file), `longReasoning` (reasoning tokens above the `REASONING_LIMIT` of the watch guard).
+- **Excerpts**: `text` (first 500 characters of the text parts) and `reasoningExcerpt` (first 300 characters of the reasoning).
+
+Stage two (cheap tagging with Jev) and stage three (grouping over runs) are not built yet. The record IDs are their evidence anchors.
+
 ## Sandbox mode
 
 By default, `oc-sub up`, `down`, and `restart` run the server in sandbox mode. In sandbox mode, the server runs inside a Docker Sandbox (`sbx`): one microVM per project. The agent gets sudo in the VM, but it can only reach the file system and network that you share. It reaches OpenRouter through the credential proxy of `sbx`, so it cannot read your project key.

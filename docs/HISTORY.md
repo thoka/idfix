@@ -309,6 +309,14 @@ Known gaps:
 
 Done on 2026-10-01. The slow `doctor` check `opencode-version` reads the tested version from the `mise.toml` of the oc-sub repository and runs `mise current opencode` in the project root. It warns when the project pin, or else the global mise pin, differs from the tested version, also when "latest" resolves to the tested version today. It also warns when the resolved version differs. The sandbox server runs the opencode that mise resolves for the project, because `up` puts the project tool folders of the mounted installs folder in front of the sandbox PATH. Known gaps: a pin in `.mise.toml`, `mise.local.toml`, or a parent `mise.toml` is not seen, and pins are compared as exact strings. The fix action comes with step 15e.
 
+## Step 15c fix: the sync writes the opencode `.gitignore`
+
+Done on 2026-10-01. Root cause: the sandbox mounts the synced plugin folder read-only, and opencode 1.18.32 writes a missing `.gitignore` into each config folder at every instance start. The EROFS error failed every request, and `oc-sub top --all` showed "no sessions". `syncPluginDir` now writes the file with the exact content of opencode when it is missing ([OPENCODE_CONFIG_WRITES.md](research/OPENCODE_CONFIG_WRITES.md)). The npm install of opencode skips a read-only folder by itself.
+
+## Check of new opencode releases
+
+Done on 2026-10-01. The slow `doctor` check `opencode-release` runs `mise latest opencode`. It warns when the latest release is newer than the tested pin and than the last review in `opencode-review.json`. The global mise configuration of the user now pins opencode 1.18.32 instead of "latest". That file is not in chezmoi, so other machines still pin "latest".
+
 ## Hand-off on 2026-09-30
 
 State for the next thread. Everything above is on `alpha` and pushed.

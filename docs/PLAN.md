@@ -8,7 +8,7 @@ oc-sub is stable and useful if four things hold. First, a plugin change reaches 
 
 ## State on 2026-10-01
 
-Everything is on `alpha` and pushed. Two research runs are active (see steps 1 and 2). The `doctor` check `opencode-version` is done: it warns for every project that pins "latest", directly or through the global mise configuration. Step 15d is done in code: `oc-sub doctor --fix --force` recreates a sandbox that lacks a mount, has no clone, or is not in clone mode. A busy session and work that the host would lose block it, also with `--force`. 753 tests pass. The live test is open, because the permission check of Claude Code blocked the main thread from running the recreate (see the open tasks of the user). Every sandbox created before 15c still lacks the synced plugin mount, so `oc-sub up` fails in it until a recreate.
+Everything is on `alpha` and pushed. The `doctor` checks `opencode-version` and `opencode-release` are done, and the global mise configuration pins opencode 1.18.32. The sync writes the `.gitignore` that a read-only sandbox server needs. A DeepInfra probe is running (step 2). Step 15d is done in code: `oc-sub doctor --fix --force` recreates a sandbox that lacks a mount, has no clone, or is not in clone mode. A busy session and work that the host would lose block it, also with `--force`. 753 tests pass. The live test is open, because the permission check of Claude Code blocked the main thread from running the recreate (see the open tasks of the user). Every sandbox created before 15c still lacks the synced plugin mount, so `oc-sub up` fails in it until a recreate.
 
 Sandbox mode in clone mode works, with one run worktree per step inside the clone and the review fetch on the host. A cost proxy runs next to each server. GLM goes to Z.AI, with Parasail and Together as fallbacks. The live view `oc-sub top` works, and `oc-sub doctor --fix` repairs the plugin and the global rule links.
 
@@ -21,13 +21,15 @@ The workflow in this project (clone mode):
 
 ## Next steps, in this order
 
-### 1. Step 15c fix: the synced plugin folder lacks the opencode install
+### 1. Bugs found on 2026-10-01
 
-Root cause: since step 15c, the sandbox mounts the synced plugin folder read-only, but the sync leaves out the files that opencode installs into its config folder (`.gitignore`, `package.json`, `package-lock.json`, `node_modules/`). opencode in the sandbox then tries to write them, gets EROFS, and every `GET /session` fails. `oc-sub top --all` showed "no sessions" and hid the error behind a warning. On 2026-10-01 the main thread copied the four entries from the repository folder `opencode/` into `~/.local/share/oc-sub/opencode` and ran `oc-sub restart`. Only the copy and the restart together fixed it. The installed plugin copies in `~/.claude/plugins/cache` lack these files, so the copy is no structural fix. Research is running: `docs/research/OPENCODE_CONFIG_WRITES.md` (run worktree `opencode-config-writes`). Then `up` prepares the install on the host before a sandbox server starts, and a `doctor` check reports a server whose session list fails.
+- `oc-sub watch` ends with "no server on http://127.0.0.1:18768" and exit code 0 after one failed connection, while the server is alive and busy. A caller then reads a running run as finished. `watch` must retry for a grace time and exit non-zero.
+- The test "TopView > shows the rows, the detail of the first row, and the footer" in `test/top-view.test.tsx` reads the live servers of the machine. It fails while a real server runs on port 18768. The test must inject the server list.
+- Live test of the `.gitignore` fix (commit e2714c5): the synced folder of this project already holds a copied `.gitignore`, so only the tests prove the fix. The recreate of the other sandboxes (open task of the user) is the live test.
 
-### 2. DeepInfra as a direct provider
+### 2. DeepInfra as a provider
 
-The user registered at DeepInfra on 2026-10-01 and says that it costs 50 percent less at the moment. The project key is in `~/.config/opencode-subagents/deepinfra.key`. Research is running: `docs/research/DEEPINFRA.md` (run worktree `deepinfra-research`). Open point: DeepInfra serves GLM 5.3 Flash in fp4 on OpenRouter, and oc-sub excludes fp4 for quality ([PROVIDER_PROBE.md](research/PROVIDER_PROBE.md)). A probe run must show the same quality before real runs use it. The real cost line needs a DeepInfra source, because today it reads the OpenRouter key usage.
+The user registered at DeepInfra on 2026-10-01. The project key is in `~/.config/opencode-subagents/deepinfra.key`. The report is [DEEPINFRA.md](research/DEEPINFRA.md). DeepInfra serves GLM 5.3 Flash only in fp4, for $0.075 input and $0.25 output per million tokens, with a 50 percent discount that has no published end date. The DeepInfra endpoint on OpenRouter has the same price. oc-sub excluded fp4 after the broken-output incident, so quality decides. The user approved a probe: five runs of `probe/run.ts` pinned to DeepInfra through OpenRouter, cap $0.10. If they pass, two or three real coder runs follow. Only then does oc-sub add the direct provider and a cost line from `usage.estimated_cost` or `GET /payment/usage/{api_token}`. models.dev lists the undiscounted price, so the estimate of opencode shows about twice the real cost.
 
 ### 3. Step 12: a working mise inside the sandbox
 

@@ -4,14 +4,23 @@ import type { Env } from "./config";
 import { resolveCommandUrl } from "./sandbox";
 import { makeClient, requireServer, unwrap } from "./client";
 import { belongsToSession, eventSessionId, isRequestAskedEvent, watchEventLine } from "./events";
-import { createGuard, formatFinding, type Finding } from "./detect";
+import { createGuard, formatFinding, type Finding, type OpenModelRequest } from "./detect";
 import { missingSessionIsSettled, treeIsSettled } from "./settled";
 import { countToolCalls, formatDuration, formatTotals } from "./summary";
 import { childIdsOf, collectDescendants, loadSessionTree, treeUsage } from "./tree";
 import { answerHint, filterRequests, formatRequest, listPendingRequests, type PendingRequest } from "./requests";
 import { realCostOutput } from "./realcost";
+import { createOpenRequestReader } from "./proxycost";
+import { stateDir } from "./state";
 
 const STATUS_POLL_MS = 2000;
+
+/** The open requests of the tree, keyed by session for the guard. */
+function mapOpenRequests(open: readonly { session: string; upstream: string; startedMs?: number }[]): Map<string, OpenModelRequest> {
+  const map = new Map<string, OpenModelRequest>();
+  for (const request of open) map.set(request.session, { startedMs: request.startedMs, upstream: request.upstream });
+  return map;
+}
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -65,6 +74,8 @@ export async function watch(
   // finding does not stop the run: the orchestrator decides.
   const guard = createGuard();
   let treeIdSet = new Set<string>([sessionId]);
+  // The open model requests come from the proxy log of the state folder.
+  const openRequestReader = createOpenRequestReader();
 
   // The watch tree is the session and all of its descendant sessions. A
   // pending request of any of them pauses the watch.
@@ -115,7 +126,16 @@ export async function watch(
       const ids = new Set([sessionId, ...descendants]);
       treeIdSet = ids;
       ids.forEach((id) => guard.touch(id, now));
-      reportFindings(guard.checkStalls(states, now));
+      // A long model request sends no event, so the guard must know which
+      // sessions have one open. A failing read means no open requests, and
+      // the old stall behavior stays.
+      let openRequests: ReadonlyMap<string, OpenModelRequest> = new Map();
+      try {
+        openRequests = mapOpenRequests(await openRequestReader.read(stateDir(env), ids));
+      } catch {
+        // Keep the empty map.
+      }
+      reportFindings(guard.checkStalls(states, now, openRequests));
       if (finished) return;
       if (!treeIsSettled([sessionId, ...descendants], states)) {
         // Someone is still busy. A pending request explains it: the run is

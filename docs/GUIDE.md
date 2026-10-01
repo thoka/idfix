@@ -134,6 +134,8 @@ It prints one short line per tool call. When the run ends, it prints a summary l
 
 `watch` also warns early when a run goes wrong, for example when the agent repeats the same tool call five times in a row. Then it prints a block that names the problem and the session, and it ends with exit code 4. The run itself keeps running. Claude reads the block and then aborts the run or sends a correction. You do not need to act yourself.
 
+A long model request is not a stall. While a session waits for the model, for example on a slow provider or much reasoning, it sends no event, but the cost proxy log shows that its request is still open. `watch` reads the open requests from the proxy log and stays quiet for the first 10 minutes of the request. If a request is open longer than that, `watch` prints a `slow request` block with the session, the upstream, and how long the request has been open, and ends with exit code 4. Without the proxy log, for example with `--no-cost-proxy`, the plain stall rule applies again.
+
 ### See all runs at once: `oc-sub top`
 
 `oc-sub top` opens a full-screen live view of the runs, like `htop`. It shows the runs of the current project and its worktrees. `oc-sub top --all` shows the runs of all projects and all known servers.

@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { Event } from "@opencode-ai/sdk";
-import { createGuard, formatFinding, LOOP_LIMIT, REASONING_LIMIT, stableStringify, STALL_MS } from "../src/detect";
+import { createGuard, formatFinding, LOOP_LIMIT, REASONING_LIMIT, REQUEST_STALL_MS, stableStringify, STALL_MS } from "../src/detect";
 
 const SESSION = "ses_1";
 
@@ -174,6 +174,49 @@ describe("reasoning detector", () => {
   });
 });
 
+describe("stall detector with an open model request", () => {
+  const states = { [SESSION]: { type: "busy" } } as Record<string, { type: string }>;
+
+  test("a young open request suppresses the stall", () => {
+    const guard = createGuard();
+    guard.feed(otherEvent(SESSION), 0);
+    const open = new Map([[SESSION, { startedMs: 1000, upstream: "openrouter" }]]);
+    // Long past the stall time, but the request is still young.
+    const findings = guard.checkStalls(states as never, 300_000, open);
+    expect(findings).toEqual([]);
+  });
+
+  test("an old open request gives a slow-request finding instead", () => {
+    const guard = createGuard();
+    guard.feed(otherEvent(SESSION), 0);
+    const open = new Map([[SESSION, { startedMs: 0, upstream: "openrouter" }]]);
+    const findings = guard.checkStalls(states as never, REQUEST_STALL_MS, open);
+    expect(findings).toEqual([
+      { kind: "slow-request", sessionId: SESSION, upstream: "openrouter", seconds: REQUEST_STALL_MS / 1000 },
+    ]);
+    // Reported only once until a new event arrives.
+    expect(guard.checkStalls(states as never, REQUEST_STALL_MS * 2, open)).toEqual([]);
+    guard.feed(otherEvent(SESSION), REQUEST_STALL_MS * 2);
+    expect(guard.checkStalls(states as never, REQUEST_STALL_MS * 3, open)).toHaveLength(1);
+  });
+
+  test("an open request of unknown age suppresses the stall too", () => {
+    const guard = createGuard();
+    guard.feed(otherEvent(SESSION), 0);
+    const open = new Map([[SESSION, { upstream: "openrouter" }]]);
+    expect(guard.checkStalls(states as never, STALL_MS * 10, open)).toEqual([]);
+  });
+
+  test("no open request keeps the old stall", () => {
+    const guard = createGuard();
+    guard.feed(otherEvent(SESSION), 0);
+    expect(guard.checkStalls(states as never, STALL_MS, new Map())).toEqual([
+      { kind: "stall", sessionId: SESSION, seconds: STALL_MS / 1000 },
+    ]);
+    expect(guard.checkStalls(states as never, STALL_MS, undefined)).toEqual([]);
+  });
+});
+
 describe("formatFinding", () => {
   test("names the kind, the session, and the details", () => {
     expect(formatFinding({ kind: "loop", sessionId: SESSION, tool: "read", input: "/tmp/x", count: 5 })).toEqual([
@@ -190,6 +233,11 @@ describe("formatFinding", () => {
       "needs attention: reasoning",
       `session ${SESSION}`,
       "one step used 26210 reasoning tokens (limit 16000)",
+    ]);
+    expect(formatFinding({ kind: "slow-request", sessionId: SESSION, upstream: "openrouter", seconds: 610 })).toEqual([
+      "needs attention: slow request",
+      `session ${SESSION}`,
+      `the model request at openrouter is open for 610s with no event (limit ${REQUEST_STALL_MS / 1000}s)`,
     ]);
   });
 });

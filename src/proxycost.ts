@@ -4,7 +4,7 @@
  * request goes into `serve-<port>.log` (sandbox mode, mixed with server
  * output) or `proxy-<port>.log` (host mode); all live in `stateDir`.
  */
-import { readFile, readdir } from "node:fs/promises";
+import { open, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 /** Cost and request totals of one session tree in the proxy log. */
@@ -129,4 +129,156 @@ export async function readProxyTotals(stateFolder: string, sessionIds: ReadonlyS
     }
   }
   return fromCounters(counters);
+}
+
+/** One model request of a tree session that has started but not ended yet. */
+export type OpenRequest = {
+  /** The session of the `start` line. */
+  session: string;
+  /** The upstream of the `start` line, `unknown` when it carries none. */
+  upstream: string;
+  /** The `time` of the `start` line, as epoch ms; undefined when unparsable. */
+  startedMs?: number;
+};
+
+type ProxyLine = {
+  source?: unknown;
+  event?: unknown;
+  request?: unknown;
+  session?: unknown;
+  upstream?: unknown;
+  time?: unknown;
+};
+
+/** The fields one log line needs to count for the open requests. Pure. */
+function proxyLine(line: string): ProxyLine | null {
+  const trimmed = line.trim();
+  if (trimmed.length === 0) return null;
+  let parsed: ProxyLine;
+  try {
+    parsed = JSON.parse(trimmed) as ProxyLine;
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object") return null;
+  if (parsed.source !== "oc-sub-cost-proxy") return null;
+  return parsed;
+}
+
+/**
+ * Collect the open requests of all sessions from the text of one log chunk
+ * into `open`, keyed by the `request` number. The callers filter by the tree
+ * afterwards: a subagent session joins the tree only on a later poll, and
+ * its first request must not be lost. A `start` line opens a request, a later `end` line with the same number closes
+ * it, and a `listening` line closes every open request, because the proxy
+ * restarted and each count begins again at 1. Never throws. Pure.
+ */
+function collectOpenRequests(open: Map<number, OpenRequest>, text: string): void {
+  for (const line of text.split("\n")) {
+    const parsed = proxyLine(line);
+    if (parsed === null) continue;
+    if (parsed.event === "listening") {
+      open.clear();
+      continue;
+    }
+    if (typeof parsed.request !== "number") continue;
+    if (parsed.event === "end") {
+      open.delete(parsed.request);
+      continue;
+    }
+    if (parsed.event !== "start" || typeof parsed.session !== "string") continue;
+    const startedMs =
+      typeof parsed.time === "string" ? Date.parse(parsed.time) : Number.NaN;
+    open.set(parsed.request, {
+      session: parsed.session,
+      upstream: typeof parsed.upstream === "string" ? parsed.upstream : "unknown",
+      startedMs: Number.isFinite(startedMs) ? startedMs : undefined,
+    });
+  }
+}
+
+/**
+ * The open requests of the tree sessions in the text of one log file. Skips
+ * every line that is not JSON, has another `source`, or carries no usable
+ * `request` number. Never throws. Pure.
+ */
+export function parseOpenRequests(text: string, sessionIds: ReadonlySet<string>): OpenRequest[] {
+  const open = new Map<number, OpenRequest>();
+  collectOpenRequests(open, text);
+  return [...open.values()].filter((request) => sessionIds.has(request.session));
+}
+
+/** The open requests of one log file, kept across calls. */
+type LogCursor = {
+  /** The byte offset of the next unread line. */
+  offset: number;
+  /** The open requests of the file, keyed by the `request` number. */
+  open: Map<number, OpenRequest>;
+};
+
+/**
+ * Reads only the new bytes of each proxy log since the last call, so a
+ * status poll stays cheap on long logs. Keeps one cursor per file path: the
+ * byte offset and the open requests so far. A file that got shorter has
+ * been replaced or truncated, so the read starts again at offset 0. A file
+ * that cannot be read counts as empty.
+ */
+export type OpenRequestReader = {
+  read(stateFolder: string, sessionIds: ReadonlySet<string>): Promise<OpenRequest[]>;
+};
+
+export function createOpenRequestReader(): OpenRequestReader {
+  const cursors = new Map<string, LogCursor>();
+  return {
+    async read(stateFolder, sessionIds) {
+      let names: string[];
+      try {
+        names = await readdir(stateFolder);
+      } catch {
+        cursors.clear();
+        return [];
+      }
+      const isLog = (name: string): boolean => /^serve-.*\.log$/.test(name) || /^proxy-.*\.log$/.test(name);
+      const filePaths = names.filter(isLog).sort().map((name) => path.join(stateFolder, name));
+      for (const gone of cursors.keys()) {
+        if (!filePaths.includes(gone)) cursors.delete(gone);
+      }
+      const result: OpenRequest[] = [];
+      for (const filePath of filePaths) {
+        let cursor = cursors.get(filePath) ?? { offset: 0, open: new Map<number, OpenRequest>() };
+        let handle: Awaited<ReturnType<typeof open>>;
+        try {
+          handle = await open(filePath, "r");
+        } catch {
+          cursors.delete(filePath);
+          continue;
+        }
+        try {
+          const size = (await handle.stat()).size;
+          if (size < cursor.offset) cursor = { offset: 0, open: new Map() };
+          const length = size - cursor.offset;
+          if (length > 0) {
+            const buffer = Buffer.alloc(length);
+            const { bytesRead } = await handle.read(buffer, 0, length, cursor.offset);
+            const chunk = buffer.subarray(0, bytesRead).toString("utf8");
+            // Keep the last incomplete line for the next call, so a line
+            // that is still being written is parsed whole.
+            const cut = chunk.lastIndexOf("\n");
+            const complete = cut === -1 ? "" : chunk.slice(0, cut + 1);
+            cursor.offset += Buffer.byteLength(complete, "utf8");
+            collectOpenRequests(cursor.open, complete);
+          }
+          cursors.set(filePath, cursor);
+          for (const request of cursor.open.values()) {
+            if (sessionIds.has(request.session)) result.push(request);
+          }
+        } catch {
+          continue;
+        } finally {
+          await handle.close();
+        }
+      }
+      return result;
+    },
+  };
 }

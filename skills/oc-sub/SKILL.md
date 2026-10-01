@@ -49,6 +49,8 @@ To send a correction or a question, write into the same session with `oc-sub say
 oc-sub say <session-id> --dir <worktree> "<message>"
 ```
 
+If the session or one of its subagent sessions waits for a question or permission request, `say` warns on stderr and prints the matching `oc-sub answer` command: the message stays queued until that request has an answer.
+
 Then wait again with `oc-sub watch`. After a rejected permission request, the turn of the agent has ended. Always send a follow-up message with `oc-sub say` to continue. To stop a run, use `oc-sub abort <session-id> --dir <worktree>`.
 
 ## Rules

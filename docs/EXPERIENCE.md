@@ -113,3 +113,14 @@ Lessons:
 
 1. Pin the provider of a cheap model. A router picks by price and availability, not by quality.
 2. To prove that a routing option arrives, force a provider that does not exist. The refusal proves it.
+
+## DeepInfra probe (fp4) on 2026-10-01
+
+Five runs of `probe/run.ts --providers deepinfra --runs 5`, pinned to DeepInfra through OpenRouter. DeepInfra serves GLM 5.3 Flash in fp4 at half the Z.AI price ([DEEPINFRA.md](research/DEEPINFRA.md)). The results are in `probe/results/2026-10-01.jsonl`.
+
+| Provider | Passes | Median time to first token | Median tok/s | Median wall time | Output tokens | Real cost delta per run |
+| --- | --- | --- | --- | --- | --- | --- |
+| DeepInfra (fp4), 2026-10-01 | 5/5 | 7.2 s | 14.9 | 37 s | 318 to 491 | $0.0011 to $0.0055 |
+| Z.AI (fp8), 2026-09-30 | 4/4 passed runs | 3.7 s | 19.2 | 28 s | 323 to 466 | $0.0000 to $0.0037 |
+
+The short probe task shows no broken output on fp4. The time to the first token is about twice as long as at Z.AI. The real cost delta of one run is too small to compare: OpenRouter counts a request a minute or two late, so single deltas range from $0 to twice the estimate. The whole probe cost $0.018 at OpenRouter. The probe task is short, but the broken-output incident happened in long runs. So the next measurement is real coder steps on DeepInfra, with the cost summed over the whole run.

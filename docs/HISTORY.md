@@ -391,3 +391,31 @@ Six GLM researcher runs for $0.1501 in total:
 ## Step 18 probe: Jev through OpenRouter
 
 Done on 2026-10-01. `probe/jev.ts` sent one chat request to each Jev slug ($0.0002 in total). `typesafe/jev-router` is not Jev: it routed the request to `deepseek/deepseek-v4.1-flash` at Together. `~typesafe/jev-latest` refuses chat: "is a decisions model and cannot be used with the chat/completions endpoint. Use the /api/alpha/decisions endpoint instead." The decisions endpoint takes the normal project key and charges $0.042 per million input tokens.
+
+## Step 2b: the reader takes the model of the run
+
+Done in code on 2026-10-01. Root cause ([SUBAGENT_MODEL.md](research/SUBAGENT_MODEL.md)): in opencode 1.18.32, `task.ts` uses the `model` of the subagent file first and the model of the calling session only as the fallback. `reader.md` set its own model, so `--model` never reached it. The line is gone, so the reader inherits the model of the run. The live test is open.
+
+## Step 8h: `status --json`, and a host worktree finds its project
+
+Done on 2026-10-01. `oc-sub status --json` prints one JSON array with `id`, `state`, `title`, `folder`, and with `--all` also `project` and `server`; messages go to stderr. Bug: `status` from a host worktree such as `<root>/.claude/worktrees/x` reported "no server", because `projectRootOfRun` took the folder itself as the project. It now maps an existing folder to its project root through the git common dir. Live test from the main thread worktree passed. GLM coder run, $0.1921 real.
+
+## Step 15e: `oc-sub doctor --renovate`
+
+Done on 2026-10-01, from [RENOVATE_STANDARD.md](research/RENOVATE_STANDARD.md). `--renovate` runs the fix pass with force, and the guards inside a fix still block. New fixes: `agent-copies` keeps only the permission block of an old agent copy or deletes a copy without one (needs `--force` under `--fix`), and `opencode-version` sets a project pin to the tested version and runs `mise install`. A pin in the global mise configuration stays manual. The review replaced a whole-tree clean check with a per-file check: an untracked `.claude/` folder blocked every fix, and one project ignores `.opencode/`, so its agent files are not in git at all (lesson `clean-tree-check-per-target-file.md`). GLM coder run with one follow-up, $0.2559 real.
+
+## Step 16d: the logs keep older starts
+
+Done on 2026-10-01. Root cause: `up` opened the server log and the host proxy log with mode `w`, so a restart erased the proxy `end` lines, and `oc-sub log` lost the real cost of older runs. The lines of the two failed DeepInfra runs were lost this way. Both logs now open in append mode, each start writes a `--- oc-sub up <time> ---` marker, and a failed start prints only the lines after the last marker. GLM coder run, $0.0995 real.
+
+## Step 17b and 17c: recheck heads and `research-due`
+
+Done in this project on 2026-10-01. A report can start with front matter `checked`, `recheck` (an interval, a date, or a trigger `on ...`), and `decisions`. The slow doctor check `research-due` warns on a due report or an invalid head and never fails. Eleven reports of the six topics got heads. The meta part (global rule, index script) is open. GLM coder run, $0.0368 real.
+
+## Step 18a and 18b: the trace pipeline, stages one and two
+
+Done on 2026-10-01. `oc-sub trace` cuts a session tree into steps (`step-start` to `step-finish`) and writes one JSON line per step with cheap signals. Live test: 26 steps for a session with 26 model requests. `oc-sub trace --tag` sends each step to `typesafe/jev-1.13` through the OpenRouter decisions endpoint with three typed questions. Live test: 34 steps, no error, $0.0011 real (estimate $0.0029); 32 `ok`, 2 `ungrounded-claim`. One of the two was wrong, because its evidence was in the step before (lesson `per-step-judge-misses-earlier-evidence.md`). GLM coder runs, $0.0411 and $0.0708 real.
+
+## Cost of the session of 2026-10-01, evening
+
+All GLM runs went through OpenRouter. Research: $0.1623 in seven runs. Coding: about $0.89 in ten runs and one follow-up (the type check run not counted). Probes: $0.0002 (chat) and $0.0000185 (decisions), plus $0.0011 for the live Jev tagging.

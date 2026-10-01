@@ -6,89 +6,57 @@ This file holds only the open work. Finished steps, their root causes, and their
 
 oc-sub is stable and useful if four things hold. First, a plugin change reaches every running server without manual steps. Second, a sandbox starts after a reboot. Third, every project runs the same tested setup. Fourth, a coder can install the tools that it needs. Everything else is comfort.
 
-## State on 2026-10-01
+## State on 2026-10-01, evening
 
-Everything is on `alpha` and pushed. The `doctor` checks `opencode-version` and `opencode-release` are done, and the global mise configuration pins opencode 1.18.32. The sync writes the `.gitignore` that a read-only sandbox server needs. Step 16c is done: `watch` and `log` read the real cost from the proxy log. Step 15d is done in code: `oc-sub doctor --fix --force` recreates a sandbox that lacks a mount, has no clone, or is not in clone mode. A busy session and work that the host would lose block it, also with `--force`. 823 tests pass. The live test is open, because the permission check of Claude Code blocked the main thread from running the recreate (see the open tasks of the user). Every sandbox created before 15c still lacks the synced plugin mount, so `oc-sub up` fails in it until a recreate.
+The work of this session is on the branch `worktree-complete-plan`, pushed to GitHub, but not yet on `alpha`. The Claude Code guard of the session blocked every git command in the main checkout, where `alpha` is checked out, so the main thread could not move `alpha`. Steps 2b, 3, 4, 5 (11d), 8h, 15e, 16d, 17b (project part), 17c, 18a, and 18b are done in code, with tests (974 pass on the host). The research reports of steps 15e, 16, 17a, 18, 2b, and the KVM task are written. Details are in [HISTORY.md](HISTORY.md).
 
-Sandbox mode in clone mode works, with one run worktree per step inside the clone and the review fetch on the host. A cost proxy runs next to each server. GLM goes to Z.AI, with Parasail and Together as fallbacks. The live view `oc-sub top` works, and `oc-sub doctor --fix` repairs the plugin and the global rule links.
+The sandbox of this project is in clone mode with all mounts, so its 15d recreate is done. The workflow in this project is unchanged (clone mode):
 
-The workflow in this project (clone mode):
-
-1. `oc-sub worktree STEP` creates the run worktree inside the sandbox clone and runs the `setup` command of `.opencode/oc-sub.json`.
+1. `oc-sub worktree STEP` creates the run worktree inside the sandbox clone, runs `mise install` with the sandbox mise, and runs the `setup` command of `.opencode/oc-sub.json`.
 2. `oc-sub run --agent coder --dir <root>/.worktrees/STEP --brief <file>` starts the run, and `oc-sub watch` waits.
-3. `oc-sub fetch` on the host, review with `git diff alpha...sandbox-oc-sub-opencode-subagents/feature/STEP`, run `mise exec -- bun test` on the host, and squash-merge into `alpha`.
+3. `oc-sub fetch` on the host, review with `git diff alpha...sandbox-oc-sub-opencode-subagents/feature/STEP`, run `mise exec -- bun test` and `mise exec -- bun run typecheck` on the host, and squash-merge into `alpha`.
 4. `oc-sub worktree rm STEP` removes the worktree inside the clone.
 
 ## Next steps, in this order
 
-### 1. Bugs found on 2026-10-01
+### 1. Bring the branch onto `alpha`, then the live tests
 
-- Live test of the `.gitignore` fix (commit e2714c5): the synced folder of this project already holds a copied `.gitignore`, so only the tests prove the fix. The recreate of the other sandboxes (open task of the user) is the live test.
+First the user (or a session without the guard) moves `alpha`: in the main checkout, `git merge --ff-only worktree-complete-plan`, then `git push`. Then `oc-sub doctor --fix` updates the plugin and restarts the idle server. Then the live tests:
 
-### 2. Step 16: DeepInfra as a direct provider, a known difficulty
+- 2b: a research run with `--model deepinfra/zai-org/GLM-5.3-Flash`. The proxy log must show the `reader` requests at DeepInfra, not at OpenRouter.
+- 3: `oc-sub worktree X` prints `setup: bun install ...` after a `mise install`, and the sandbox mise prints no self-update warning.
+- 16d: after `oc-sub restart`, the server log starts with a `--- oc-sub up ... ---` marker and keeps the older lines.
+- 5 (11d): `watch` stays quiet during a long model request, and `oc-sub down` leaves no orphan proxy restart loop.
+- 17c: `oc-sub doctor` in the main checkout lists the six trigger heads under `research-due`.
 
-Step 16 is on `alpha` ([GUIDE.md](GUIDE.md), [DEEPINFRA_KEY_PATH.md](research/DEEPINFRA_KEY_PATH.md)). The user decided on 2026-10-01 to use DeepInfra until a difficulty shows. Two runs on 2026-10-01 stopped on the same DeepInfra error (see [EXPERIENCE.md](EXPERIENCE.md)), so runs went back to OpenRouter. Open:
+### 2. Step 16: DeepInfra, a decision of the user
 
-1. Root cause of the stream error `OpenAIChatCompletionStreamOut ... logprob ... Input should be a valid number`: DeepInfra sends a `null` log probability, its own validation rejects it, and opencode does not retry the error. Find out whether a request option avoids it, whether the cost proxy can retry a request that fails before the first content chunk, and whether DeepInfra knows the bug. Then the user decides whether DeepInfra comes back.
-2. The opencode estimate uses the undiscounted models.dev price, so it shows twice the real cost.
-3. An existing sandbox gets the network allow rule for `api.deepinfra.com` only together with the first secret set.
+[DEEPINFRA_LOGPROB.md](research/DEEPINFRA_LOGPROB.md) answers the root cause question. DeepInfra has no public report of the error. The client never asks for log probabilities, so no request option avoids it. opencode 1.18.32 does not retry the error (opencode issue #21893). The options are in its table. A proxy retry before the first content chunk (option D) is safe, but only if the bad chunk comes before any content. The append-mode logs of step 16d now keep the data that answers this. The user decides whether DeepInfra comes back and whether to report the bug to DeepInfra (option B needs the DeepInfra account). Open gaps: the opencode estimate shows twice the real DeepInfra cost, and an existing sandbox gets the network allow rule for `api.deepinfra.com` only with the first secret set.
 
-### 2b. Known gap: subagents ignore `--model`
+### 3. Step 17: recurring research, the rest
 
-`say` keeps the model of the run since commit a56c099 (see [HISTORY.md](HISTORY.md#step-2b-say-keeps-the-model-of-the-run)). A subagent such as `reader` still uses the model of its agent file, so `--model` never reaches it.
+- 17b in meta: the convention (front matter `checked`, `recheck`, `decisions`, see the GUIDE section "Recheck heads of research reports") goes into the global rules, and `bin/research-index.py` must skip the front matter (today it shows it as the summary) and list the due reports. This needs a session in meta, because the guard of this session blocks git there.
+- 17d, after a decision of the user: whether unattended paid rechecks are allowed, and the cap per month. [RECURRING_RESEARCH.md](research/RECURRING_RESEARCH.md) found that only the Windows Task Scheduler can start a stopped WSL2, and only while the user is logged in. Until then, `research-due` only warns.
 
-### 3. Step 12 follow-up: tools of the worktree before the agent starts
+### 4. Step 18: the trace pipeline, stage three and quality
 
-Step 12 is done (see [HISTORY.md](HISTORY.md#step-12-a-working-mise-inside-the-sandbox)). Follow-up: `oc-sub worktree` runs `mise install` inside the sandbox after the setup command, so the tools of the worktree `mise.toml` exist before the agent starts. The setup PATH of `src/clone.ts` also lacks the mise bin folder. Small gap: the sandbox mise suggests `mise self-update`, which fails on the read-only mount.
+Stage one (`oc-sub trace`) and stage two (`oc-sub trace --tag`, Jev through the OpenRouter decisions endpoint, about $0.00003 per step) work. Open:
 
-### 4. `oc-sub say` warns on a pending question
+1. Question version 2: give each step the result of the previous tool call as evidence, because a per-step judge calls a claim ungrounded when its evidence is in the step before (live test of 18b).
+2. Quality measurement: hand labels for 3 to 5 known runs, then precision and recall per tag ([TRACE_ANALYSIS.md](research/TRACE_ANALYSIS.md), "Quality measurement").
+3. Stage three: a GLM agent groups the tags over many runs and names changes to briefs, prompts, and tools.
+4. Small gaps: a `fetch` that throws ends the whole tagging; a chunked `read` of one file counts as a reread.
 
-If a session waits for an answer to a `question`, `say` only queues its message. The agent sees the message after the question gets an answer. `say` warns and names `oc-sub answer`.
+### 5. Step 15e follow-ups
 
-### 5. Step 11d: the cost proxy in `watch` and `log`
-
-The live test of the proxy (log lines, no orphan restart loop after `down`). Step 16c already reads the real cost from the proxy log. Open: `watch` reads the open requests from the proxy log. This also fixes the false stall of step 6 while a model request is open.
-
-### 6. Step 15e: bring every project to the standard
-
-15e: `doctor --renovate` lifts a project to the current standard. Every best practice is a check, and an old setup gets the status `outdated`. `--renovate` includes `--fix` and applies every fix without `--force`, but a busy session or unfetched work still blocks it. First candidates: a host-mode server, a sandbox in direct-mount mode, a project `mise.toml` that pins its own `opencode`, and old agent copies. A missing project key is only reported, because oc-sub never creates OpenRouter keys (decided with the user on 2026-09-30). Research first: how `ng update`, Renovate, and similar tools define a standard, detect drift, and apply migrations.
-
-### 7. Step 17: recurring research
-
-Root cause: a research report records facts with a date, but nothing says when a fact goes stale or which decision rests on it. So a decision stays in force after its facts change, and nobody notices. Only opencode releases have a re-check today: the `doctor` check `opencode-release` and the review record `opencode-review.json`. The other 26 reports in `docs/research/` have no recheck date.
-
-Facts that go stale in this project, with a first guess for the interval:
-
-| Topic | Reports | Decision that rests on it | Trigger or interval |
-| --- | --- | --- | --- |
-| opencode releases, 2.0 status, the upstream bugs that we work around (SDK SSE abort, issue 28658, the stale v1 SDK gen) | OPENCODE_ROADMAP, SSE_CLIENT, SUBAGENT_QUESTIONS | stay on 1.18.32, the handler in `src/top/app.tsx` | each new release (the existing check), and monthly for 2.0 |
-| GLM providers: price, quantization, uptime | OPENROUTER_ROUTING, DEEPINFRA, PROVIDER_PROBE | the provider order, DeepInfra as the default | every two weeks |
-| A cheaper or better model than GLM for `researcher` and `coder` | none yet | GLM as the default subagent model | monthly |
-| `sbx` releases, and the experimental shared installs of mise | SANDBOX, SANDBOX_MISE | step 12, the clone mode | each new `sbx` release |
-| Plugin updates in Claude Code | PLUGIN_UPDATES | the synced plugin folder of 15c | each new Claude Code release |
-| Prior art, the lag of the Exa index | PRIOR_ART, WEBSEARCH | build oc-sub instead of an existing tool | quarterly |
-
-Substeps:
-
-1. 17a research, with a GLM researcher, report `docs/research/RECURRING_RESEARCH.md`. How do others keep decisions fresh: review dates in ADRs (architecture decision records), the schedules of Renovate and Dependabot, the refresh of a tech radar, the freshness checks of documentation tools. How does a scheduled job run on this machine when the user is away: a systemd user timer under WSL, cron, a Claude Code routine (`/schedule`, which runs in the cloud and cannot reach this machine), or a reminder only. Criteria: cost per month, no repeated work (lesson: cache expensive work), the result reaches `PLAN.md`, and it works across all projects in `~/dv`. The brief names the criteria and no preferred option (lesson `leading-brief-skews-research.md`).
-2. 17b the convention: each report gets a short head with `recheck` (a date, an interval, or a trigger such as a new release) and `decisions` (the plan items that rest on it). The convention is general, so it goes into meta: the global rules and `bin/research-index.py`, which then lists the due reports. The six topics above get their heads first.
-3. 17c a `doctor` check `research-due` that warns on an overdue report of the project, the same shape as `opencode-release`. A recheck that finds no change records the date, like `opencode-review.json`.
-4. 17d the scheduled runner: it starts one researcher run per due report, appends a section "Recheck <date>" with only the changes, and adds a line to the open tasks of the user if a decision is affected. Only after 17a and a decision of the user.
-
-Cost estimate: one research run cost 0.058 USD ([EXPERIENCE.md](EXPERIENCE.md)). Ten rechecks a month cost about 0.60 USD, with a cap per run.
-
-Decision of the user before 17d: whether unattended paid runs are allowed, and the cap per month. Until then, 17c only warns, and the main thread starts the recheck.
-
-### 8. Step 18: learn from the traces of cheap agents
-
-The user decided on 2026-10-01 to build a pipeline over the stored opencode sessions and to use Jev for it. The research is in [TRACE_ANALYSIS.md](research/TRACE_ANALYSIS.md). Stage one is a script without a model: it cuts a session into steps and marks cheap signals. Stage two is Jev: it tags each step from a fixed list with typed questions. Stage three is a cheap GLM agent: it groups the tags over many runs and names changes to briefs, prompts, and tools. Open first: a probe of one or two requests through OpenRouter, to find out whether `~typesafe/jev-latest` accepts requests and keeps the typed question format (the public list shows only `typesafe/jev-router`). The direct Jev API costs $0.042 per million input tokens, but it needs its own key, and a limit per project is not documented.
+`doctor --renovate` exists. Not yet covered: a project that still runs a host-mode server, and old setups that no check detects yet. Each new best practice becomes a check with a fix.
 
 ### Later
 
-- Known gap of 15d: the fix text of `sandbox-mounts` still names `sbx rm --force NAME` and `oc-sub up` by hand instead of `oc-sub doctor --fix --force`.
-
+- Log rotation: the server and proxy logs grow without limit since step 16d.
+- `oc-sub say --file FILE`: a message from a file. The guard of Claude Code refuses a `say` text that names git commands.
+- `printLogTail` exists twice, in `src/up.ts` and `src/sandbox.ts`.
 - Step 11, rest: the detectors of step 6 give the provider of a flagged run a strike. After two or three strikes, the provider goes onto the OpenRouter `ignore` list for some days.
-- Step 8h: `oc-sub status --json`.
 - Step 8g gaps. A new worktree shows in the live view only after `a` twice. The footer lacks the day totals and the key usage per project. The `o` command finds only runs of `oc-sub run`. Below about 110 columns, the title is cut.
 - Step 7: agent files without a body, so GLM keeps the default system prompt of opencode. A first A/B test found no difference. Details in [HISTORY.md](HISTORY.md#step-7-agent-files-keep-the-default-system-prompt).
 - Step 10 follow-up: put a faster provider (Parasail or Together) first. This is a decision of the user.
@@ -97,8 +65,10 @@ The user decided on 2026-10-01 to build a pipeline over the stored opencode sess
 
 ## Open tasks of the user
 
-- Make the access to `/dev/kvm` permanent. Today it has mode 0666 only because of `oc-sub doctor --fix-as-root` (`sudo chmod 0666 /dev/kvm`). On 2026-09-30 the device was recreated with mode 660 and the unknown group ID 109, and every sandbox start failed. After the next WSL restart this can happen again. The structural fix is a udev rule or a boot step that sets the group `kvm` and the mode. The main thread can research the right way under WSL first.
-- Recreate every sandbox once with step 15d, because since step 15c each needs the synced plugin mount. In each project, run `oc-sub doctor --fix --force`. This ends the sessions of that sandbox, and it refuses while a session is busy or while the clone holds work that the host would lose. Start with this project: it is the live test of 15d, and it also restarts the old sandbox server. Then arch-helper, grata, and meta. Until then, an agent in the old sandboxes of arch-helper, grata, and meta reaches the whole repository and its `.git`, because they are not in clone mode. The main thread cannot run the recreate itself: the auto mode classifier of Claude Code denied it as interference with workloads. To let the main thread do it, allow `oc-sub doctor --fix --force` in the permission rules.
+- Move `alpha` to the branch `worktree-complete-plan` (see step 1), and commit and push meta: four new lessons are in `~/dv/meta/agents/lessons/` (`bun-test-skips-type-check.md`, `log-read-for-accounting-must-append.md`, `clean-tree-check-per-target-file.md`, `per-step-judge-misses-earlier-evidence.md`). Then run `mise run index` in meta.
+- Make the access to `/dev/kvm` permanent. [WSL_KVM_ACCESS.md](research/WSL_KVM_ACCESS.md), section 7: the `kvm` group exists here with gid 990, and the udev rule of this distro already sets mode 0666. So the state of 2026-09-30 (gid 109, mode 0660) likely came from another WSL distro that shares the device node. Run `wsl.exe -l -v` on Windows and name the distros that run. The guard of this session blocked that command.
+- Recreate the sandboxes of arch-helper, grata, and meta with `oc-sub doctor --fix --force` in each project (this project is done). Until then, an agent in those old sandboxes reaches the whole repository and its `.git`.
+- Decide on DeepInfra (step 2) and on unattended rechecks (step 3, 17d).
 - Decide from [DEPLOY_ACCESS.md](research/DEPLOY_ACCESS.md) section 8: whether Tailscale runs on the servers, and how long a debugging window lasts.
 - Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.
 
@@ -106,4 +76,7 @@ The user decided on 2026-10-01 to build a pipeline over the stored opencode sess
 
 - The update command is a flag of `doctor` and not a new `update` command, because the fixes belong to the checks.
 - Every fix that can end a session or lose a local change needs `--force`. Only `--renovate` applies them without it.
+- `doctor --renovate` and `--fix` change a project file only when git tracks it and it has no local change. A pin in the global mise configuration of the user stays a manual step.
+- The `reader` subagent has no model of its own, so it uses the model of the run.
+- Stage two of the trace pipeline pins `typesafe/jev-1.13` and uses the project OpenRouter key, with a cap of 200 steps per call.
 - oc-sub stays on opencode 1.18.32. The latest release 1.18.33 fixes none of our issues, and 2.0 is a beta with a new server API ([OPENCODE_ROADMAP.md](research/OPENCODE_ROADMAP.md)).

@@ -418,4 +418,4 @@ Done on 2026-10-01. `oc-sub trace` cuts a session tree into steps (`step-start` 
 
 ## Cost of the session of 2026-10-01, evening
 
-All GLM runs went through OpenRouter. Research: $0.1483 in six runs. Coding: $0.9232 in eleven runs, including one follow-up (the type check run not counted). Probes: $0.0002 (chat) and $0.0000185 (decisions), plus $0.0011 for the live Jev tagging.
+All GLM runs went through OpenRouter. Research: $0.1483 in six runs. Coding: $0.9232 in eleven runs, including one follow-up, plus $0.0276 for the type check run. Probes: $0.0002 (chat) and $0.0000185 (decisions), plus $0.0011 for the live Jev tagging.

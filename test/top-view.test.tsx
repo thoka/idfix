@@ -4,12 +4,21 @@
  */
 import { describe, expect, test } from "bun:test";
 import React from "react";
+import { stripVTControlCharacters } from "node:util";
 import { render } from "ink-testing-library";
 import type { LiveServer } from "../src/top/live";
 import type { SessionDetail, SessionRow } from "../src/top/model";
 import { TopView, type ViewSource } from "../src/top/view";
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+/**
+ * The frame of `ink-testing-library` may hold ANSI color codes, because the
+ * color level of chalk depends on the environment (`FORCE_COLOR`, CI) and
+ * not only on the fake stdout being no TTY. Strip them, so that the plain
+ * text compares stay independent of the color support of the terminal.
+ */
+const plain = (frame: string | undefined) => stripVTControlCharacters(frame ?? "");
 
 function row(sessionId: string, overrides: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -75,7 +84,8 @@ describe("TopView", () => {
       <TopView start={async () => source} initialAll={false} scopeLabel="~/dv/opencode-subagents" />,
     );
     await tick();
-    const frame = lastFrame() ?? "";
+    const plain = (frame: string | undefined) => stripVTControlCharacters(frame ?? "");
+    const frame = plain(lastFrame());
     expect(frame).toMatch(/session +worktree +agent +state/);
     expect(frame.split("\n")[0]).not.toContain("project");
     expect(frame).toContain("111111   8g        coder  busy");
@@ -93,19 +103,19 @@ describe("TopView", () => {
     await tick();
     stdin.write("j");
     await tick();
-    expect(lastFrame()).toContain("tool bash: in ses_b00002");
+    expect(plain(lastFrame())).toContain("tool bash: in ses_b00002");
     stdin.write("j");
     await tick();
     stdin.write("k");
     await tick();
-    expect(lastFrame()).toContain("tool bash: in ses_b00002");
+    expect(plain(lastFrame())).toContain("tool bash: in ses_b00002");
     source.setRows([row("ses_c00003"), row("ses_b00002"), row("ses_a00001")]);
     await tick();
-    expect(lastFrame()).toContain("tool bash: in ses_b00002");
+    expect(plain(lastFrame())).toContain("tool bash: in ses_b00002");
     // The arrow keys move too.
     stdin.write("\u001B[A");
     await tick();
-    expect(lastFrame()).toContain("tool bash: in ses_c00003");
+    expect(plain(lastFrame())).toContain("tool bash: in ses_c00003");
     unmount();
   });
 
@@ -115,7 +125,7 @@ describe("TopView", () => {
     await tick();
     stdin.write("o");
     await tick();
-    expect(lastFrame()).toContain("attach with: oc-sub attach ABCDEF");
+    expect(plain(lastFrame())).toContain("attach with: oc-sub attach ABCDEF");
     unmount();
   });
 
@@ -134,9 +144,9 @@ describe("TopView", () => {
     await tick();
     expect(scopes).toEqual([false, true]);
     expect(sources[0]?.stopped).toBe(true);
-    expect(lastFrame()).toMatch(/session +project +worktree/);
-    expect(lastFrame()).toContain("opencode-subagents");
-    expect(lastFrame()).toContain("scope: all projects");
+    expect(plain(lastFrame())).toMatch(/session +project +worktree/);
+    expect(plain(lastFrame())).toContain("opencode-subagents");
+    expect(plain(lastFrame())).toContain("scope: all projects");
     stdin.write("a");
     await tick();
     expect(scopes).toEqual([false, true, false]);
@@ -148,8 +158,8 @@ describe("TopView", () => {
     const source = fakeSource([]);
     const { lastFrame, stdin } = render(<TopView start={async () => source} initialAll={false} scopeLabel="~" />);
     await tick();
-    expect(lastFrame()).toContain("no sessions");
-    expect(lastFrame()).toContain("no session selected");
+    expect(plain(lastFrame())).toContain("no sessions");
+    expect(plain(lastFrame())).toContain("no session selected");
     stdin.write("q");
     await tick();
     expect(source.stopped).toBe(true);
@@ -160,7 +170,7 @@ describe("TopView", () => {
       <TopView start={() => new Promise<ViewSource>(() => {})} initialAll={false} scopeLabel="~" />,
     );
     await tick();
-    expect(lastFrame()).toContain("loading the servers ...");
+    expect(plain(lastFrame())).toContain("loading the servers ...");
     unmount();
   });
 });

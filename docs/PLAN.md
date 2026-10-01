@@ -37,17 +37,9 @@ Step 16 is on `alpha` ([GUIDE.md](GUIDE.md), [DEEPINFRA_KEY_PATH.md](research/DE
 
 `say` keeps the model of the run since commit a56c099 (see [HISTORY.md](HISTORY.md#step-2b-say-keeps-the-model-of-the-run)). A subagent such as `reader` still uses the model of its agent file, so `--model` never reaches it.
 
-### 3. Step 12: a working mise inside the sandbox (in progress)
+### 3. Step 12 follow-up: tools of the worktree before the agent starts
 
-The coder run is in the worktree `12-sandbox-mise`. Change of the design: `up` installs the version of the host mise (`mise install mise@<host version>`) into the shared installs folder, instead of a `mise` entry in every project `mise.toml`. Follow-up: `oc-sub worktree` runs `mise install` inside the sandbox after the setup, so the tools of the worktree `mise.toml` exist before the agent starts.
-
-Root cause: the sandbox gets the tool folders of the host read-only, but no `mise` binary, so an agent cannot add a tool. On 2026-09-30, a coder in arch-helper needed `pwsh` and tried workarounds for a long time. The research is in [SANDBOX_MISE.md](research/SANDBOX_MISE.md).
-
-1. `mise.toml` lists `mise` itself as a tool, so the binary lands in the mounted installs folder.
-2. `up` passes `MISE_SHARED_INSTALL_DIRS=<installs mount>` into the server.
-3. `up` writes `trusted_config_paths` for the project root only into the mise configuration of the sandbox.
-4. Open: the feature is experimental upstream. Make sure that it works without `MISE_EXPERIMENTAL=1`, or set it. Find out why `/home/toka/.local/share` belongs to root inside the sandbox, and whether `HOME` is `/home/toka` there.
-5. Tests for the server environment, and one bullet each in `docs/GUIDE.md` and `skills/oc-sub/reference.md`.
+Step 12 is done (see [HISTORY.md](HISTORY.md#step-12-a-working-mise-inside-the-sandbox)). Follow-up: `oc-sub worktree` runs `mise install` inside the sandbox after the setup command, so the tools of the worktree `mise.toml` exist before the agent starts. The setup PATH of `src/clone.ts` also lacks the mise bin folder. Small gap: the sandbox mise suggests `mise self-update`, which fails on the read-only mount.
 
 ### 4. `oc-sub say` warns on a pending question
 

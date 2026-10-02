@@ -2,13 +2,13 @@
  * Pure collectors for the fields of an OpenRouter or DeepInfra response. The proxy uses
  * them while the response bytes pass through, without buffering.
  *
- * Facts from docs/research/COST_PROXY.md section 2: every SSE chunk carries a
+ * Facts from docs/research/cost-proxy.md section 2: every SSE chunk carries a
  * top-level `provider`, and the last chunk carries the `usage` object with
  * `cost` and the token counts. The generation id is the top-level `id`.
  *
  * DeepInfra uses the same OpenAI chunk shape, but its `usage` carries the
  * real cost in USD as `estimated_cost` instead of `cost`, and its chunks
- * carry no `provider` (docs/research/DEEPINFRA.md section 4). The tap reads
+ * carry no `provider` (docs/research/deepinfra.md section 4). The tap reads
  * `estimated_cost` into the same `cost` field when `cost` is absent.
  */
 import { createParser } from "eventsource-parser";

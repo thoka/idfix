@@ -1,6 +1,6 @@
 # The OpenRouter decisions endpoint for Jev (step 18)
 
-Researched 2026-10-01 in worktree `r18-decisions`. Companion to `TRACE_ANALYSIS.md` ("Jev API access") and `probe/README.md` ("Jev probe"). That probe showed: `typesafe/jev-router` routes chat to other models, and `~typesafe/jev-latest` answers chat completions with the error "use the /api/alpha/decisions endpoint instead". This report documents that endpoint.
+Researched 2026-10-01 in worktree `r18-decisions`. Companion to `trace-analysis.md` ("Jev API access") and `probe/README.md` ("Jev probe"). That probe showed: `typesafe/jev-router` routes chat to other models, and `~typesafe/jev-latest` answers chat completions with the error "use the /api/alpha/decisions endpoint instead". This report documents that endpoint.
 
 ## Criteria
 
@@ -139,14 +139,14 @@ Response (captured from the live API, tutorial):
 - **The `usage` block carries the cost.** Each response has `usage.cost` in USD for that call (tutorial FAQ; example values: 476 input tokens → $0.000019992, 275 input tokens → $0.00003).
 - **The normal OpenRouter key applies.** "`typesafe/jev-1.13` (or the `~typesafe/jev-latest` alias) is available to anyone with an OpenRouter API key, and billed to your OpenRouter account" (Jev hub). "Any valid OpenRouter API key is fine. No need for a TypeSafe account" (moderation tutorial). No separate key or signup exists.
 - **Spending limits apply.** The cookbook treats a `402` as "your credits or key limit ran out", except one transient case where the body includes `limit_source: "openrouter_in_flight_budget"` (per-key in-flight budget, retry after `Retry-After`). So the key's spending limit and the account credit limit govern these calls like any other OpenRouter call.
-- Prices match the direct TypeSafe price from `TRACE_ANALYSIS.md` ($0.042/MTok input, output free), so OpenRouter adds no markup that the docs show. Caveat: the public model list (`GET /api/v1/models`, checked locally 2026-10-01) does **not** list `typesafe/jev-1.13` or `~typesafe/jev-latest` — only `typesafe/jev-router`. So the probe cannot read the price from the models list; it must use `usage.cost` from the response.
+- Prices match the direct TypeSafe price from `trace-analysis.md` ($0.042/MTok input, output free), so OpenRouter adds no markup that the docs show. Caveat: the public model list (`GET /api/v1/models`, checked locally 2026-10-01) does **not** list `typesafe/jev-1.13` or `~typesafe/jev-latest` — only `typesafe/jev-router`. So the probe cannot read the price from the models list; it must use `usage.cost` from the response.
 
 ## 3. Versions and number of questions
 
-- **Served versions**: `typesafe/jev-1.13` (pinned; the response names a dated snapshot such as `jev-1.13-20260917`) and `~typesafe/jev-latest` (alias that "always redirects to the latest model in the Jev family"). Both work on the decisions endpoint (Jev hub, tutorial FAQ). The docs do not name older pinned versions; only 1.13 and the alias appear in the OpenRouter docs. This matches `TRACE_ANALYSIS.md`: TypeSafe's current stable release is `jev-1.13.0`.
-- **Best practice**: "Pin `typesafe/jev-1.13` when you need thresholds tuned against one specific version to stay stable" (tutorial FAQ). This supports the plan in `TRACE_ANALYSIS.md` section 2 to pin.
+- **Served versions**: `typesafe/jev-1.13` (pinned; the response names a dated snapshot such as `jev-1.13-20260917`) and `~typesafe/jev-latest` (alias that "always redirects to the latest model in the Jev family"). Both work on the decisions endpoint (Jev hub, tutorial FAQ). The docs do not name older pinned versions; only 1.13 and the alias appear in the OpenRouter docs. This matches `trace-analysis.md`: TypeSafe's current stable release is `jev-1.13.0`.
+- **Best practice**: "Pin `typesafe/jev-1.13` when you need thresholds tuned against one specific version to stay stable" (tutorial FAQ). This supports the plan in `trace-analysis.md` section 2 to pin.
 - **Number of questions**: no maximum is documented (API reference has no max). The docs encourage batching: "put every independent question about the same state in one request. All questions in the request are answered in parallel and cannot see each other's answers" (tutorial FAQ). A third-party test ran 16 questions in one request in 343 ms (markwylde.com); the classification cookbook builds one choice plus one noul per tag, so dozens of questions per request are normal. The binding limit is the context window: **32,000 tokens** for state plus questions (Jev hub).
-- Note the parallelism caveat for `TRACE_ANALYSIS.md`: questions cannot see each other's answers, so a tag set must not assume dependency between questions.
+- Note the parallelism caveat for `trace-analysis.md`: questions cannot see each other's answers, so a tag set must not assume dependency between questions.
 
 ## 4. Alpha status and changes
 

@@ -3,7 +3,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { routeRequest, startProxy } from "../src/proxy/proxy";
 
 // A fake upstream with the real OpenRouter response shapes from
-// docs/research/COST_PROXY.md section 2. It serves on a random port and can
+// docs/research/cost-proxy.md section 2. It serves on a random port and can
 // delay the end of its stream, so the tests can prove pass-through streaming.
 
 type LogLine = Record<string, any>;

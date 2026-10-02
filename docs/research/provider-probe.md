@@ -91,7 +91,7 @@ Facts, from the OpenRouter docs (fetched 2026-09-30):
 - The `:exacto` model-suffix variant exists for explicitly requesting quality-first sorting ("Auto Exacto is a routing step that automatically optimizes provider ordering for all requests that include tools"; "`:exacto` is the explicit shortcut when you want to request the Exacto sorting mode directly on a specific model slug"). Per the Auto Exacto doc it "can be used anywhere provider sorting is meaningful", i.e. on any model — there is no per-model enrollment any more.
 - The endpoints API response for GLM 5.3 Flash contains no Exacto-specific endpoints and no `exacto` tag on any endpoint. So there is nothing named "Exacto endpoints" for this model; what exists is the Auto Exacto reordering plus the `:exacto` sort shortcut.
 - Selection in a request: append `:exacto` to the model slug, or rely on Auto Exacto for tool-calling requests. Explicit sorting wins: "If you explicitly sort by price, throughput, or latency, that explicit sort still takes precedence", and `sort: "price"` (or `:floor`) opts out of Auto Exacto.
-- Consequence for opencode: the plugin pins `provider.options` and relies on explicit routing, which bypasses Auto Exacto. Also, opencode 1.18.32 cannot use model suffixes at all (OPENROUTER_ROUTING.md §2, issue #48016). A probe that talks to the OpenRouter API directly can use `:exacto` freely; opencode cannot until the suffix bug is fixed.
+- Consequence for opencode: the plugin pins `provider.options` and relies on explicit routing, which bypasses Auto Exacto. Also, opencode 1.18.32 cannot use model suffixes at all (openrouter-routing.md §2, issue #48016). A probe that talks to the OpenRouter API directly can use `:exacto` freely; opencode cannot until the suffix bug is fixed.
 - Interaction with caching: Auto Exacto "reorders providers on every tool-calling request, which can conflict with the sticky routing used by prompt caching" and can cause cache misses mid-session. Another reason our routing stays explicit rather than `:exacto`.
 - Benchmark quality control: scores for routing are aggregated over a rolling 32-day window, and "runs must meet a minimum sample-size floor to count (currently at least 50 GPQA questions and 45 Tau2 tasks)". Deranking threshold: baseline median minus 2σ.
 
@@ -108,7 +108,7 @@ Common lesson: everyone separates a bad provider from noise either with many sam
 
 ## 4. Measuring speed per provider
 
-From the OpenRouter docs and OPENROUTER_ROUTING.md §4 (facts):
+From the OpenRouter docs and openrouter-routing.md §4 (facts):
 
 - Every response (streaming and not) carries the generation id: header `X-Generation-Id`, or top-level `id` (`gen-...`) for non-streaming.
 - `GET https://openrouter.ai/api/v1/generation?id=<gen-id>` returns `provider_name`, `native_tokens_prompt`, `native_tokens_cached`, `total_cost`, `upstream_inference_cost`, and more (latency and generation time among the fields; the docs page "Get request & usage metadata for a generation" lists them). This endpoint needs the API key.

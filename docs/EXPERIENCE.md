@@ -116,7 +116,7 @@ Lessons:
 
 ## DeepInfra probe (fp4) on 2026-10-01
 
-Five runs of `probe/run.ts --providers deepinfra --runs 5`, pinned to DeepInfra through OpenRouter. DeepInfra serves GLM 5.3 Flash in fp4 at half the Z.AI price ([DEEPINFRA.md](research/DEEPINFRA.md)). The results are in `probe/results/2026-10-01.jsonl`.
+Five runs of `probe/run.ts --providers deepinfra --runs 5`, pinned to DeepInfra through OpenRouter. DeepInfra serves GLM 5.3 Flash in fp4 at half the Z.AI price ([deepinfra.md](research/deepinfra.md)). The results are in `probe/results/2026-10-01.jsonl`.
 
 | Provider | Passes | Median time to first token | Median tok/s | Median wall time | Output tokens | Real cost delta per run |
 | --- | --- | --- | --- | --- | --- | --- |

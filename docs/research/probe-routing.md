@@ -88,7 +88,7 @@ So per message you can choose the **model** (any registered provider/model pair,
 
 Variant options do reach the wire: the per-request options are `mergeOptions(mergeOptions(mergeOptions(base, input.model.options), input.agent.options), variant)` with `mergeOptions = mergeDeep` (`packages/opencode/src/session/llm/request.ts:53,80–91`), and they go out as `providerOptions: ProviderTransform.providerOptions(input.model, prepared.params.options)` (`packages/opencode/src/session/llm.ts:316`). `ProviderTransform` remaps them to the SDK key: `@openrouter/ai-sdk-provider` → `"openrouter"` (`packages/opencode/src/provider/transform.ts:85–86,486–493`). But variants themselves are defined in the config (`variants` under the model, `provider.ts:1568–1576`), so a variant is not an inline escape hatch either.
 
-This also confirms in the actual release tag the pass-through chain that OPENROUTER_ROUTING.md §1 could only read from `dev`: v1.18.32 merges model options into `providerOptions` under the `openrouter` key.
+This also confirms in the actual release tag the pass-through chain that openrouter-routing.md §1 could only read from `dev`: v1.18.32 merges model options into `providerOptions` under the `openrouter` key.
 
 ## 4. Config caching: per directory, needs dispose or a new directory
 
@@ -117,7 +117,7 @@ Practical rule for the probe: **write the per-run config before the first server
 Option B's known failure modes:
 
 - Config written *after* the directory's instance exists → stale config, pin silently absent. Mitigation: write first, or `POST /instance/dispose`.
-- The pin option never reaches OpenRouter (the unresolved #41810 suspicion, OPENROUTER_ROUTING.md §1) → the run silently routes to the default provider. Mitigation: the control run below turns this into a loud failure.
+- The pin option never reaches OpenRouter (the unresolved #41810 suspicion, openrouter-routing.md §1) → the run silently routes to the default provider. Mitigation: the control run below turns this into a loud failure.
 
 ## 6. Recommendation
 
@@ -146,7 +146,7 @@ The probe run selects the model per message with `model: { providerID: "openrout
 
 **Clear failure when the pin does not apply.** Two checks, both cheap:
 
-1. **Control run first**: one run with `only: ["no-such-provider"]`, `allow_fallbacks: false`. OpenRouter must reject it. If the run succeeds, the `provider` object is not reaching the request body — the whole oc-sub-based probe is invalid, and this settles the open question left in OPENROUTER_ROUTING.md (issue #41810) with one ~0.01 USD run.
+1. **Control run first**: one run with `only: ["no-such-provider"]`, `allow_fallbacks: false`. OpenRouter must reject it. If the run succeeds, the `provider` object is not reaching the request body — the whole oc-sub-based probe is invalid, and this settles the open question left in openrouter-routing.md (issue #41810) with one ~0.01 USD run.
 2. **Per-run verification**: with the pin applied, a serving provider other than the pinned one is impossible unless OpenRouter ignores the object; the real cost from the project key usage (step 5) or the generation API (`GET /api/v1/generation`) names the provider. A price far off the pinned endpoint's published price is a second signal.
 
 ## Open questions

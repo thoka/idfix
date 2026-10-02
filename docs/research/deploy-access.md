@@ -1,8 +1,8 @@
 # Deploy access: how the orchestrator should reach a deployment machine
 
-Research date: 2026-09-30. Follow-up to [SANDBOX.md](SANDBOX.md) and [RUN_ISOLATION.md](RUN_ISOLATION.md).
+Research date: 2026-09-30. Follow-up to [sandbox.md](sandbox.md) and [run-isolation.md](run-isolation.md).
 
-Question: a main thread (Claude Code) plans and reviews; subagents work in sandboxes; nothing reaches the real repository until a trusted side pulls and reviews it (`git fetch`, see RUN_ISOLATION.md). What is the same boundary for a deployment machine — a VPS with Docker or systemd services? How can the orchestrator (or an agent it starts) deploy, read logs, restart services, and fix problems without a blast radius that covers the whole machine or its secrets?
+Question: a main thread (Claude Code) plans and reviews; subagents work in sandboxes; nothing reaches the real repository until a trusted side pulls and reviews it (`git fetch`, see run-isolation.md). What is the same boundary for a deployment machine — a VPS with Docker or systemd services? How can the orchestrator (or an agent it starts) deploy, read logs, restart services, and fix problems without a blast radius that covers the whole machine or its secrets?
 
 Facts carry a source (URL). Statements marked **[guess]** are judgment. Registry searches: GitHub `gh search repos "ssh mcp server"` (10 results, 6 with any substance) and `"kubernetes mcp server"` (5 results) on 2026-09-30; web searches listed in Section 8.
 
@@ -18,7 +18,7 @@ Facts carry a source (URL). Statements marked **[guess]** are judgment. Registry
 From the Values of the global rules plus the brief:
 
 - C1 **Small blast radius.** A wrong or hostile action covers one service, not the machine, its secrets, or other servers.
-- C2 **Secrets out of reach.** No agent can read deployment secrets; injection happens at the last trusted step (the same principle as the `sbx` credential proxy, SANDBOX.md section 7).
+- C2 **Secrets out of reach.** No agent can read deployment secrets; injection happens at the last trusted step (the same principle as the `sbx` credential proxy, sandbox.md section 7).
 - C3 **Audited and reversible.** Every change lands in git history or a log, and undo is a mechanical step (revert, rollback, re-run).
 - C4 **Low effort for one person.** Setup and operation for one person and a few small servers; no 24/7 extra service to babysit.
 - C5 **Pull crosses the boundary.** The agent proposes; a trusted side pulls. The agent gets no credential that lets it push into the machine.

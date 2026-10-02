@@ -122,13 +122,13 @@ Confirmed in the opencode source at tag v1.18.32:
 
 Yes — the session directory inside a sandbox is the same absolute path as on the host, so `top` can map every event's `directory` to a project and worktree across all servers with plain path comparison:
 
-- Step 9a creates the sandbox with the project root as workspace: `sbx create --name NAME opencode ROOT ./opencode:ro` (src/sandbox.ts:465-470, PLAN.md step 9a design). The `sbx` test on 2026-09-29 recorded: "The workspace appears under the same absolute path as on the host" (docs/research/SANDBOX.md, section 7, line 115).
+- Step 9a creates the sandbox with the project root as workspace: `sbx create --name NAME opencode ROOT ./opencode:ro` (src/sandbox.ts:465-470, PLAN.md step 9a design). The `sbx` test on 2026-09-29 recorded: "The workspace appears under the same absolute path as on the host" (docs/research/sandbox.md, section 7, line 115).
 - The plugin mount keeps its host path on purpose, so `OPENCODE_CONFIG_DIR` has the same value inside and outside (src/sandbox.ts:459-463 comment; PLAN.md:134).
 - Consequence: a worktree session of a sandboxed project carries a `directory` that is identical on the host, so `top` can reuse `worktreesOf` (src/status.ts:46-53) and `displayFolder` (src/status.ts:39-43) unchanged, keyed by directory per server. Caveat: two servers never see the same directory, because a sandboxed project no longer reaches the host server (PLAN.md:121), so project→server is unambiguous.
 
 ### 6.4 `opencode attach` for a sandbox session
 
-The key `o` prints `opencode attach http://127.0.0.1:<published-host-port> --session <id> --dir <worktree>` — the **published host port** from the sandbox state file, the same URL that `sandboxUrlFor` returns, not the internal port 4096. `opencode attach` takes a positional server URL (`command: "attach <url>"`, default example `http://localhost:4096`, packages/opencode/src/cli/cmd/attach.ts:7-16) plus `--session`/`-s` and `--dir` options (attach.ts:17-30); the host publishes the sandbox's 4096 on the fixed port (src/sandbox.ts:537-545), so attaching to `127.0.0.1:<host-port>` reaches the server inside the sandbox. This matches the Docker variant of SANDBOX.md section 5: "the user's `opencode attach http://127.0.0.1:<port>` ... just points at the published port".
+The key `o` prints `opencode attach http://127.0.0.1:<published-host-port> --session <id> --dir <worktree>` — the **published host port** from the sandbox state file, the same URL that `sandboxUrlFor` returns, not the internal port 4096. `opencode attach` takes a positional server URL (`command: "attach <url>"`, default example `http://localhost:4096`, packages/opencode/src/cli/cmd/attach.ts:7-16) plus `--session`/`-s` and `--dir` options (attach.ts:17-30); the host publishes the sandbox's 4096 on the fixed port (src/sandbox.ts:537-545), so attaching to `127.0.0.1:<host-port>` reaches the server inside the sandbox. This matches the Docker variant of sandbox.md section 5: "the user's `opencode attach http://127.0.0.1:<port>` ... just points at the published port".
 
 ## Open questions
 

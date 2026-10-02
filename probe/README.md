@@ -1,7 +1,7 @@
 # Provider probe: fixture and evaluator
 
 Parts of PLAN.md step 10 that need no server and no paid call. The design and
-the review are in `docs/research/PROVIDER_PROBE.md` (section 5).
+the review are in `docs/research/provider-probe.md` (section 5).
 
 ## Fixture (`make-fixture.ts`, `fixture/types.ts`, `expected.json`, `task.md`)
 
@@ -79,7 +79,7 @@ key belongs to exactly one run. One run does, in order:
    of an older batch is never reused.
 2. Write `.opencode/opencode.json` into the worktree, through `sbx exec`,
    **before** the first server request to the folder (a fresh directory
-   loads its config on first use, see `docs/research/PROBE_ROUTING.md`
+   loads its config on first use, see `docs/research/probe-routing.md`
    section 4). The file defines one model alias `glm-probe-<provider>` whose
    `id` is `z-ai/glm-5.3-flash` and whose `options.provider` pins the
    OpenRouter provider: `{ "only": ["<provider>"], "allow_fallbacks": false }`.
@@ -100,7 +100,7 @@ key belongs to exactly one run. One run does, in order:
    failures, the speed metrics, the estimated cost (models.dev catalog of
    the session), the real cost delta, and the wall time. The alias
    inherits the catalog cost of the API id, so the estimate stays correct
-   (PROBE_ROUTING.md section 2). The real cost delta can be low by a
+   (probe-routing.md section 2). The real cost delta can be low by a
    request or two, because OpenRouter counts a request a minute or two
    late.
 7. Remove the run worktree (`oc-sub worktree rm` code).
@@ -146,7 +146,7 @@ bun probe/jev.ts [MODEL ...]
 
 Without arguments it probes two slugs: `typesafe/jev-router` (the only Jev
 entry in the public OpenRouter model list) and `~typesafe/jev-latest`
-(unconfirmed whether it serves direct requests, see TRACE_ANALYSIS.md
+(unconfirmed whether it serves direct requests, see trace-analysis.md
 "Jev API access"). Per slug it sends one non-streaming
 `POST /api/v1/chat/completions` with `max_tokens: 200`, a structured-output
 JSON schema (`response_format: { type: "json_schema", ... }`), and a short
@@ -172,7 +172,7 @@ generation lookups, which cost nothing. The script makes no other paid call.
 
 **Decisions mode** (`--decisions`, PLAN.md step 18): sends exactly one
 request to `POST https://openrouter.ai/api/alpha/decisions`, the
-non-chat Jev endpoint (see `docs/research/JEV_DECISIONS_API.md`):
+non-chat Jev endpoint (see `docs/research/jev-decisions-api.md`):
 
 ```
 bun probe/jev.ts --decisions [--model typesafe/jev-1.13]

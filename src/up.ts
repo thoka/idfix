@@ -48,7 +48,7 @@ export const PLUGIN_CONFIG_DIR = path.resolve(import.meta.dir, "..", "opencode")
  * is not changed.
  *
  * opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever
- * `OPENCODE_CONFIG_DIR` is set (see docs/research/OPENCODE_RULES.md). So the
+ * `OPENCODE_CONFIG_DIR` is set (see docs/research/opencode-rules.md). So the
  * serve environment also sets `OPENCODE_CONFIG_CONTENT` with the shared rules
  * file in `instructions` and the shared skills folder in `skills.paths`. With
  * `proxyUrl`, it also points the openrouter provider at the cost proxy, and

@@ -1,7 +1,7 @@
 # Research: how should `oc-sub doctor --fix` repair problems?
 
 Date: 2026-09-30. Worktree `r-doctor-fix`, branch `feature/r-doctor-fix`.
-Extends [DOCTOR.md](DOCTOR.md). Cost of this research: 0.0112 USD at OpenRouter (opencode estimate
+Extends [doctor.md](doctor.md). Cost of this research: 0.0112 USD at OpenRouter (opencode estimate
 0.0193 USD), GLM 5.3 Flash, 8m49s.
 
 Question: how should the planned `--fix` flag of `oc-sub doctor` run repair
@@ -33,12 +33,12 @@ Facts, each with a source:
 | Tool | Diagnose vs repair | Runs without a question? | Guard for destructive fixes |
 |---|---|---|---|
 | `brew doctor` vs `brew cleanup` | `brew doctor` never repairs: it only prints warnings, and the troubleshooting docs tell the user to read and correct each one by hand (https://docs.brew.sh/Troubleshooting, https://docs.brew.sh/Common-Issues). The repair lives in a *separate* command, `brew cleanup`. | `brew cleanup` runs without a prompt, but Homebrew already runs it automatically every 30 days by default (https://docs.brew.sh/FAQ). | `brew cleanup --dry-run` prints "Would remove: ..." lines; without `--dry-run` it removes. `brew bundle cleanup` goes further: dry-run output is the *default*, it exits 1 when it would change anything, and prints "Run `brew bundle cleanup --force` to make these changes." — the guard is a dry-run default plus an explicit `--force` (https://docs.brew.sh/rubydoc/Homebrew/Cmd/Bundle/CleanupSubcommand.html). |
-| `flutter doctor` | No fix mode at all; every validator only prints status and a fix hint (see DOCTOR.md §1, flutter `doctor.dart`). | — | — |
+| `flutter doctor` | No fix mode at all; every validator only prints status and a fix hint (see doctor.md §1, flutter `doctor.dart`). | — | — |
 | `eslint --fix` | One command does both: `--fix` applies all safe fixes and then reports *only the remaining unfixed issues* (https://eslint.org/docs/latest/use/command-line-interface, `--fix` section). | Yes, no prompt. | Two guards: not every rule is fixable, and `--fix-dry-run` runs the same fixes "without saving the changes to the file system" (same page). There is no `--force`; unsafe fixes are simply not auto-applied. |
 | `npm audit fix` | One command: `fix` "applies remediations to the package tree"; the exit code is 0 when the remediation fixed everything (https://docs.npmjs.com/cli/v10/commands/npm-audit/). | Yes, safe remediations run without a prompt. | A remediation that would change dependency ranges "will require the `--force` option to apply". The docs warn: "If you don't have a clear idea of what you want to do, it is strongly recommended that you do not use this option!" A `--dry-run` flag exists. |
 | `rustup update` vs `rustup self update` | Both are repair/update commands; the split is by *scope* (toolchains vs the installer), not by safety (https://rust-lang.github.io/rustup/basics.html). | Yes, no prompt. | No destructive case; instead rustup disables automatic self-update when the `CI` environment variable is set (https://github.com/rust-lang/rustup/blob/master/src/cli/self_update.rs, `SelfUpdateMode::from_cfg`) — a guard by *environment*, relevant for agents. |
 | `cargo fix` | Applies compiler suggestions to source files (https://doc.rust-lang.org/cargo/commands/cargo-fix.html). | Yes, but only under preconditions. | Refuses to run without a VCS (`--allow-no-vcs` overrides) and refuses on a dirty working tree (`--allow-dirty` overrides) — the guard is a *precondition check*, not a prompt. |
-| `mise doctor` | Diagnose only; the `hint` field is remediation text that is never executed (see DOCTOR.md §1). Project checks have no fix mode. | — | — |
+| `mise doctor` | Diagnose only; the `hint` field is remediation text that is never executed (see doctor.md §1). Project checks have no fix mode. | — | — |
 | `yarn dedupe --check` | `-c,--check` "will only report the found duplicates, without persisting the modified dependency tree. If changes are found, the command will exit with a non-zero exit code" (https://yarnpkg.com/cli/dedupe) — an inverted dry-run: check is opt-in, repair is the bare command. | Yes, bare `yarn dedupe` repairs without a prompt. | The dry run is the CI guard. |
 | `git fsck` vs `git gc` | `fsck` diagnoses and never changes anything; `gc` repairs and is safe by design: it "tries very hard not to delete objects that are referenced anywhere" and keeps any object newer than the prune grace period (default 2 weeks) (https://git-scm.com/docs/git-gc). | `git gc` without flags runs unattended and is safe. | The destructive case (`--prune=now`) "prunes loose objects regardless of their age and increases the risk of corruption if another process is writing to the repository concurrently" — so the default keeps a grace period, and the unsafe shortcut is opt-in. |
 
@@ -255,7 +255,7 @@ Implement Option A in `src/doctor.ts`:
   a `dirs` state file; `doctor --fix` needs the same directories for the
   sandbox project (open follow-up of step 14, `readDirs` in `src/down.ts`).
 - Whether `--fix` should also run when a check is `error`-level in a future
-  status model (DOCTOR.md proposes an `error` status); today the statuses are
+  status model (doctor.md proposes an `error` status); today the statuses are
   `pass | warn | fail | skip`.
 
 ## Search log
@@ -287,7 +287,7 @@ Implement Option A in `src/doctor.ts`:
   self_update.rs source).
 - `websearch`: "rustup self update documentation self update rustup book
   self-update" — 3 relevant hits (rustup book basics, FAQ, self_update.rs).
-- Not searched again (already covered by DOCTOR.md §1 with sources): flutter
+- Not searched again (already covered by doctor.md §1 with sources): flutter
   doctor (no fix mode), mise doctor (hint text never executed), npm doctor,
   Laravel doctor.
 

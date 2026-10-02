@@ -29,9 +29,9 @@ export function sharedAgentsFile(env: Env): string {
  * mode. The `instructions` entry works around the bug of opencode 1.18.32:
  * with `OPENCODE_CONFIG_DIR` set, the global `~/.config/opencode/AGENTS.md`
  * is silently dropped, but an absolute path in `instructions` still loads
- * (see docs/research/OPENCODE_RULES.md). The skills object form
+ * (see docs/research/opencode-rules.md). The skills object form
  * `{"paths": [...]}` is the form that opencode 1.18.32 reads (see
- * docs/research/OPENCODE_SKILLS.md).
+ * docs/research/opencode-skills.md).
  */
 export function sharedConfigEntries(dir: string): {
   instructions: string[];

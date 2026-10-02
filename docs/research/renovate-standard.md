@@ -1,7 +1,7 @@
 # Research: how tools define a standard, detect drift, and apply migrations
 
 Date: 2026-10-01. Worktree `r15e-renovate`, branch for step 15e (`doctor --renovate`).
-Extends [DOCTOR.md](DOCTOR.md) and [DOCTOR_FIX.md](DOCTOR_FIX.md). Cost: web search
+Extends [doctor.md](doctor.md) and [doctor-fix.md](doctor-fix.md). Cost: web search
 only, no paid API calls.
 
 Question: how do established tools (1) define the current standard, (2) detect
@@ -13,7 +13,7 @@ design choices does `doctor --renovate` have, and what are their pros and cons?
 
 From the Values of the global rules and the brief:
 
-1. **No prompt, agent-safe** — like `--fix` (DOCTOR_FIX.md §2), `--renovate`
+1. **No prompt, agent-safe** — like `--fix` (doctor-fix.md §2), `--renovate`
    must never block on stdin.
 2. **Blast radius small by default** — destructive changes need an explicit
    flag and preconditions, never a prompt.
@@ -23,7 +23,7 @@ From the Values of the global rules and the brief:
 4. **Idempotent and re-runnable** — the tool detects the drift each time or
    stores applied steps, so a repeat run either does nothing or continues.
 5. **Transparent** — the tool prints what it changes and reports what it
-   could not change, with a fix note (DOCTOR.md §1: the `fix`/`hint` pattern).
+   could not change, with a fix note (doctor.md §1: the `fix`/`hint` pattern).
 6. **Small steps and testability** — each migration is a small injected
    function next to the check registry in `src/doctor.ts`, like the fix
    actions of step 15b–15d.
@@ -108,7 +108,7 @@ Facts with sources:
   refuses on an unclean git tree and regenerates old and new template outputs
   to compute a diff.
 
-`brew doctor` (already covered in DOCTOR.md §1) is the diagnose-only model:
+`brew doctor` (already covered in doctor.md §1) is the diagnose-only model:
 it defines no standard version and reports only; the fixing is manual. It is
 the baseline that `--renovate` must improve on.
 
@@ -145,14 +145,14 @@ post-migrations).
 For `oc-sub`: the checks of `src/doctor.ts` already detect the drift from the
 files (an old sandbox, a project opencode pin, a stale server digest), so the
 stateless model fits and needs no state file. The re-run of checks after the
-fix pass (DOCTOR_FIX.md §4) already proves idempotence.
+fix pass (doctor-fix.md §4) already proves idempotence.
 
 ## 3. How they keep a migration safe
 
 | Guard | Tools | Source |
 |---|---|---|
-| Dry run | `@next/codemod --dry`; `brew cleanup --dry-run` (DOCTOR_FIX.md §1); Renovate's own dry-run global config; copier `--dry` and cruft `--skip-update` (the plan/diff is shown, nothing is written). | https://nextjs.org/docs/app/guides/upgrading/codemods; https://copier.readthedocs.io/en/v9.7.0/updating/ |
-| Clean git tree as precondition | `ng update` refuses on a dirty or untracked repo by default (`allow-dirty`, "Value Type boolean, Default false" — https://angular.dev/cli/update, read 2026-10-01); `cargo fix --allow-dirty` (DOCTOR_FIX.md §1); cruft update: "Cruft cannot apply updates on an unclean git project" (https://cruft.github.io/cruft/reference/cruft/); copier requires the destination folder to be git-versioned and clean ("`git status` shows it clean" — https://copier.readthedocs.io/en/v9.7.0/updating/). | — |
+| Dry run | `@next/codemod --dry`; `brew cleanup --dry-run` (doctor-fix.md §1); Renovate's own dry-run global config; copier `--dry` and cruft `--skip-update` (the plan/diff is shown, nothing is written). | https://nextjs.org/docs/app/guides/upgrading/codemods; https://copier.readthedocs.io/en/v9.7.0/updating/ |
+| Clean git tree as precondition | `ng update` refuses on a dirty or untracked repo by default (`allow-dirty`, "Value Type boolean, Default false" — https://angular.dev/cli/update, read 2026-10-01); `cargo fix --allow-dirty` (doctor-fix.md §1); cruft update: "Cruft cannot apply updates on an unclean git project" (https://cruft.github.io/cruft/reference/cruft/); copier requires the destination folder to be git-versioned and clean ("`git status` shows it clean" — https://copier.readthedocs.io/en/v9.7.0/updating/). | — |
 | One commit per migration | `ng update --create-commits` (https://angular.dev/cli/update: "Create source control commits for updates and migrations. Default false"); `nx migrate --run-migrations --create-commits`, with `commitPrefix` and defaults in `nx.json` (https://nx.dev/docs/guides/tips-n-tricks/advanced-update; https://github.com/nrwl/nx/blob/03483ea2/packages/nx/src/command-line/migrate/command-object.ts, read 2026-10-01); Nx agentic flow commits per migration for agent review (https://nx.dev/docs/features/automate-updating-dependencies). | — |
 | Two-phase plan | `nx migrate` (generate `migrations.json`, then `--run-migrations`), which gives a reviewable plan before any write. | https://nx.dev/docs/features/automate-updating-dependencies |
 | No backup; git is the backup | None of the surveyed tools makes file backups; the clean-tree precondition plus commits is the recovery path. copier's `.rej` files are the only artifact-style fallback, and its own docs' comparison calls that out as a failure mode ("the original file stays unchanged, even if the update partially fails ... cruft still updates the commit hash" — https://www.blenddata.nl/en/blogs/cruft-vs-copier-automating-template-updates-at-scale, read 2026-10-01). | — |
@@ -210,7 +210,7 @@ of them; `--renovate` is a fix pass plus migration-specific additions.
 | 4 idempotent | Pass only if each migration is idempotent and reversible — must hold per migration. | Pass; a version field makes skips explicit. |
 | 5 transparent | Pass: the doctor report shows the drift. | Pass; also survives partial runs. |
 | 6 small steps | Pass: reuses `ALL_CHECKS` as-is. | Cost: a schema, a version bump procedure, and the risk of a stale file. |
-| Failure modes | A non-idempotent migration runs twice on re-run (must be written idempotently, like the existing fixes). A partially failed run looks like the original drift; the re-run of checks shows what remains (DOCTOR_FIX.md §4). | The state file drifts from reality (copier docs warn: never edit the answers file by hand — https://copier.readthedocs.io/en/v9.7.0/updating/). Extra file in every project. |
+| Failure modes | A non-idempotent migration runs twice on re-run (must be written idempotently, like the existing fixes). A partially failed run looks like the original drift; the re-run of checks shows what remains (doctor-fix.md §4). | The state file drifts from reality (copier docs warn: never edit the answers file by hand — https://copier.readthedocs.io/en/v9.7.0/updating/). Extra file in every project. |
 
 Stateless (A) fits, because oc-sub's migrations are all "make the files
 current", not "apply history in order" — no oc-sub change has a step that
@@ -225,12 +225,12 @@ A.
 | 2 blast radius | Pass with the existing `--force` guards. | Pass. |
 | 3 | Pass. | Pass. |
 | 4 | Pass (re-run). | Pass. |
-| 5 | Pass: the diagnose-only `doctor` is already the dry run (DOCTOR_FIX.md §5, review note 5). | Pass, but a second flag surface. |
+| 5 | Pass: the diagnose-only `doctor` is already the dry run (doctor-fix.md §5, review note 5). | Pass, but a second flag surface. |
 | 6 | Pass. | Cost: plan/apply split, more flags. |
 
 A decided this: `doctor` without `--fix`/`--renovate` already prints the
 plan as the fix text of every finding (the pattern of `brew bundle cleanup`,
-DOCTOR_FIX.md §1). The re-run of checks after the pass is the built-in
+doctor-fix.md §1). The re-run of checks after the pass is the built-in
 verification.
 
 ### Choice 3: what each migration reports when it needs a human
@@ -241,14 +241,14 @@ verification.
 | 2 | Pass: the tool never invents content it must not create (like `globalRulesFix` refusing to create a missing rule file, `src/doctor.ts` lines 518–524). | Pass. |
 | 3 | Pass. | Pass, but the marker pollutes project files; a checked-in file marker is a change the user did not ask for. |
 | 4 | Pass: exit code non-zero, re-run shows the remaining fail. | Pass. |
-| 5 | Pass: the existing `fix failed (<name>): <note>` line (DOCTOR_FIX.md §5). | Pass. |
+| 5 | Pass: the existing `fix failed (<name>): <note>` line (doctor-fix.md §5). | Pass. |
 | 6 | Pass. | Pass. |
 
 A decided: oc-sub's fixes already have the "fail with note" shape, and no
 oc-sub migration edits user source files where a marker would live.
 `agent-copies` with differing content is the canonical human case: like
 `globalRulesFix`, it must not delete a file with unmerged content (criterion
-2, and the same rule as DOCTOR_FIX.md §6 for the recreate).
+2, and the same rule as doctor-fix.md §6 for the recreate).
 
 ### Choice 4: one commit per migration vs one pass, one review
 
@@ -271,7 +271,7 @@ cargo, cruft, copier). `doctor --fix` so far fixes files outside the project
 (symlinks, sandbox), so it never needed this. `--renovate` writes project
 files (a `mise.toml` pin, agent files), so it should adopt the guard: refuse
 on a dirty tree, print the guard, and allow `--force` — the same
-"precondition, not prompt" pattern as DOCTOR_FIX.md §2.
+"precondition, not prompt" pattern as doctor-fix.md §2.
 
 ## Recommendation
 

@@ -6,7 +6,7 @@ Research on 2026-10-01. No paid API call was made. Context: opencode 1.18.32 sen
 Exception: 1 validation error for OpenAIChatCompletionStreamOut choices.0.logprobs.content.0.logprob Input should be a valid number [type=float_type, input_value=None, input_type=NoneType]
 ```
 
-Reads: [DEEPINFRA.md](DEEPINFRA.md), [COST_PROXY.md](COST_PROXY.md). The exact error text and where the model returns it comes from the user's brief; I could not reproduce it (no paid call).
+Reads: [deepinfra.md](deepinfra.md), [cost-proxy.md](cost-proxy.md). The exact error text and where the model returns it comes from the user's brief; I could not reproduce it (no paid call).
 
 ## Criteria
 
@@ -15,7 +15,7 @@ From the global rules (research before assumption, small steps, failure modes na
 - Evidence: every claim carries a source; guesses are marked.
 - Safety: a retry must not duplicate already-delivered content or double-bill tokens.
 - Effort: a production-quality fix stays small and testable with the existing `bun test` setup.
-- Blast radius: the fix must not break the pass-through property of the cost proxy (COST_PROXY.md C1).
+- Blast radius: the fix must not break the pass-through property of the cost proxy (cost-proxy.md C1).
 
 ## Answers
 
@@ -34,7 +34,7 @@ Interpretation **[guess]**: the error is a bug in DeepInfra's own response seria
 
 **The client already asks for no logprobs, and there is no documented option that changes the failure.** Facts:
 
-- `@ai-sdk/openai-compatible` 3.0.62 (the package opencode uses for custom OpenAI-compatible providers, including our cost-proxy path; DEEPINFRA.md section 5) **never sends `logprobs` or `top_logprobs`**. I downloaded the npm tarball and grepped: the string `logprob` does not appear anywhere in `package/src` (checked 2026-10-01). The only stream parameter it sends is `stream_options.includeUsage`, and only in strict compatibility mode (`package/src/chat/openai-compatible-chat-language-model.ts:452-453`).
+- `@ai-sdk/openai-compatible` 3.0.62 (the package opencode uses for custom OpenAI-compatible providers, including our cost-proxy path; deepinfra.md section 5) **never sends `logprobs` or `top_logprobs`**. I downloaded the npm tarball and grepped: the string `logprob` does not appear anywhere in `package/src` (checked 2026-10-01). The only stream parameter it sends is `stream_options.includeUsage`, and only in strict compatibility mode (`package/src/chat/openai-compatible-chat-language-model.ts:452-453`).
 - DeepInfra's API spec makes `logprobs` a boolean request parameter ("Whether to return log probabilities of the output tokens or not") and `top_logprobs` an integer 1–20 (https://docs.deepinfra.com/api-reference/chat-completions/openai-chat-completions, fetched 2026-10-01 via search index). The OpenAI semantics: logprobs are returned only when requested, default off (https://community.openai.com/t/logprobs-in-chatcompletion/329471/1).
 - So the request does not trigger logprob output. The server emits a `logprobs.content[0].logprob = null` in a stream chunk anyway (or its serializer fills the object unconditionally) and its own pydantic model rejects it. **[guess]** The null likely comes from a token for which DeepInfra's serving stack has no log probability (for example a special or reasoning token of GLM-5.3-Flash, whose `reasoning_content` handling is non-standard).
 - Sending `logprobs: false` explicitly, omitting `stream_options`, or changing `stream_options` variants: **unknown, no source says they change this**. The failure is in server-side output validation, so no request option documented in the spec plausibly avoids it. One live A/B call (`logprobs: false` vs absent) would settle it cheaply if we want to rule it out.
@@ -50,9 +50,9 @@ Conclusion: this is not fixable from the request side with documented means. It 
 - **LiteLLM buffers the first chunk** to detect error-only streams: `create_response` fetches the first SSE chunk, and if it parses as an error it returns a normal JSON error response instead of an SSE stream, so the caller sees a retryable HTTP error (https://github.com/BerriAI/litellm/blob/main/litellm/proxy/common_request_processing.py, read 2026-10-01). Our proxy could copy this pattern: buffer nothing but the first chunk, forward it only once it is not an error frame.
 - **Mid-stream (after content) LiteLLM does a "fallback with continuation"**: it wraps the error in `MidStreamFallbackError` with `generated_content`, re-runs the request on a fallback model, and injects "Continue from where it left off: '<previous content>'" (PR #9809, https://github.com/BerriAI/litellm/pull/9809; mid-stream fallback wiring PR #28214). This needs a second model, rewrites the request, and one reviewer of #9809 notes it "does not resolve the issue" in some cases — it is the heaviest and least reliable option.
 - **OpenRouter** (a gateway, same situation as our proxy): "Failover also stops once part of the answer has reached you, since your application already holds output from the first provider." Before any token, it silently retries on a backup provider; mid-stream it emits an SSE error chunk with `finish_reason: "error"` and leaves recovery to the client (https://openrouter.ai/docs/api_reference/errors-and-debugging, read 2026-10-01).
-- Billing risk: a retried request re-bills the prompt. On GLM-5.3-Flash that is cheap ($0.075/M in, DEEPINFRA.md section 1), so the cost risk of a bounded pre-first-chunk retry is small; the duplication risk is the real one.
+- Billing risk: a retried request re-bills the prompt. On GLM-5.3-Flash that is cheap ($0.075/M in, deepinfra.md section 1), so the cost risk of a bounded pre-first-chunk retry is small; the duplication risk is the real one.
 
-For our error specifically: the brief says the failure appears "inside the stream, after HTTP status 200". Whether the poisoned chunk is the first content chunk or a later one decides safety. **[guess]** If it fires roughly 1 in 25 runs and ends the stream with no `finish_reason`, it may often come early; but only the proxy's log lines can tell us where in the stream it lands. The proxy (COST_PROXY.md section 7) already records `finish_reason` and stream errors per request, so the data arrives by itself.
+For our error specifically: the brief says the failure appears "inside the stream, after HTTP status 200". Whether the poisoned chunk is the first content chunk or a later one decides safety. **[guess]** If it fires roughly 1 in 25 runs and ends the stream with no `finish_reason`, it may often come early; but only the proxy's log lines can tell us where in the stream it lands. The proxy (cost-proxy.md section 7) already records `finish_reason` and stream errors per request, so the data arrives by itself.
 
 ### 4. Does opencode 1.18.x or later retry stream errors of this kind?
 

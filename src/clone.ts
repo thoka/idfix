@@ -4,7 +4,7 @@
  * the sandbox, not on the host, so every git step goes through
  * `sbx exec NAME ...` with the runner (like `upSandbox`). The host only
  * fetches the finished branches from the `sandbox-<name>` remote that
- * `sbx` manages (RUN_ISOLATION.md section 2.4). The clone itself fetches
+ * `sbx` manages (run-isolation.md section 2.4). The clone itself fetches
  * new host commits from the read-only host repository through its remote
  * `host`, never through `origin`. Both commands work only in
  * sandbox mode: without a sandbox state file for the project they stop with
@@ -117,7 +117,7 @@ export const DEFAULT_BASES = ["alpha", "main", "master"] as const;
  * first of `DEFAULT_BASES` that exists on the host. A missing base stops
  * with an error that names it. It does not fetch `origin`:
  * the clone copies the remotes of the host, so `origin` can be an SSH URL
- * that the sandbox cannot reach (RUN_ISOLATION.md section 9). When the
+ * that the sandbox cannot reach (run-isolation.md section 9). When the
  * worktree already exists and git knows it, it says so and exits 0. A
  * folder that exists but is not a registered worktree is stale: it stops
  * with an error that names the folder and `oc-sub worktree rm`.

@@ -138,7 +138,7 @@ Recommended hybrid for `oc-sub`:
      the server URL and a broken mount shows up as a failed request anyway.
    - *Plugin freshness*: the cheap form is enough. Read the installed
      plugin's recorded commit SHA and compare it to the repository HEAD
-     (`git rev-parse`, ~8 ms). Per `docs/research/PLUGIN_UPDATES.md`, the
+     (`git rev-parse`, ~8 ms). Per `docs/research/plugin-updates.md`, the
      installed copy lives at
      `~/.claude/plugins/cache/opencode-subagents/opencode-subagents/<version>/`
      and `installed_plugins.json` records `gitCommitSha`; when the plugin is
@@ -210,7 +210,7 @@ the repository HEAD.
    skills; on WSL2/NTFS the home directory is normally inside ext4, so no
    9P penalty.
 6. **No project copy of the plugin agents beyond a permission-only file** —
-   kept, with the rule defined by `docs/research/AGENT_MERGE.md` (lines 76–88):
+   kept, with the rule defined by `docs/research/agent-merge.md` (lines 76–88):
    a project `.opencode/agents/coder.md` / `researcher.md` is allowed only if
    its content is a permission-only block (frontmatter with `permission`,
    no `prompt`, `description`, or `model` field). Unlike checks 1–5 this one
@@ -222,7 +222,7 @@ the repository HEAD.
    `upSandbox` already does with `listsMounts` (`src/sandbox.ts` lines
    399–404, 547–553), so `up` gets it for free and `run` must not pay 300 ms
    for it. The plugin check compares the recorded installed SHA against the
-   repository HEAD per `docs/research/PLUGIN_UPDATES.md` (the version-pinned
+   repository HEAD per `docs/research/plugin-updates.md` (the version-pinned
    cache is the documented no-update failure mode, §1 and §4 of that report).
 
 ## Options judged by criteria
@@ -281,7 +281,7 @@ Other decisions, each against the criteria:
   reliably across Claude Code versions — on this machine no plugin cache
   exists (the plugin loads live), so the exact JSON shape of
   `installed_plugins.json` and its `gitCommitSha` field is documented only by
-  `docs/research/PLUGIN_UPDATES.md` and must be verified against a
+  `docs/research/plugin-updates.md` and must be verified against a
   cache-installed machine.
 - The idle TTL value (24 h proposed) — a guess; tune after real use.
 - WSL2 numbers come from public bug reports (wslg#264, vxlabs), not from a

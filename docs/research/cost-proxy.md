@@ -71,7 +71,7 @@ A restart loop around the proxy (`until bun proxy.ts; do sleep 1; done &`) bound
 
 > "The `usage: { include: true }` and `stream_options: { include_usage: true }` parameters are deprecated and have no effect. Full usage details are now always included automatically in every response."
 
-The final chunk's `usage` contains `cost` ("The total amount charged to your account") and `cost_details.upstream_inference_cost` (same page). This answers the open question 1 of [REAL_COST.md](REAL_COST.md): the cost arrives by itself; `usage: { include: true }` is not needed and cannot be added usefully.
+The final chunk's `usage` contains `cost` ("The total amount charged to your account") and `cost_details.upstream_inference_cost` (same page). This answers the open question 1 of [real-cost.md](real-cost.md): the cost arrives by itself; `usage: { include: true }` is not needed and cannot be added usefully.
 
 The provider name is a top-level field of each SSE chunk, shown in the streaming example of the API reference:
 
@@ -79,7 +79,7 @@ The provider name is a top-level field of each SSE chunk, shown in the streaming
 data: {"id":"cmpl-abc123","object":"chat.completion.chunk","created":1234567890,"model":"openai/gpt-4o","provider":"openai","error":{...},"choices":[...]}
 ```
 
-(https://openrouter.ai/docs/api-reference/streaming). The docs do not state explicitly that the final usage chunk also carries `provider` — the proxy should take the provider from any chunk of the stream, not only the last one. The generation id arrives as header `X-Generation-Id` and top-level `id` ([PROVIDER_PROBE.md](PROVIDER_PROBE.md) section 4).
+(https://openrouter.ai/docs/api-reference/streaming). The docs do not state explicitly that the final usage chunk also carries `provider` — the proxy should take the provider from any chunk of the stream, not only the last one. The generation id arrives as header `X-Generation-Id` and top-level `id` ([provider-probe.md](provider-probe.md) section 4).
 
 Consequence: the proxy taps the stream, forwards every byte immediately (C1), and extracts from the passing chunks: `id`, `provider`, and the `usage` of the final chunk.
 
@@ -119,7 +119,7 @@ The `openrouter` provider id does not start with `opencode`, so it gets `X-Sessi
 
 ## 5. Status of opencode issue #43818
 
-Still **open**. "[FEATURE]: Honor provider-reported cost (usage.cost) from LLM gateways (OpenRouter, LiteLLM, Manifest)" (https://github.com/anomalyco/opencode/issues/43818), opened 2026-08-21, assigned to rekram1-node, no comments, "Development: No branches or pull requests" (checked 2026-09-30). The proxy stays necessary; REAL_COST.md open question 3 stays open.
+Still **open**. "[FEATURE]: Honor provider-reported cost (usage.cost) from LLM gateways (OpenRouter, LiteLLM, Manifest)" (https://github.com/anomalyco/opencode/issues/43818), opened 2026-08-21, assigned to rekram1-node, no comments, "Development: No branches or pull requests" (checked 2026-09-30). The proxy stays necessary; real-cost.md open question 3 stays open.
 
 ## 6. Can an opencode plugin do it instead?
 
@@ -132,7 +132,7 @@ The plugin surface at v1.18.32 is the `Hooks` interface in `packages/plugin/src/
 
 What the hooks do and do not see:
 
-- **No hook sees the raw response, the stream bytes, the provider of the request, or `usage.cost`.** `chat.params` output is `{ temperature, topP, topK, maxOutputTokens, options }` and `chat.headers` output is `{ headers }` — request-side only. There is no `chat.response`, no `step.finish`, and no fetch hook. The `event` hook sees bus events; the cost-bearing step-finish is not persisted as a part and carries only the catalog estimate ([REAL_COST.md](REAL_COST.md) section 2). Whether `providerMetadata.openrouter.usage.cost` reaches opencode's stream is still unverified (REAL_COST.md open question 1), and even if it did, no hook is called with it.
+- **No hook sees the raw response, the stream bytes, the provider of the request, or `usage.cost`.** `chat.params` output is `{ temperature, topP, topK, maxOutputTokens, options }` and `chat.headers` output is `{ headers }` — request-side only. There is no `chat.response`, no `step.finish`, and no fetch hook. The `event` hook sees bus events; the cost-bearing step-finish is not persisted as a part and carries only the catalog estimate ([real-cost.md](real-cost.md) section 2). Whether `providerMetadata.openrouter.usage.cost` reaches opencode's stream is still unverified (real-cost.md open question 1), and even if it did, no hook is called with it.
 - **A hook knows the session id**: every `chat.*` hook input carries `sessionID` (and `chat.headers` can inject it into outgoing headers, request.ts:134–144, 202–204).
 - **Custom fetch**: no hook provides one. A plugin runs inside the server process (plugin/index.ts loads the module and registers its hooks; `applyPlugin` at plugin/index.ts:114), so the only way to see the response is to wrap `globalThis.fetch` at plugin init — which intercepts every fetch of the whole server process, including the plugin's own SDK calls and the event loop traffic. **[fact for the loading model; the wrap is a guess-shaped workaround]**
 - **Errors**: `Plugin.trigger` calls each hook with `Effect.promise(async () => fn(input, output))` (plugin/index.ts:285–296) and `session/llm/request.ts` has no catch around its three `plugin.trigger` calls (lines 69, 114, 134) — a throwing `chat.*` hook fails the request, i.e. the step. The `event` hook is called fire-and-forget (`void hook["event"]?.(...)`), so its errors surface only as session error events, not as request failures.

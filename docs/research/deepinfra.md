@@ -8,14 +8,14 @@ decisions:
 
 # DeepInfra as a direct provider for GLM, and how it measures cost
 
-Research on 2026-10-01. No paid API call was made and no key file was read. Every live call was free (public model pages, docs, `models.dev/api.json`, the DeepInfra public model list). Context: oc-sub runs GLM 5.3 Flash through OpenRouter (see [PROVIDER_PROBE.md](PROVIDER_PROBE.md)); the user has a DeepInfra account and says DeepInfra is 50 percent cheaper.
+Research on 2026-10-01. No paid API call was made and no key file was read. Every live call was free (public model pages, docs, `models.dev/api.json`, the DeepInfra public model list). Context: oc-sub runs GLM 5.3 Flash through OpenRouter (see [provider-probe.md](provider-probe.md)); the user has a DeepInfra account and says DeepInfra is 50 percent cheaper.
 
 ## Criteria
 
 From the global rules (research before assumption, established libraries, quality first, cost cap) and the brief:
 
 - Model fit: the exact model oc-sub uses (`z-ai/glm-5.3-flash`) must be served directly, with 1M context.
-- Precision: quantization must not be fp4 (the fp4 incident of 2026-09-28; PROVIDER_PROBE.md section 1).
+- Precision: quantization must not be fp4 (the fp4 incident of 2026-09-28; provider-probe.md section 1).
 - Feature parity: tool calls, streaming with usage, reasoning, prompt caching must work through the OpenAI-compatible API.
 - Cost truth: the client must be able to read the real cost per request, and a spend limit must exist.
 - Integration effort: opencode 1.18.32 must be able to use it with the built-in provider mechanism or a small config block.
@@ -48,7 +48,7 @@ Source: the public model list `GET https://api.deepinfra.com/v1/openai/models` (
 Notes:
 
 - The model list API returns `"quantization": null, "context_length": null, "price_data": null` for every GLM model, so the numbers come from the pages, not the API.
-- The GLM-5.3-Flash page shows `$0.075 in, $0.25 out, $0.015 cached / 1M tokens` against struck-through `$0.15 in, $0.50 out, $0.03 cached`, with a **"50% off"** badge. The DeepInfra blog confirms: "Standard pricing is $0.15 per 1M input tokens and $0.50 per 1M output tokens, with cached tokens at $0.03 per 1M. A 50% discount is currently active, bringing those figures down to $0.075, $0.25, and $0.015 respectively" (https://deepinfra.com/blog/glm-5-3-flash-deepinfra, published 2026-09-28). This matches the user's statement and exactly matches the DeepInfra endpoint prices in PROVIDER_PROBE.md section 1.
+- The GLM-5.3-Flash page shows `$0.075 in, $0.25 out, $0.015 cached / 1M tokens` against struck-through `$0.15 in, $0.50 out, $0.03 cached`, with a **"50% off"** badge. The DeepInfra blog confirms: "Standard pricing is $0.15 per 1M input tokens and $0.50 per 1M output tokens, with cached tokens at $0.03 per 1M. A 50% discount is currently active, bringing those figures down to $0.075, $0.25, and $0.015 respectively" (https://deepinfra.com/blog/glm-5-3-flash-deepinfra, published 2026-09-28). This matches the user's statement and exactly matches the DeepInfra endpoint prices in provider-probe.md section 1.
 - **No end date and no terms** are published for the discount — not on the model page, not in the blog. Duration unconfirmed. GLM-5.3 (non-Flash) is discounted 38% instead; other GLM models show no discount.
 - Context of 1,048,576 for GLM-5.3-Flash: model page badge and blog ("The full 1,048,576-token context window is supported"). models.dev agrees (`limit.context: 1048576, output: 131072`).
 - Service tiers exist: Standard 1×, Priority 1.5×, Flex 0.8× (https://deepinfra.com/pricing). Cache-write premium with retention windows (5m 1.25×, 1h 2×) is documented on the GLM-5.2 page.
@@ -58,7 +58,7 @@ Notes:
 - The GLM-5.3-Flash page badges the model **fp4** (reader fetch of https://deepinfra.com/zai-org/GLM-5.3-Flash/api, 2026-10-01). Same for GLM-5.3 ("badges: Public, Zero retention, fp4, 1,048,576…"). The DeepInfra blog also says: "DeepInfra's listing also notes fp4 precision" (https://deepinfra.com/blog/glm-5-3-flash-pricing-providers-cost).
 - **No higher-precision serverless variant is offered.** No fp8/bf16 badge or variant link appears on either page. The quantization field of the public model list is `null` for all GLM models.
 - fp8 is only available on a **dedicated** deployment: the deploy API accepts `quantization: enum: fp8, awq, gptq, awq_marlin, gptq_marlin, compressed-tensors, bitsandbytes` (https://docs.deepinfra.com/api-reference/dedicated-models/deploy-create-llm). No fp4 or bf16 option there; no dedicated pricing was researched (GPU-hour rental, out of scope for oc-sub's per-token model).
-- Consequence for the fp4 exclusion: PROVIDER_PROBE.md excluded all fp4 endpoints after the broken-output incident. **DeepInfra direct serves the same fp4 weights as the DeepInfra endpoint on OpenRouter that we excluded.** Whether DeepInfra's fp4 serving is identical in quality to what it serves through OpenRouter is unknown (unconfirmed); it may be the same backend behind both. This is the single biggest open risk.
+- Consequence for the fp4 exclusion: provider-probe.md excluded all fp4 endpoints after the broken-output incident. **DeepInfra direct serves the same fp4 weights as the DeepInfra endpoint on OpenRouter that we excluded.** Whether DeepInfra's fp4 serving is identical in quality to what it serves through OpenRouter is unknown (unconfirmed); it may be the same backend behind both. This is the single biggest open risk.
 
 ## 3. OpenAI-compatible API features
 
@@ -98,7 +98,7 @@ So the minimal setup is the key file plus env, no provider block:
 DEEPINFRA_API_KEY={file:~/.config/opencode-subagents/deepinfra.key}
 ```
 
-Model selection: `deepinfra/zai-org/glm-5.3-flash` in the model config. The explicit custom entry (same pattern as the cost proxy's `baseURL` override, COST_PROXY.md section 1) also works if we want to pin options:
+Model selection: `deepinfra/zai-org/glm-5.3-flash` in the model config. The explicit custom entry (same pattern as the cost proxy's `baseURL` override, cost-proxy.md section 1) also works if we want to pin options:
 
 ```json
 {
@@ -150,7 +150,7 @@ Yes, models.dev lists `deepinfra` as a provider with all eight GLM models (`zai-
 | Effort | Near zero: built-in provider, one key file | Zero |
 | Catalog correctness | models.dev has standard prices; estimate 2× real during discount | Correct |
 
-Known failure modes: A — fp4 serving was the prime suspect in the 2026-09-28 broken-output incident (PROVIDER_PROBE.md), and discount may end at any time (no end date). B — 2× the discounted price, provider attribution only through the proxy.
+Known failure modes: A — fp4 serving was the prime suspect in the 2026-09-28 broken-output incident (provider-probe.md), and discount may end at any time (no end date). B — 2× the discounted price, provider attribution only through the proxy.
 
 ## Recommendation
 

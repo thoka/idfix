@@ -1,6 +1,6 @@
 # Permanent access to /dev/kvm under WSL2
 
-Research date: 2026-10-01. Written for the sandbox step; background in [SANDBOX.md](SANDBOX.md).
+Research date: 2026-10-01. Written for the sandbox step; background in [sandbox.md](sandbox.md).
 
 Problem: on the host (Arch Linux under WSL2 with systemd), `/dev/kvm` needs read/write access for user `toka`. A manual `sudo chmod 0666 /dev/kvm` did not survive a WSL restart. On 2026-09-30 the device came back with mode 0660 and group ID 109, which has no name in `/etc/group`, and every Docker Sandbox start failed.
 

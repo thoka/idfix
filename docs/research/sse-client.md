@@ -129,7 +129,7 @@ export function subscribeGlobalEvents(
 
 **What `live.ts` must do itself** (mostly already there):
 
-- Reconnect with a growing delay: already implemented (lines 139-148, 1 s doubling to 30 s). The SDK's `sseDefaultRetryDelay`/`sseMaxRetryDelay` disappear from the call; the server's `retry:` field is then ignored — acceptable, our cap is the same 30 s. (Guess: opencode's heartbeat is every 10 s, `handlers/global.ts:28-42` per TOP_VIEW.md section 6.2; a dead connection is noticed only on the next failed fetch or via the existing probes.)
+- Reconnect with a growing delay: already implemented (lines 139-148, 1 s doubling to 30 s). The SDK's `sseDefaultRetryDelay`/`sseMaxRetryDelay` disappear from the call; the server's `retry:` field is then ignored — acceptable, our cap is the same 30 s. (Guess: opencode's heartbeat is every 10 s, `handlers/global.ts:28-42` per top-view.md section 6.2; a dead connection is noticed only on the next failed fetch or via the existing probes.)
 - Reseed after every gap: already implemented; now it also covers the previously SDK-healed mid-stream errors, because those now always end the stream (simpler: one reconnect path instead of two).
 - Map non-200 to `unauthorized`/`down` like `probeServer` does (`src/client.ts:21-33`), so a wrong-key server shows a warning instead of a retry loop.
 - Optional: a read-timeout (`AbortSignal.timeout` combined with the stop signal via `AbortSignal.any`) to detect a stalled connection between heartbeats. Not needed for the first version; the step 6 stall detection covers the session level.

@@ -4,7 +4,7 @@ mode: subagent
 hidden: true
 steps: 6
 # No model: a subagent without one inherits the model of the calling session,
-# so `oc-sub run --model` reaches the reader too (docs/research/SUBAGENT_MODEL.md).
+# so `oc-sub run --model` reaches the reader too (docs/research/subagent-model.md).
 # GLM can spend its whole output budget on thinking. This caps it.
 reasoning:
   effort: low

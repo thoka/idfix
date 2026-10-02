@@ -7,7 +7,7 @@ decisions:
 
 # The state of opencode development and the road to 2.0
 
-Written 2026-09-30 for the `oc-sub` project, which pins opencode **1.18.32** (`mise.toml:3`). Builds on [OPENROUTER_ROUTING.md](OPENROUTER_ROUTING.md) (model suffixes, issue #48016), [REAL_COST.md](REAL_COST.md) (issue #43818, `usage.cost`), and [SSE_CLIENT.md](SSE_CLIENT.md) (the unhandled AbortError in the generated SDK client).
+Written 2026-09-30 for the `oc-sub` project, which pins opencode **1.18.32** (`mise.toml:3`). Builds on [openrouter-routing.md](openrouter-routing.md) (model suffixes, issue #48016), [real-cost.md](real-cost.md) (issue #43818, `usage.cost`), and [sse-client.md](sse-client.md) (the unhandled AbortError in the generated SDK client).
 
 ## Criteria
 
@@ -37,7 +37,7 @@ Used for the recommendation in §5:
 |---|---|
 | Model suffixes `:floor`/`:nitro`/presets not resolvable (#48016) | **still open**, fix PR #48117 still open and unmerged ([issue](https://github.com/anomalyco/opencode/issues/48016)) |
 | Honor provider-reported cost `usage.cost` (#43818) | **still open**, no update since 2026-08-21 ([issue](https://github.com/anomalyco/opencode/issues/43818)) |
-| Unhandled AbortError from SSE `reader.cancel()` in the generated SDK client | **not fixed**: the `serverSentEvents.gen.js` in SDK 1.18.33 is byte-identical to 1.18.32 (verified by tarball diff in [SSE_CLIENT.md](SSE_CLIENT.md) §1). The related provider-side issue #44943 was closed 2026-09-02 via merged PR #44944 ("handle SSE reader cancel rejections"), but that fixes opencode's own provider stream, not the SDK client that `oc-sub` calls |
+| Unhandled AbortError from SSE `reader.cancel()` in the generated SDK client | **not fixed**: the `serverSentEvents.gen.js` in SDK 1.18.33 is byte-identical to 1.18.32 (verified by tarball diff in [sse-client.md](sse-client.md) §1). The related provider-side issue #44943 was closed 2026-09-02 via merged PR #44944 ("handle SSE reader cancel rejections"), but that fixes opencode's own provider stream, not the SDK client that `oc-sub` calls |
 
 ### 2.0 is not on the stable release channel
 
@@ -62,7 +62,7 @@ Quotes from `specs/v2/todo.md` ([blob](https://github.com/anomalyco/opencode/blo
 |---|---|---|
 | Server API | "The opencode server has moved to the Effect HttpApi backend" (todo). Hono is removed; "EventV2 ... without relying on the old bus system". Event scoping is redesigned ("2.0: Scope event subscriptions by client interest", #36443) | High. `oc-sub` consumes `GET /global/event` SSE and REST endpoints of the 1.x API; the event shapes and scoping change |
 | SDK | The v2 SDK is regenerated (`packages/sdk/js/src/v2/...`); 1.x SDK generation is separate | The `@opencode-ai/sdk` API surface we code against changes; our SSE workaround has to be re-evaluated against the v2 generated client |
-| Config format | "We should do another pass on config ... Old configs should get auto-converted to new" (todo) | Medium. Auto-conversion is promised but our provider `options`/`extraBody` routing config (OPENROUTER_ROUTING.md §2) is untested in v2 |
+| Config format | "We should do another pass on config ... Old configs should get auto-converted to new" (todo) | Medium. Auto-conversion is promised but our provider `options`/`extraBody` routing config (openrouter-routing.md §2) is untested in v2 |
 | Agent files | No agent (markdown) format change mentioned in the todo or docs | Unknown / probably low, but unverified |
 | Plugin API | "We need to figure out how we want server plugins to work and what hooks are useful" (todo). "Providers should register as plugins and autoload" (todo). The Reddit thread: "These will likely break existing plugins" | High for anything plugin-based; today `oc-sub` uses no plugin, so low direct impact |
 | Cost (`usage.cost`) | No mention of honoring provider-reported cost in the v2 plan | Issue #43818 unresolved in v2 planning as far as any public source shows |
@@ -85,7 +85,7 @@ Judged against the criteria:
 | Move to latest 1.x (1.18.33) | None (nothing relevant changed) | Low but nonzero: 30 commits, 8 releases/month cadence; our repro shows the SDK SSE bug is *not* fixed in 1.18.33 | Small (bump `mise.toml`, re-run tests) | Same as 1.18.32 |
 | Wait for / move to 2.0 | Not addressed: #48016 and #43818 have no v2 fix, plugin API still in design (§3) | High: Effect HttpApi server, EventV2, regenerated SDK, config pass (§3); AUR/docs call it beta | Large: rework SSE consumption and REST calls against the v2 API | Unclear launch date |
 
-**Recommendation: stay on 1.18.32 for now.** The deciding criteria are "fixes that we need" (1.18.33 fixes none of our three issues; the SSE abort bug survives verbatim into the 1.18.33 SDK) and "effort" (a bump to 1.18.33 buys nothing measurable). Our SSE plan (own `fetch` + `eventsource-parser` loop, [SSE_CLIENT.md](SSE_CLIENT.md) §4) is version-independent and should land regardless.
+**Recommendation: stay on 1.18.32 for now.** The deciding criteria are "fixes that we need" (1.18.33 fixes none of our three issues; the SSE abort bug survives verbatim into the 1.18.33 SDK) and "effort" (a bump to 1.18.33 buys nothing measurable). Our SSE plan (own `fetch` + `eventsource-parser` loop, [sse-client.md](sse-client.md) §4) is version-independent and should land regardless.
 
 Process: check the release notes roughly monthly; bump the pin only when a release fixes one of #48016, #43818, or the SDK SSE abort handler. Re-evaluate 2.0 only after a declared stable v2 launch plus the release of a migration guide — today none exists, and the "rebuild phase" quote (§2) says the maintainers themselves do not consider it launched.
 
@@ -94,7 +94,7 @@ Process: check the release notes roughly monthly; bump the pin only when a relea
 1. Dates of the v2.0.x tags (v2.0.0 … v2.0.20): GitHub API rate limit prevented confirmation; the docs reference only 2.0.6.
 2. Does v2 fix the model-suffix resolution (#48016) or honor `usage.cost` (#43818)? No public source found either way.
 3. Was the Reddit claim "docs say it's experimental" ever an official statement on v2.opencode.ai? The current docs page carries no such sentence; possibly removed or on Discord (not public-readable).
-4. Does the v2 generated SDK client still ship the un-caught `reader.cancel()` abort handler? (The 1.x one does; the v2 gen at `packages/sdk/js/src/v2/gen/core/serverSentEvents.gen.ts:141` still had it on `main`, per [SSE_CLIENT.md](SSE_CLIENT.md) §2, checked 2026-09-30.)
+4. Does the v2 generated SDK client still ship the un-caught `reader.cancel()` abort handler? (The 1.x one does; the v2 gen at `packages/sdk/js/src/v2/gen/core/serverSentEvents.gen.ts:141` still had it on `main`, per [sse-client.md](sse-client.md) §2, checked 2026-09-30.)
 
 ## Search log
 

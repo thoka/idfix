@@ -1,6 +1,6 @@
 /**
  * Stage two of the trace analysis: tag each trace step with Jev through the
- * OpenRouter decisions endpoint (see `docs/research/JEV_DECISIONS_API.md`).
+ * OpenRouter decisions endpoint (see `docs/research/jev-decisions-api.md`).
  *
  * One step becomes one decisions request with all three questions in one
  * call, because the state is billed once and all questions answer in
@@ -40,7 +40,7 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 /** Seconds before the single retry on HTTP 429 or 5xx. */
 const RETRY_MS = 2000;
 
-/** The tag options with their criteria, from `TRACE_ANALYSIS.md` stage 2. */
+/** The tag options with their criteria, from `trace-analysis.md` stage 2. */
 export const TAG_CRITERIA: Record<string, string> = {
   ok: "The step did what it intended and its claim matches the evidence of its tool calls.",
   "wrong-tool": "The step used the wrong tool for the job.",

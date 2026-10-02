@@ -192,7 +192,7 @@ export async function probeSlug(
   return { status, errorText, model, provider, content, usage, generationId, generationCost };
 }
 
-/** The decisions request body, the example of JEV_DECISIONS_API.md. Pure. */
+/** The decisions request body, the example of jev-decisions-api.md. Pure. */
 export function buildDecisionsRequestBody(model: string): object {
   return {
     model,

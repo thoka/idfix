@@ -59,4 +59,4 @@ Recommendation: implement variant 1 now (two `GET /key` calls, no new infrastruc
 1. Does `providerMetadata.openrouter.usage.cost` actually arrive in opencode's stream in 1.18.32 without `usage: { include: true }`? Needs a proxy/debug capture.
 2. How fast is `GET /generation` data available after a streaming request completes (poll delay)?
 3. Does a merged PR ever land for issue #43818 (honor `usage.cost`)? Re-check before building variant 2.
-4. Is the model's resolved SDK package for `z-ai/glm-5.3-flash` the bundled `@openrouter/ai-sdk-provider` (leftover from OPENROUTER_ROUTING.md, also relevant for capturing ids)?
+4. Is the model's resolved SDK package for `z-ai/glm-5.3-flash` the bundled `@openrouter/ai-sdk-provider` (leftover from openrouter-routing.md, also relevant for capturing ids)?

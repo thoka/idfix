@@ -1,6 +1,6 @@
 /**
  * Sandbox mode: run `opencode serve` inside a Docker Sandbox (`sbx`) per
- * project, instead of on the host. See `docs/research/SANDBOX.md` and the
+ * project, instead of on the host. See `docs/research/sandbox.md` and the
  * design of step 9a in `docs/PLAN.md`. Every `sbx` call goes through a
  * runner, so the tests replace it with a fake and never call the real `sbx`.
  */
@@ -116,7 +116,7 @@ export function sandboxConfigContent(sharedDir: string, proxyUrl?: string, deepi
   // the sandbox. An agent could call its tools, so the sandbox turns it off.
   // The shared rules and skills load through the absolute paths, because the
   // `OPENCODE_CONFIG_DIR` of the sandbox drops the global AGENTS.md (see
-  // docs/research/OPENCODE_RULES.md).
+  // docs/research/opencode-rules.md).
   return JSON.stringify({
     agent: agents,
     mcp: { "mcp-gateway": { enabled: false } },
@@ -497,7 +497,7 @@ export function parseBinPaths(stdout: string): string | null {
  * a trusted path, so the `mise.toml` of the project root also covers the
  * `mise.toml` of each worktree of the project. `MISE_EXPERIMENTAL` is not
  * needed: `shared_install_dirs` works without it (tested live, see
- * docs/research/SANDBOX_MISE.md).
+ * docs/research/sandbox-mise.md).
  */
 export function sandboxMiseEnv(installsDir: string, projectRoot: string): string[] {
   const homeData = `${SANDBOX_HOME}/.local/share/mise`;
@@ -596,7 +596,7 @@ export function bunBinFromInstalls(installsDir: string): string | null {
 /**
  * A shell loop that keeps the cost proxy running: when the proxy exits, it
  * starts again after one second, so a crash does not end the model calls of
- * the server (C7 in docs/research/COST_PROXY.md). Every argument is quoted,
+ * the server (C7 in docs/research/cost-proxy.md). Every argument is quoted,
  * so no string from the user reaches the shell unquoted.
  */
 export function proxyLoopScript(bunBin: string, bundlePath: string, port: number, hostname: string): string {
@@ -970,7 +970,7 @@ export async function recreateSandbox(
  * The command that proves the clone exists inside the sandbox:
  * `git -C ROOT rev-parse --git-dir` must succeed there. A create with a
  * mount inside the project root exits 0 but leaves no clone
- * (RUN_ISOLATION.md section 9).
+ * (run-isolation.md section 9).
  */
 export function cloneCheckCommand(bin: string, name: string, root: string): string[] {
   return [bin, "exec", name, "git", "-C", root, "rev-parse", "--git-dir"];
@@ -1067,7 +1067,7 @@ export function isInsideRoot(dir: string, root: string): boolean {
  *
  * A mount inside the project root stops the clone silently: `sbx create`
  * exits 0, but the sandbox then holds only the mount point at the root and
- * no clone (RUN_ISOLATION.md section 9). This hits the project `meta` (the
+ * no clone (run-isolation.md section 9). This hits the project `meta` (the
  * shared agents folder `<root>/agents`). The plugin folder is the synced
  * folder of `pluginDataDir` since step 15c, which lies outside every project
  * root, so it is always mounted. The clone holds the tracked files
@@ -1251,7 +1251,7 @@ export async function upSandbox(
     // `--clone` is a create-time flag: the sandbox gets a private
     // in-container clone of the repository, the host repo stays read-only at
     // `/run/sandbox/source`, and `sbx` adds a `sandbox-<name>` remote to the
-    // host repository for the review fetch (RUN_ISOLATION.md section 2.4).
+    // host repository for the review fetch (run-isolation.md section 2.4).
     // The create must run from the main checkout, because clone mode is
     // rejected inside a worktree; `root` is `projectRoot`, so it already is.
     // The create runs with the working directory `/`, because `sbx` accepts
@@ -1305,7 +1305,7 @@ export async function upSandbox(
 
   // After the create, and on every up of an existing sandbox: the clone must
   // exist at the project root. `sbx create --clone` can exit 0 and still
-  // leave no clone (RUN_ISOLATION.md section 9), and every run worktree
+  // leave no clone (run-isolation.md section 9), and every run worktree
   // lives in that clone. This `sbx exec` also starts a stopped sandbox.
   // When the exec itself fails (the sandbox does not start), the cause is in
   // its stderr, and a recreate would not help.
@@ -1568,7 +1568,7 @@ export async function downSandbox(
   // `sbx stop` keeps the clone and the sandbox, but it removes the
   // `sandbox-<name>` remote from the host repository. The next start of the
   // sandbox adds the remote again, with the new ephemeral port of the git
-  // daemon (docs/research/RUN_ISOLATION.md section 2.4). `upSandbox`
+  // daemon (docs/research/run-isolation.md section 2.4). `upSandbox`
   // therefore checks the remote only after its first `sbx exec`.
   const stop = deps.runner([sbxBin(env), "stop", name]);
   if (stop.exitCode !== 0) {

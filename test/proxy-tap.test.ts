@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { applyChunk, createSseTap, usageOf } from "../src/proxy/tap";
 
-// Real OpenRouter chunk shapes from docs/research/COST_PROXY.md section 2 and
+// Real OpenRouter chunk shapes from docs/research/cost-proxy.md section 2 and
 // https://openrouter.ai/docs/api-reference/streaming.
 
 const sse = (...dataLines: string[]): string =>

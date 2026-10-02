@@ -151,11 +151,19 @@ Versus OpenRouter GLM-5.3-Flash: one Max 5x month ($100) buys about 1,100 GLM-Fl
 
 ## Our OpenRouter spend
 
-Placeholder — the main thread fills this with real numbers.
+Measured on 2026-10-02 by the main thread with `bunx ccusage@latest monthly --mode calculate --offline` (ccusage reads the local Claude Code, Codex, and opencode logs and prices the tokens at API list prices):
 
-| Project | Total spend | Last 30 days |
+| Month | Claude Code (API-equivalent) | opencode on the host (API-equivalent) |
 | --- | --- | --- |
-| (project) | | |
+| 2026-08 | none in the logs | $0.03 |
+| 2026-09 | $803.52 | $30.52 |
+| 2026-10 (two days) | $50.18 | none on the host |
+
+Two limits of these numbers:
+- The opencode column covers only the opencode logs on the host. Runs in a Docker sandbox write their logs inside the sandbox, so ccusage misses them. The real OpenRouter spend per project comes from the key usage at OpenRouter (`GET /api/v1/key`, fields `usage` and `usage_monthly`). The user reads it, because agents do not read key files.
+- The opencode column is a list-price estimate, not the real charge. The real charge of the runs on 2026-10-02 was $0.03 to $0.08 per run (cost proxy).
+
+So the Claude Code use in September is worth about $800 at API prices. That is four times the price of Max 20x and eight times the price of Max 5x. The subagent spend on OpenRouter is one or two orders of magnitude smaller.
 
 ## Options
 

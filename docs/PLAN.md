@@ -57,7 +57,7 @@ On 2026-10-02 three researcher runs (openhands, langgraph, driver-layer) called 
 
 ### 7. Step 21 moved to meta
 
-On 2026-10-02 the user moved step 21 (deep research tools for expensive decisions) to meta, with its reports. The outbox task is `docs/outbox/2026-10-02-task-move-deep-research-step.md`. After the supervisor imports it, delete `docs/research/deep-research-tools.md`, `docs/research/oss-deep-research.md`, and `docs/research/deep-research-eval/`, and delete the outbox file. `api-browsers.md` stays, because part 1 serves step 22.
+On 2026-10-02 the user moved step 21 (deep research tools for expensive decisions) to meta, with its reports. It is now step 4 of `~/dv/meta/docs/PLAN.md`. The reports are in `~/dv/meta/docs/research/`: `deep-research-tools.md`, `oss-deep-research.md`, and `deep-research-eval/`. `api-browsers.md` stays here, because part 1 serves step 22. The meta step links its part 2.
 
 ### 8. Step 22: an agent browser for the reader
 

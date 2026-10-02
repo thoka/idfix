@@ -55,14 +55,9 @@ Stage one (`oc-sub trace`) and stage two (`oc-sub trace --tag`, Jev through the 
 
 On 2026-10-02 three researcher runs (openhands, langgraph, driver-layer) called `reader` zero times and still marked every source "fetched". The researcher prompt now says that only read pages count as sources, and that every software question searches skills.sh. Still open: `oc-sub watch` and `oc-sub log` warn when a `researcher` run ends without a `reader` call, and the three reports get a note that their sources are search excerpts.
 
-### 7. Step 21: deep research tools for expensive decisions
+### 7. Step 21 moved to meta
 
-The user decided on 2026-10-02: Gemini Deep Research, run by hand with the Google One plan, is the reference. We test open-source, self-deployable tools against it, with the same test question. Hosted APIs are out. Background: [deep-research-tools.md](research/deep-research-tools.md).
-
-1. A researcher run picks the shortlist: `docs/research/oss-deep-research.md` (in progress).
-2. Install two or three tools in Docker, run the test question with a model through OpenRouter, and save each report in `docs/research/deep-research-eval/`.
-3. Compare each report with the Gemini report: sources read, claims with sources, candidates found, depth on failure modes. Estimate the cost first and report the real cost.
-4. The best tool becomes the default for expensive decisions, and the question of a driver layer above Claude gets its answer from the reports.
+On 2026-10-02 the user moved step 21 (deep research tools for expensive decisions) to meta, with its reports. The outbox task is `docs/outbox/2026-10-02-task-move-deep-research-step.md`. After the supervisor imports it, delete `docs/research/deep-research-tools.md`, `docs/research/oss-deep-research.md`, and `docs/research/deep-research-eval/`, and delete the outbox file. `api-browsers.md` stays, because part 1 serves step 22.
 
 ### 8. Step 22: an agent browser for the reader
 
@@ -98,12 +93,9 @@ Known gaps from the research: permission requests have no documented two-way cha
 
 ## Open tasks of the user
 
-- Step 21: choose the model for the open-source deep research tools (a GPT-5-class model through OpenRouter, about $0.20 to $1.00 per report, or GLM), and create a Tavily key in `~/.config/opencode-subagents/tavily.key` (mode 600) for open_deep_research. See [oss-deep-research.md](research/oss-deep-research.md).
-- Decide whether to script the Gemini web app with `HanaokaYuzu/Gemini-API`. It breaches the Google terms; no ban case is documented; a separate Google account lowers the risk. See [api-browsers.md](research/api-browsers.md), part 2.
 - Decide on the upgrade to Claude Max 5x. Step 23 starts after it. The current plan is Pro; September used about $804 at API prices.
 - Run the `!` command for the OpenRouter usage per project, for [claude-max-vs-openrouter.md](research/claude-max-vs-openrouter.md).
 - Make the access to `/dev/kvm` permanent. [wsl-kvm-access.md](research/wsl-kvm-access.md), section 7: the `kvm` group exists here with gid 990, and the udev rule of this distro already sets mode 0666. So the state of 2026-09-30 (gid 109, mode 0660) likely came from another WSL distro that shares the device node. Run `wsl.exe -l -v` on Windows and name the distros that run. The guard of this session blocked that command.
-- Run the test question [question-driver-layer.md](research/deep-research-eval/question-driver-layer.md) by hand in Gemini Deep Research (Google One), and save the report as `docs/research/deep-research-eval/gemini-driver-layer.md`. It is the reference for step 21.
 - Decide on DeepInfra (step 2) and on unattended rechecks (step 3, 17d).
 - Decide from [deploy-access.md](research/deploy-access.md) section 8: whether Tailscale runs on the servers, and how long a debugging window lasts.
 - Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.

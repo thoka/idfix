@@ -2,7 +2,7 @@
 checked: 2026-10-02
 recheck: 1m
 decisions:
-  - "keep the split: Claude Code on the Claude subscription, opencode subagents on OpenRouter"
+  - "which Claude plan (Pro or Max 5x), and which subagents run on it"
 ---
 
 # Claude Max vs OpenRouter for our way of working
@@ -185,6 +185,10 @@ So the Claude Code use in September is worth about $800 at API prices. That is f
 - Gains: everything metered and logged; no "ordinary usage" ambiguity; Agent SDK becomes legal; pay-per-use for occasional months.
 - Costs: at API-equivalent usage above $20–$100/mo, Pro or Max is cheaper (section 7); lose the flat-rate headroom for the main agent.
 - Risks: cost spikes in heavy months; still needs Anthropic API key handling per project.
+
+## Update 2026-10-02: the user's situation
+
+The user has Claude Pro ($20/month) and hits its limits. The September use was worth about $804 at API prices (section "Our OpenRouter spend"). The user decided that subagents which need Opus or Sonnet run as Claude Code, not as opencode. So the first step below ("start Pro") is already done, and the question is now Max 5x, used to its limit, with Claude Code subagents. This report did not cover Claude Code as the subagent inside or outside the sandbox. [claude-in-sandbox.md](claude-in-sandbox.md) covers it.
 
 ## Recommendation
 

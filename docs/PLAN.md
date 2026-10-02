@@ -24,7 +24,7 @@ On 2026-10-02 `oc-sub doctor --fix --force` passed `sandbox-mounts` in this proj
 `origin/alpha` is moved, and `oc-sub doctor --fix` ran. Open: the user fast-forwards the main checkout with `git merge --ff-only origin/alpha`, so that the `oc-sub` command runs the new code. Then the live tests:
 
 - 2b: a research run with `--model deepinfra/zai-org/GLM-5.3-Flash`. The proxy log must show the `reader` requests at DeepInfra, not at OpenRouter.
-- 3: `oc-sub worktree X` prints `setup: bun install ...` after a `mise install`, and the sandbox mise prints no self-update warning.
+- 3: passed on 2026-10-02. `oc-sub worktree X` printed `setup: bun install --frozen-lockfile`, and the sandbox mise printed no self-update warning.
 - 16d: after `oc-sub restart`, the server log starts with a `--- oc-sub up ... ---` marker and keeps the older lines.
 - 5 (11d): `watch` stays quiet during a long model request, and `oc-sub down` leaves no orphan proxy restart loop.
 - 17c: passed on 2026-10-02 with `./bin/oc-sub doctor` of the branch. It lists the six trigger heads under `research-due`.

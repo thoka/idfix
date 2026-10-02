@@ -68,6 +68,21 @@ The user decided on 2026-10-02: Gemini Deep Research, run by hand with the Googl
 
 [api-browsers.md](research/api-browsers.md) found `vercel-labs/agent-browser` (Apache-2.0, 43k stars, 934k installs on skills.sh): a CLI and MCP server with persistent profiles, cookie import, and `read <url>` without Chrome. Test it in the sandbox as a fetch path of the `reader` for pages that webfetch cannot read (JavaScript, login, x.com). Fallback: `microsoft/playwright-mcp`.
 
+### 9. Step 23: Claude Code as a subagent in the sandbox (starts when the user has Claude Max)
+
+The user decided on 2026-10-02: subagents that need Opus or Sonnet run as Claude Code, not as opencode, and inside the sbx sandbox. The work starts after the upgrade to Claude Max. Until then, Claude subagents stay on the host in worktrees. Research: [claude-in-sandbox.md](research/claude-in-sandbox.md), option A.
+
+Each sub-step is one session, with tests and documentation:
+
+1. Spike, by hand: `sbx run --clone claude .` in this project, `/login` once, and check that the token stays out of the VM. Check the onboarding (issue #8938), and run `claude -p --output-format json` inside the sandbox through `sbx exec`. Hit a usage limit on purpose with a small run and record what a run does then. Write the findings into the research report.
+2. Configuration: decide how skills, settings, plugins, and the shared rules reach the sandboxed Claude Code (a mount of the needed parts of `~/.claude`, or an sbx kit). Set `CLAUDE_CONFIG_DIR` to a gitignored folder in the workspace, so that `ccusage` on the host sees the transcripts.
+3. `oc-sub run --agent claude`: start a one-shot `claude -p` run in the sandbox, in a worktree of `oc-sub worktree`, and write a run record with the session ID, usage, and estimated cost from the result JSON.
+4. `oc-sub say` (as `--resume`), `oc-sub abort`, `oc-sub status`, and `oc-sub log` for Claude runs, through `claude agents --json`, the transcript, and signals.
+5. Guards and the live view: loop and stall detection on the transcript, and Claude runs in `oc-sub top`.
+6. Skill: `skills/oc-sub/SKILL.md` names when a step goes to GLM through opencode and when it goes to Claude, and how to fill the Max plan without a stop in the middle of a step.
+
+Known gaps from the research: permission requests have no documented two-way channel, so runs use pre-allowed tools and treat a denial as a failure; the remaining quota has no API; "ordinary, individual usage" is undefined, so keep the number of parallel runs small at first.
+
 ### Later
 
 - Log rotation: the server and proxy logs grow without limit since step 16d.
@@ -85,7 +100,8 @@ The user decided on 2026-10-02: Gemini Deep Research, run by hand with the Googl
 
 - Step 21: choose the model for the open-source deep research tools (a GPT-5-class model through OpenRouter, about $0.20 to $1.00 per report, or GLM), and create a Tavily key in `~/.config/opencode-subagents/tavily.key` (mode 600) for open_deep_research. See [oss-deep-research.md](research/oss-deep-research.md).
 - Decide whether to script the Gemini web app with `HanaokaYuzu/Gemini-API`. It breaches the Google terms; no ban case is documented; a separate Google account lowers the risk. See [api-browsers.md](research/api-browsers.md), part 2.
-- Run the `!` command for the OpenRouter usage per project, and name the current Claude plan, for [claude-max-vs-openrouter.md](research/claude-max-vs-openrouter.md).
+- Decide on the upgrade to Claude Max 5x. Step 23 starts after it. The current plan is Pro; September used about $804 at API prices.
+- Run the `!` command for the OpenRouter usage per project, for [claude-max-vs-openrouter.md](research/claude-max-vs-openrouter.md).
 - Make the access to `/dev/kvm` permanent. [wsl-kvm-access.md](research/wsl-kvm-access.md), section 7: the `kvm` group exists here with gid 990, and the udev rule of this distro already sets mode 0666. So the state of 2026-09-30 (gid 109, mode 0660) likely came from another WSL distro that shares the device node. Run `wsl.exe -l -v` on Windows and name the distros that run. The guard of this session blocked that command.
 - Run the test question [question-driver-layer.md](research/deep-research-eval/question-driver-layer.md) by hand in Gemini Deep Research (Google One), and save the report as `docs/research/deep-research-eval/gemini-driver-layer.md`. It is the reference for step 21.
 - Decide on DeepInfra (step 2) and on unattended rechecks (step 3, 17d).

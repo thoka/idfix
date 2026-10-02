@@ -8,9 +8,9 @@ oc-sub is stable and useful if four things hold. First, a plugin change reaches 
 
 ## State on 2026-10-02
 
-`origin/alpha` holds the branch `worktree-complete-plan` up to step 19. The main thread pushed it from its worktree. The local `alpha` of the main checkout is behind, because the guard of the session blocks git there. `~/.local/bin/oc-sub` runs the code of the main checkout, so the CLI runs the old code until the user fast-forwards it. `oc-sub doctor --fix` ran: the plugin and the idle server use the new plugin. Steps 2b, 3, 4, 5 (11d), 8h, 15e, 16d, 17b, 17c, 18a, 18b, and 19 are done in code, with tests (978 pass on the host). The research reports of steps 15e, 16, 17a, 18, 2b, and the KVM task are written. Details are in [HISTORY.md](HISTORY.md).
+`alpha` holds the branch `worktree-complete-plan` up to step 19, and the main checkout is on it, so `~/.local/bin/oc-sub` runs the new code. `oc-sub doctor --fix` ran: the plugin and the idle server use the new plugin. Steps 2b, 3, 4, 5 (11d), 8h, 15e, 16d, 17b, 17c, 18a, 18b, and 19 are done in code, with tests (978 pass on the host). The research reports of steps 15e, 16, 17a, 18, 2b, and the KVM task are written. Details are in [HISTORY.md](HISTORY.md).
 
-The sandbox of this project is in clone mode with all mounts, so its 15d recreate is done. The workflow in this project is unchanged (clone mode):
+On 2026-10-02 `oc-sub doctor --fix --force` passed `sandbox-mounts` in this project, grata, and meta: each sandbox is in clone mode with all mounts. arch-helper has no sandbox, and `oc-sub up` creates it in the current standard. The workflow in this project is unchanged (clone mode):
 
 1. `oc-sub worktree STEP` creates the run worktree inside the sandbox clone, runs `mise install` with the sandbox mise, and runs the `setup` command of `.opencode/oc-sub.json`.
 2. `oc-sub run --agent coder --dir <root>/.worktrees/STEP --brief <file>` starts the run, and `oc-sub watch` waits.
@@ -66,9 +66,7 @@ Stage one (`oc-sub trace`) and stage two (`oc-sub trace --tag`, Jev through the 
 
 ## Open tasks of the user
 
-- In the main checkout, run `git merge --ff-only origin/alpha` (see step 1). `origin/alpha` is moved already.
 - Make the access to `/dev/kvm` permanent. [WSL_KVM_ACCESS.md](research/WSL_KVM_ACCESS.md), section 7: the `kvm` group exists here with gid 990, and the udev rule of this distro already sets mode 0666. So the state of 2026-09-30 (gid 109, mode 0660) likely came from another WSL distro that shares the device node. Run `wsl.exe -l -v` on Windows and name the distros that run. The guard of this session blocked that command.
-- Recreate the sandboxes of arch-helper, grata, and meta with `oc-sub doctor --fix --force` in each project (this project is done). Until then, an agent in those old sandboxes reaches the whole repository and its `.git`.
 - Decide on DeepInfra (step 2) and on unattended rechecks (step 3, 17d).
 - Decide from [DEPLOY_ACCESS.md](research/DEPLOY_ACCESS.md) section 8: whether Tailscale runs on the servers, and how long a debugging window lasts.
 - Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.

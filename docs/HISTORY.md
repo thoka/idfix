@@ -416,6 +416,14 @@ Done in this project on 2026-10-01. A report can start with front matter `checke
 
 Done on 2026-10-01. `oc-sub trace` cuts a session tree into steps (`step-start` to `step-finish`) and writes one JSON line per step with cheap signals. Live test: 26 steps for a session with 26 model requests. `oc-sub trace --tag` sends each step to `typesafe/jev-1.13` through the OpenRouter decisions endpoint with three typed questions. Live test: 34 steps, no error, $0.0011 real (estimate $0.0029); 32 `ok`, 2 `ungrounded-claim`. One of the two was wrong, because its evidence was in the step before (lesson `per-step-judge-misses-earlier-evidence.md`). GLM coder runs, $0.0411 and $0.0708 real.
 
+## Step 17b, meta part, and one head format
+
+Done on 2026-10-02. Meta commit 4939c82 (meta step 1g) made `bin/research-index.py` read the heads, and `mise run due` lists the due reports. A run of the meta script on our eleven heads showed a drift. Root cause: two parsers for one format, written in two sessions. Our heads used `biweekly` and `quarterly`, and meta reads every text that is not a date or an `Nd`, `Nw`, or `Nm` interval as a trigger, so our reports never became due in meta. The fix follows the global format: `src/research-head.ts` reads `Nd`, `Nw`, and `Nm`, treats every other text as a trigger, and marks an old named interval as invalid with its replacement. The eleven heads now use `2w` and `3m`. Both tools give the same due dates (checked with `--today 2026-10-20`). Lesson in `docs/outbox/`. Done by the main thread, no paid run.
+
+## Step 19: `oc-sub worktree` in a repository without `alpha`
+
+Done on 2026-10-02, a task of the meta supervisor. `oc-sub worktree` took `host/alpha` as the fixed base, so in meta (only `main`) `git worktree add` failed with a message that did not name the branch. Now an explicit `--base` must exist on the host, or the command stops with an error that names the branch. Without `--base`, the base is the first of `alpha`, `main`, and `master` that exists, and the command prints it when it is not `alpha`. Three new tests in `test/clone.test.ts`. The live test in meta waits for a clone-mode sandbox there. Done by the main thread, because a subagent run would have started from the old local `alpha`.
+
 ## Cost of the session of 2026-10-01, evening
 
 All GLM runs went through OpenRouter. Research: $0.1483 in six runs. Coding: $0.9232 in eleven runs, including one follow-up, plus $0.0276 for the type check run. Probes: $0.0002 (chat) and $0.0000185 (decisions), plus $0.0011 for the live Jev tagging.

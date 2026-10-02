@@ -6,9 +6,9 @@ This file holds only the open work. Finished steps, their root causes, and their
 
 oc-sub is stable and useful if four things hold. First, a plugin change reaches every running server without manual steps. Second, a sandbox starts after a reboot. Third, every project runs the same tested setup. Fourth, a coder can install the tools that it needs. Everything else is comfort.
 
-## State on 2026-10-01, evening
+## State on 2026-10-02
 
-The work of this session is on the branch `worktree-complete-plan`, pushed to GitHub, but not yet on `alpha`. The Claude Code guard of the session blocked every git command in the main checkout, where `alpha` is checked out, so the main thread could not move `alpha`. Steps 2b, 3, 4, 5 (11d), 8h, 15e, 16d, 17b (project part), 17c, 18a, and 18b are done in code, with tests (974 pass on the host). The research reports of steps 15e, 16, 17a, 18, 2b, and the KVM task are written. Details are in [HISTORY.md](HISTORY.md).
+`origin/alpha` holds the branch `worktree-complete-plan` up to step 19. The main thread pushed it from its worktree. The local `alpha` of the main checkout is behind, because the guard of the session blocks git there. `~/.local/bin/oc-sub` runs the code of the main checkout, so the CLI runs the old code until the user fast-forwards it. `oc-sub doctor --fix` ran: the plugin and the idle server use the new plugin. Steps 2b, 3, 4, 5 (11d), 8h, 15e, 16d, 17b, 17c, 18a, 18b, and 19 are done in code, with tests (978 pass on the host). The research reports of steps 15e, 16, 17a, 18, 2b, and the KVM task are written. Details are in [HISTORY.md](HISTORY.md).
 
 The sandbox of this project is in clone mode with all mounts, so its 15d recreate is done. The workflow in this project is unchanged (clone mode):
 
@@ -21,13 +21,14 @@ The sandbox of this project is in clone mode with all mounts, so its 15d recreat
 
 ### 1. Bring the branch onto `alpha`, then the live tests
 
-First the user (or a session without the guard) moves `alpha`: in the main checkout, `git merge --ff-only worktree-complete-plan`, then `git push`. Then `oc-sub doctor --fix` updates the plugin and restarts the idle server. Then the live tests:
+`origin/alpha` is moved, and `oc-sub doctor --fix` ran. Open: the user fast-forwards the main checkout with `git merge --ff-only origin/alpha`, so that the `oc-sub` command runs the new code. Then the live tests:
 
 - 2b: a research run with `--model deepinfra/zai-org/GLM-5.3-Flash`. The proxy log must show the `reader` requests at DeepInfra, not at OpenRouter.
 - 3: `oc-sub worktree X` prints `setup: bun install ...` after a `mise install`, and the sandbox mise prints no self-update warning.
 - 16d: after `oc-sub restart`, the server log starts with a `--- oc-sub up ... ---` marker and keeps the older lines.
 - 5 (11d): `watch` stays quiet during a long model request, and `oc-sub down` leaves no orphan proxy restart loop.
-- 17c: `oc-sub doctor` in the main checkout lists the six trigger heads under `research-due`.
+- 17c: passed on 2026-10-02 with `./bin/oc-sub doctor` of the branch. It lists the six trigger heads under `research-due`.
+- 19: `oc-sub worktree X` in meta (only `main`) prints `base: main (no alpha branch)`. This needs the meta sandbox in clone mode first.
 
 ### 2. Step 16: DeepInfra, a decision of the user
 
@@ -35,13 +36,7 @@ First the user (or a session without the guard) moves `alpha`: in the main check
 
 ### 3. Step 17: recurring research, the rest
 
-- 17b, meta part: done in meta commit 4939c82 (meta step 1g). `bin/research-index.py` reads the front matter head (`checked`, `recheck` as a date, an interval such as `30d`, or a trigger text, and `decisions`) and shows it below the summary. `python ~/dv/meta/bin/research-index.py --due` lists the due reports and the trigger reports from any folder, with exit 1 if one is due. `--today YYYY-MM-DD` sets the date. The format is in `~/dv/meta/README.md`, section "Lessons and the research index".
-- 17b, our part: give our six trigger topics a recheck head in `docs/research/`. Then decide whether the `research-due` check of 17c calls the meta script instead of its own parser in `src/doctor.ts`, so that only one parser exists. The meta design followed [RECURRING_RESEARCH.md](research/RECURRING_RESEARCH.md), which is only on this branch until `alpha` moves.
 - 17d, after a decision of the user: whether unattended paid rechecks are allowed, and the cap per month. [RECURRING_RESEARCH.md](research/RECURRING_RESEARCH.md) found that only the Windows Task Scheduler can start a stopped WSL2, and only while the user is logged in. Until then, `research-due` only warns.
-
-### 3b. Step 19: `oc-sub worktree` in a repository without `alpha`
-
-`oc-sub worktree` takes `alpha` as the default base (`src/clone.ts`, `args.base ?? "alpha"`). In a repository that has only `main`, for example meta, it fails, and the error does not name the missing branch. The fix: the error names the missing base branch and the `--base` option, or the default falls back to the default branch of the repository. The meta supervisor waits on this task (meta PLAN step 1g).
 
 ### 4. Step 18: the trace pipeline, stage three and quality
 
@@ -60,6 +55,7 @@ Stage one (`oc-sub trace`) and stage two (`oc-sub trace --tag`, Jev through the 
 
 - Log rotation: the server and proxy logs grow without limit since step 16d.
 - `oc-sub say --file FILE`: a message from a file. The guard of Claude Code refuses a `say` text that names git commands.
+- `oc-sub fetch` prints `+N over alpha` and `git diff alpha...` also in a repository without `alpha`. It needs the same base fallback as `oc-sub worktree` (step 19).
 - `printLogTail` exists twice, in `src/up.ts` and `src/sandbox.ts`.
 - Step 11, rest: the detectors of step 6 give the provider of a flagged run a strike. After two or three strikes, the provider goes onto the OpenRouter `ignore` list for some days.
 - Step 8g gaps. A new worktree shows in the live view only after `a` twice. The footer lacks the day totals and the key usage per project. The `o` command finds only runs of `oc-sub run`. Below about 110 columns, the title is cut.
@@ -70,7 +66,7 @@ Stage one (`oc-sub trace`) and stage two (`oc-sub trace --tag`, Jev through the 
 
 ## Open tasks of the user
 
-- Move `alpha` to the branch `worktree-complete-plan` (see step 1). The four lessons of 2026-10-01 are in meta commit 04e72bd.
+- In the main checkout, run `git merge --ff-only origin/alpha` (see step 1). `origin/alpha` is moved already.
 - Make the access to `/dev/kvm` permanent. [WSL_KVM_ACCESS.md](research/WSL_KVM_ACCESS.md), section 7: the `kvm` group exists here with gid 990, and the udev rule of this distro already sets mode 0666. So the state of 2026-09-30 (gid 109, mode 0660) likely came from another WSL distro that shares the device node. Run `wsl.exe -l -v` on Windows and name the distros that run. The guard of this session blocked that command.
 - Recreate the sandboxes of arch-helper, grata, and meta with `oc-sub doctor --fix --force` in each project (this project is done). Until then, an agent in those old sandboxes reaches the whole repository and its `.git`.
 - Decide on DeepInfra (step 2) and on unattended rechecks (step 3, 17d).

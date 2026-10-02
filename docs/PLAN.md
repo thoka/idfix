@@ -35,8 +35,13 @@ First the user (or a session without the guard) moves `alpha`: in the main check
 
 ### 3. Step 17: recurring research, the rest
 
-- 17b in meta: the convention (front matter `checked`, `recheck`, `decisions`, see the GUIDE section "Recheck heads of research reports") goes into the global rules, and `bin/research-index.py` must skip the front matter (today it shows it as the summary) and list the due reports. This needs a session in meta, because the guard of this session blocks git there.
+- 17b, meta part: done in meta commit 4939c82 (meta step 1g). `bin/research-index.py` reads the front matter head (`checked`, `recheck` as a date, an interval such as `30d`, or a trigger text, and `decisions`) and shows it below the summary. `python ~/dv/meta/bin/research-index.py --due` lists the due reports and the trigger reports from any folder, with exit 1 if one is due. `--today YYYY-MM-DD` sets the date. The format is in `~/dv/meta/README.md`, section "Lessons and the research index".
+- 17b, our part: give our six trigger topics a recheck head in `docs/research/`. Then decide whether the `research-due` check of 17c calls the meta script instead of its own parser in `src/doctor.ts`, so that only one parser exists. The meta design followed [RECURRING_RESEARCH.md](research/RECURRING_RESEARCH.md), which is only on this branch until `alpha` moves.
 - 17d, after a decision of the user: whether unattended paid rechecks are allowed, and the cap per month. [RECURRING_RESEARCH.md](research/RECURRING_RESEARCH.md) found that only the Windows Task Scheduler can start a stopped WSL2, and only while the user is logged in. Until then, `research-due` only warns.
+
+### 3b. Step 19: `oc-sub worktree` in a repository without `alpha`
+
+`oc-sub worktree` takes `alpha` as the default base (`src/clone.ts`, `args.base ?? "alpha"`). In a repository that has only `main`, for example meta, it fails, and the error does not name the missing branch. The fix: the error names the missing base branch and the `--base` option, or the default falls back to the default branch of the repository. The meta supervisor waits on this task (meta PLAN step 1g).
 
 ### 4. Step 18: the trace pipeline, stage three and quality
 
@@ -65,12 +70,16 @@ Stage one (`oc-sub trace`) and stage two (`oc-sub trace --tag`, Jev through the 
 
 ## Open tasks of the user
 
-- Move `alpha` to the branch `worktree-complete-plan` (see step 1), and commit and push meta: four new lessons are in `~/dv/meta/agents/lessons/` (`bun-test-skips-type-check.md`, `log-read-for-accounting-must-append.md`, `clean-tree-check-per-target-file.md`, `per-step-judge-misses-earlier-evidence.md`). Then run `mise run index` in meta.
+- Move `alpha` to the branch `worktree-complete-plan` (see step 1). The four lessons of 2026-10-01 are in meta commit 04e72bd.
 - Make the access to `/dev/kvm` permanent. [WSL_KVM_ACCESS.md](research/WSL_KVM_ACCESS.md), section 7: the `kvm` group exists here with gid 990, and the udev rule of this distro already sets mode 0666. So the state of 2026-09-30 (gid 109, mode 0660) likely came from another WSL distro that shares the device node. Run `wsl.exe -l -v` on Windows and name the distros that run. The guard of this session blocked that command.
 - Recreate the sandboxes of arch-helper, grata, and meta with `oc-sub doctor --fix --force` in each project (this project is done). Until then, an agent in those old sandboxes reaches the whole repository and its `.git`.
 - Decide on DeepInfra (step 2) and on unattended rechecks (step 3, 17d).
 - Decide from [DEPLOY_ACCESS.md](research/DEPLOY_ACCESS.md) section 8: whether Tailscale runs on the servers, and how long a debugging window lasts.
 - Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.
+
+## Channels
+
+- Work for meta (a lesson, a general rule, a research link, or a task) goes into `docs/outbox/` with the global skill `meta-outbox`. The meta supervisor imports it, so a session here needs no git access in meta.
 
 ## Default decisions, open for a change by the user
 

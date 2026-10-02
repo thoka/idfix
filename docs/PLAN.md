@@ -64,6 +64,10 @@ The user decided on 2026-10-02: Gemini Deep Research, run by hand with the Googl
 3. Compare each report with the Gemini report: sources read, claims with sources, candidates found, depth on failure modes. Estimate the cost first and report the real cost.
 4. The best tool becomes the default for expensive decisions, and the question of a driver layer above Claude gets its answer from the reports.
 
+### 8. Step 22: an agent browser for the reader
+
+[api-browsers.md](research/api-browsers.md) found `vercel-labs/agent-browser` (Apache-2.0, 43k stars, 934k installs on skills.sh): a CLI and MCP server with persistent profiles, cookie import, and `read <url>` without Chrome. Test it in the sandbox as a fetch path of the `reader` for pages that webfetch cannot read (JavaScript, login, x.com). Fallback: `microsoft/playwright-mcp`.
+
 ### Later
 
 - Log rotation: the server and proxy logs grow without limit since step 16d.
@@ -79,6 +83,9 @@ The user decided on 2026-10-02: Gemini Deep Research, run by hand with the Googl
 
 ## Open tasks of the user
 
+- Step 21: choose the model for the open-source deep research tools (a GPT-5-class model through OpenRouter, about $0.20 to $1.00 per report, or GLM), and create a Tavily key in `~/.config/opencode-subagents/tavily.key` (mode 600) for open_deep_research. See [oss-deep-research.md](research/oss-deep-research.md).
+- Decide whether to script the Gemini web app with `HanaokaYuzu/Gemini-API`. It breaches the Google terms; no ban case is documented; a separate Google account lowers the risk. See [api-browsers.md](research/api-browsers.md), part 2.
+- Run the `!` command for the OpenRouter usage per project, and name the current Claude plan, for [claude-max-vs-openrouter.md](research/claude-max-vs-openrouter.md).
 - Make the access to `/dev/kvm` permanent. [wsl-kvm-access.md](research/wsl-kvm-access.md), section 7: the `kvm` group exists here with gid 990, and the udev rule of this distro already sets mode 0666. So the state of 2026-09-30 (gid 109, mode 0660) likely came from another WSL distro that shares the device node. Run `wsl.exe -l -v` on Windows and name the distros that run. The guard of this session blocked that command.
 - Run the test question [question-driver-layer.md](research/deep-research-eval/question-driver-layer.md) by hand in Gemini Deep Research (Google One), and save the report as `docs/research/deep-research-eval/gemini-driver-layer.md`. It is the reference for step 21.
 - Decide on DeepInfra (step 2) and on unattended rechecks (step 3, 17d).

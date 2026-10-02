@@ -156,6 +156,7 @@ describe("worktree", () => {
       ["fetch", "-q", "host"],
       ["config", "user.name", "Ada Lovelace"],
       ["config", "user.email", "ada@example.com"],
+      ["rev-parse", "--verify", "--quiet", "refs/remotes/host/alpha"],
       ["worktree", "add", "-b", "feature/14b", runWorktreePath(ROOT, "14b"), "host/alpha"],
     ]);
     // It never fetches origin: the clone copies the remotes of the host, and
@@ -193,6 +194,56 @@ describe("worktree", () => {
     const code = worktree({ step: "x", base: "main" }, deps.env as never, { ...deps, runner });
     expect(code).toBe(0);
     expect(callsOf(calls, (c) => c.includes("worktree") && c.includes("host/main")).length).toBe(1);
+  });
+
+  /** A runner whose host repository has only the given branches. */
+  function branchRunner(branches: readonly string[]) {
+    return fakeRunner((cmd) => {
+      if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
+      if (cmd[0] === "sbx" && cmd[6] === "rev-parse") {
+        return { exitCode: branches.some((b) => cmd[9] === `refs/remotes/host/${b}`) ? 0 : 1 };
+      }
+      return {};
+    });
+  }
+
+  test("falls back to host/main when the host has no alpha", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = branchRunner(["main"]);
+    const code = worktree({ step: "x" }, deps.env as never, { ...deps, runner });
+    expect(code).toBe(0);
+    expect(callsOf(calls, (c) => c.includes("worktree") && c.includes("host/main")).length).toBe(1);
+  });
+
+  test("stops with an error that names the branches when no default base exists", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = branchRunner(["develop"]);
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (...parts: unknown[]) => errors.push(parts.join(" "));
+    try {
+      expect(worktree({ step: "x" }, deps.env as never, { ...deps, runner })).toBe(1);
+    } finally {
+      console.error = original;
+    }
+    expect(errors.join("\n")).toContain("alpha, main, master");
+    expect(errors.join("\n")).toContain("--base");
+    expect(callsOf(calls, (c) => c.includes("worktree") && c.includes("add")).length).toBe(0);
+  });
+
+  test("stops with an error that names a missing --base branch", async () => {
+    const deps = await makeDeps();
+    const { calls, runner } = branchRunner(["alpha"]);
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (...parts: unknown[]) => errors.push(parts.join(" "));
+    try {
+      expect(worktree({ step: "x", base: "nope" }, deps.env as never, { ...deps, runner })).toBe(1);
+    } finally {
+      console.error = original;
+    }
+    expect(errors.join("\n")).toContain("base branch nope does not exist");
+    expect(callsOf(calls, (c) => c.includes("worktree") && c.includes("add")).length).toBe(0);
   });
 
   test("sets the URL of an existing host remote instead of adding it", async () => {

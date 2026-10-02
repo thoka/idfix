@@ -101,12 +101,21 @@ export const HOST_SOURCE = "/run/sandbox/source";
 export const HOST_REMOTE = "host";
 
 /**
+ * The base branches that `oc-sub worktree` tries without `--base`, in this
+ * order. `alpha` holds the finished features; a repository without it, like
+ * meta, works on `main` (step 19).
+ */
+export const DEFAULT_BASES = ["alpha", "main", "master"] as const;
+
+/**
  * `oc-sub worktree STEP [--dir ROOT] [--base BRANCH] [--no-setup]`: create
  * the worktree of a run inside the sandbox clone. It makes sure that the
  * remote `host` of the clone points to the read-only host repository at
  * `/run/sandbox/source`, fetches new host commits from it, sets the git
  * identity of the host repository in the clone (a fresh clone has none),
- * and creates `feature/STEP` from `host/BASE`. It does not fetch `origin`:
+ * and creates `feature/STEP` from `host/BASE`. Without `--base`, BASE is the
+ * first of `DEFAULT_BASES` that exists on the host. A missing base stops
+ * with an error that names it. It does not fetch `origin`:
  * the clone copies the remotes of the host, so `origin` can be an SSH URL
  * that the sandbox cannot reach (RUN_ISOLATION.md section 9). When the
  * worktree already exists and git knows it, it says so and exits 0. A
@@ -172,8 +181,25 @@ export function worktree(
     if (set.exitCode !== 0) return fail(`git config ${key} failed in the clone of ${name}`);
   }
 
-  const base = args.base ?? "alpha";
-  const add = sbxGit("worktree", "add", "-b", `feature/${args.step}`, worktreePath, `${HOST_REMOTE}/${base}`);
+  // The base branch must exist on the host. Without `--base`, take the first
+  // of DEFAULT_BASES that exists: a repository like meta has only `main`.
+  const hasBase = (branch: string) =>
+    sbxGit("rev-parse", "--verify", "--quiet", `refs/remotes/${HOST_REMOTE}/${branch}`).exitCode === 0;
+  let base: string;
+  if (args.base !== undefined) {
+    if (!hasBase(args.base)) return fail(`the base branch ${args.base} does not exist in the host repository ${root}`);
+    base = args.base;
+  } else {
+    const found = DEFAULT_BASES.find(hasBase);
+    if (found === undefined) {
+      return fail(
+        `none of the default base branches ${DEFAULT_BASES.join(", ")} exists in the host repository ${root}; name one with --base BRANCH`,
+      );
+    }
+    base = found;
+    if (base !== DEFAULT_BASES[0]) console.log(`base: ${base} (no ${DEFAULT_BASES[0]} branch)`);
+  }
+  const add =sbxGit("worktree", "add", "-b", `feature/${args.step}`, worktreePath, `${HOST_REMOTE}/${base}`);
   if (add.exitCode !== 0) return fail(`git worktree add failed in the clone of ${name}`);
 
   // The worktree holds only tracked files, so it has no `node_modules`. The

@@ -55,6 +55,15 @@ Stage one (`oc-sub trace`) and stage two (`oc-sub trace --tag`, Jev through the 
 
 On 2026-10-02 three researcher runs (openhands, langgraph, driver-layer) called `reader` zero times and still marked every source "fetched". The researcher prompt now says that only read pages count as sources, and that every software question searches skills.sh. Still open: `oc-sub watch` and `oc-sub log` warn when a `researcher` run ends without a `reader` call, and the three reports get a note that their sources are search excerpts.
 
+### 7. Step 21: deep research tools for expensive decisions
+
+The user decided on 2026-10-02: Gemini Deep Research, run by hand with the Google One plan, is the reference. We test open-source, self-deployable tools against it, with the same test question. Hosted APIs are out. Background: [deep-research-tools.md](research/deep-research-tools.md).
+
+1. A researcher run picks the shortlist: `docs/research/oss-deep-research.md` (in progress).
+2. Install two or three tools in Docker, run the test question with a model through OpenRouter, and save each report in `docs/research/deep-research-eval/`.
+3. Compare each report with the Gemini report: sources read, claims with sources, candidates found, depth on failure modes. Estimate the cost first and report the real cost.
+4. The best tool becomes the default for expensive decisions, and the question of a driver layer above Claude gets its answer from the reports.
+
 ### Later
 
 - Log rotation: the server and proxy logs grow without limit since step 16d.
@@ -71,7 +80,7 @@ On 2026-10-02 three researcher runs (openhands, langgraph, driver-layer) called 
 ## Open tasks of the user
 
 - Make the access to `/dev/kvm` permanent. [wsl-kvm-access.md](research/wsl-kvm-access.md), section 7: the `kvm` group exists here with gid 990, and the udev rule of this distro already sets mode 0666. So the state of 2026-09-30 (gid 109, mode 0660) likely came from another WSL distro that shares the device node. Run `wsl.exe -l -v` on Windows and name the distros that run. The guard of this session blocked that command.
-- Choose a deep research tool and a budget per report, from `docs/research/deep-research-tools.md` (in progress). Then the question of a driver layer above Claude (see [driver-layer.md](research/driver-layer.md), shallow) runs through it.
+- Run the test question [question-driver-layer.md](research/deep-research-eval/question-driver-layer.md) by hand in Gemini Deep Research (Google One), and save the report as `docs/research/deep-research-eval/gemini-driver-layer.md`. It is the reference for step 21.
 - Decide on DeepInfra (step 2) and on unattended rechecks (step 3, 17d).
 - Decide from [deploy-access.md](research/deploy-access.md) section 8: whether Tailscale runs on the servers, and how long a debugging window lasts.
 - Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.

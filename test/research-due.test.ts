@@ -20,8 +20,8 @@ describe("parseResearchHead", () => {
     });
   });
 
-  test("parses every interval", () => {
-    for (const interval of ["weekly", "biweekly", "monthly", "quarterly", "yearly"]) {
+  test("parses every interval form", () => {
+    for (const interval of ["30d", "2w", "1m", "12m"]) {
       const head = parseResearchHead(report(`checked: 2026-10-01\nrecheck: ${interval}`));
       expect(head?.recheck).toBe(interval);
     }
@@ -56,22 +56,23 @@ describe("parseResearchHead", () => {
 });
 
 describe("recheckState", () => {
-  test("weekly from checked", () => {
-    const head = { checked: "2026-09-24", recheck: "weekly", decisions: [] };
+  test("1w from checked", () => {
+    const head = { checked: "2026-09-24", recheck: "1w", decisions: [] };
     expect(recheckState(head, "2026-10-01")).toEqual({ kind: "due", due: "2026-10-01" });
     expect(recheckState(head, "2026-09-30")).toEqual({ kind: "not-due", due: "2026-10-01" });
   });
 
-  test("biweekly, quarterly, yearly", () => {
-    const base = { checked: "2026-10-01", recheck: "biweekly", decisions: [] };
+  test("2w, 30d, 3m, 12m", () => {
+    const base = { checked: "2026-10-01", recheck: "2w", decisions: [] };
     expect(recheckState(base, "2026-10-15")).toEqual({ kind: "due", due: "2026-10-15" });
     expect(recheckState(base, "2026-10-14")).toEqual({ kind: "not-due", due: "2026-10-15" });
-    expect(recheckState({ ...base, recheck: "quarterly" }, "2027-01-01")).toEqual({ kind: "due", due: "2027-01-01" });
-    expect(recheckState({ ...base, recheck: "yearly" }, "2027-09-30")).toEqual({ kind: "not-due", due: "2027-10-01" });
+    expect(recheckState({ ...base, recheck: "30d" }, "2026-10-31")).toEqual({ kind: "due", due: "2026-10-31" });
+    expect(recheckState({ ...base, recheck: "3m" }, "2027-01-01")).toEqual({ kind: "due", due: "2027-01-01" });
+    expect(recheckState({ ...base, recheck: "12m" }, "2027-09-30")).toEqual({ kind: "not-due", due: "2027-10-01" });
   });
 
-  test("monthly clamps to the end of the month", () => {
-    const head = { checked: "2026-01-31", recheck: "monthly", decisions: [] };
+  test("1m clamps to the end of the month", () => {
+    const head = { checked: "2026-01-31", recheck: "1m", decisions: [] };
     expect(recheckState(head, "2026-02-28")).toEqual({ kind: "due", due: "2026-02-28" });
   });
 
@@ -93,10 +94,15 @@ describe("recheckState", () => {
     });
   });
 
-  test("an unknown interval is invalid", () => {
-    expect(recheckState({ checked: "2026-10-01", recheck: "someday", decisions: [] }, "2026-10-01")).toEqual({
+  test("any other text is a trigger, like in the meta index", () => {
+    const head = { checked: "2020-01-01", recheck: "each new sbx release", decisions: [] };
+    expect(recheckState(head, "2026-10-01")).toEqual({ kind: "trigger" });
+  });
+
+  test("an old named interval is invalid and names the replacement", () => {
+    expect(recheckState({ checked: "2026-10-01", recheck: "biweekly", decisions: [] }, "2026-10-01")).toEqual({
       kind: "invalid",
-      problem: "unknown recheck interval (someday)",
+      problem: "recheck biweekly is the old format, write 2w",
     });
   });
 });
@@ -124,7 +130,7 @@ describe("researchDueCheck", () => {
 
   test("a due report warns with its due date and its decisions", () => {
     const { root, deps } = tempProject({
-      "DUE.md": report("checked: 2026-09-17\nrecheck: biweekly\ndecisions:\n  - \"DeepInfra as a direct provider\"\n"),
+      "DUE.md": report("checked: 2026-09-17\nrecheck: 2w\ndecisions:\n  - \"DeepInfra as a direct provider\"\n"),
     });
     try {
       const result = researchDueCheck(deps);
@@ -139,7 +145,7 @@ describe("researchDueCheck", () => {
 
   test("a not-due report passes", () => {
     const { root, deps } = tempProject({
-      "FRESH.md": report("checked: 2026-10-01\nrecheck: monthly\ndecisions:\n  - \"the provider order\"\n"),
+      "FRESH.md": report("checked: 2026-10-01\nrecheck: 1m\ndecisions:\n  - \"the provider order\"\n"),
     });
     try {
       const result = researchDueCheck(deps);
@@ -166,13 +172,13 @@ describe("researchDueCheck", () => {
   test("an invalid head warns and names the file and the problem", () => {
     const { root, deps } = tempProject({
       "BAD.md": report("recheck: monthly\ndecisions:\n  - \"x\"\n"),
-      "WORSE.md": report("checked: 2026-10-01\nrecheck: fortnightly\n"),
+      "WORSE.md": report("checked: 2026-10-01\nrecheck: quarterly\n"),
     });
     try {
       const result = researchDueCheck(deps);
       expect(result.status).toBe("warn");
       expect(result.message).toContain("BAD.md: checked is missing");
-      expect(result.message).toContain("WORSE.md: unknown recheck interval (fortnightly)");
+      expect(result.message).toContain("WORSE.md: recheck quarterly is the old format, write 3m");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

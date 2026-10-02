@@ -4,16 +4,18 @@
  *
  *   ---
  *   checked: 2026-10-01
- *   recheck: monthly
+ *   recheck: 1m
  *   decisions:
  *     - "PLAN step 16: DeepInfra as a direct provider"
  *   ---
  *
  * `checked` is the date of the last check of the facts (YYYY-MM-DD). It is
- * required when `recheck` is set. `recheck` is one of the five intervals
- * (counted from `checked`), a date, or a trigger text that starts with
- * "on " (a trigger is never due by date). `decisions` is a list of short
- * texts that name the plan items that rest on the facts.
+ * required when `recheck` is set. `recheck` is an interval (`30d`, `2w`,
+ * `2m`, counted from `checked`), a date, or any other text as a trigger,
+ * for example "on new sbx release" (a trigger is never due by date).
+ * `decisions` is a list of short texts that name the plan items that rest
+ * on the facts. The format is the one of the meta research index
+ * (`~/dv/meta/README.md`), so both tools compute the same due dates.
  *
  * The project has no YAML parser in `package.json`, so this module parses
  * only these three keys by hand. It is not a general YAML parser.
@@ -23,7 +25,7 @@
 export type ResearchHead = {
   /** The date of the last check of the facts, YYYY-MM-DD. */
   checked?: string;
-  /** The interval, a date, or a trigger ("on ..."). */
+  /** The interval, a date, or a trigger text. */
   recheck?: string;
   /** The plan items that rest on the facts. */
   decisions: string[];
@@ -39,14 +41,28 @@ export type RecheckState =
   | { kind: "trigger" }
   | { kind: "invalid"; problem: string };
 
-/** The interval names in days or months. */
-export const RECHECK_INTERVALS: Record<string, { days?: number; months?: number }> = {
-  weekly: { days: 7 },
-  biweekly: { days: 14 },
-  monthly: { months: 1 },
-  quarterly: { months: 3 },
-  yearly: { months: 12 },
+/**
+ * The named intervals of the first head format. The meta index reads them
+ * as triggers, so they never become due there. The check marks them as
+ * invalid and names the replacement.
+ */
+export const LEGACY_INTERVALS: Record<string, string> = {
+  weekly: "1w",
+  biweekly: "2w",
+  monthly: "1m",
+  quarterly: "3m",
+  yearly: "12m",
 };
+
+/** Parse an interval `Nd`, `Nw`, or `Nm` into days or months. */
+export function parseInterval(text: string): { days?: number; months?: number } | undefined {
+  const match = text.match(/^(\d+)([dwm])$/);
+  if (match === null) return undefined;
+  const n = Number(match[1]);
+  if (match[2] === "d") return { days: n };
+  if (match[2] === "w") return { days: 7 * n };
+  return { months: n };
+}
 
 /** Today as YYYY-MM-DD, in the local time zone. */
 export function todayString(): string {
@@ -120,8 +136,8 @@ function addInterval(date: string, interval: { days?: number; months?: number })
 /**
  * Compute the due state of a head against `today` (YYYY-MM-DD). An interval
  * is due when the date that `checked` plus the interval gives is today or
- * earlier. A plain date is due when it is today or earlier. A trigger is
- * never due by date. An invalid head names its problem.
+ * earlier. A plain date is due when it is today or earlier. Any other text
+ * is a trigger and never due by date. An invalid head names its problem.
  */
 export function recheckState(head: ResearchHead, today: string): RecheckState {
   if (head.recheck === undefined) {
@@ -134,8 +150,11 @@ export function recheckState(head: ResearchHead, today: string): RecheckState {
     return { kind: "invalid", problem: `checked is not a date YYYY-MM-DD (${head.checked})` };
   }
   const recheck = head.recheck;
-  if (recheck.startsWith("on ")) return { kind: "trigger" };
-  const interval = RECHECK_INTERVALS[recheck];
+  const legacy = LEGACY_INTERVALS[recheck];
+  if (legacy !== undefined) {
+    return { kind: "invalid", problem: `recheck ${recheck} is the old format, write ${legacy}` };
+  }
+  const interval = parseInterval(recheck);
   if (interval !== undefined) {
     const due = addInterval(head.checked, interval);
     return due <= today ? { kind: "due", due } : { kind: "not-due", due };
@@ -143,5 +162,5 @@ export function recheckState(head: ResearchHead, today: string): RecheckState {
   if (isDateString(recheck)) {
     return recheck <= today ? { kind: "due", due: recheck } : { kind: "not-due", due: recheck };
   }
-  return { kind: "invalid", problem: `unknown recheck interval (${recheck})` };
+  return { kind: "trigger" };
 }

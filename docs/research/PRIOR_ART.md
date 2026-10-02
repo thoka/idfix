@@ -1,6 +1,6 @@
 ---
 checked: 2026-09-27
-recheck: quarterly
+recheck: 3m
 decisions:
   - "build oc-sub instead of an existing tool"
 ---

@@ -1,6 +1,6 @@
 ---
 checked: 2026-09-28
-recheck: biweekly
+recheck: 2w
 decisions:
   - "the provider order of opencode/opencode.json"
   - "DeepInfra as a direct provider"

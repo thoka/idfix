@@ -103,7 +103,16 @@ Decisions of the user, 2026-10-03:
 - The research uses the deep-research tool of meta step 4. Its evaluation is not finished (4b and 4c are open), and its step 4d names the driver-layer question itself. So the research report waits for that evaluation, or the driver-layer question runs first in it.
 - The design comes first, before the rename in step 24. The design text already writes `idfx`.
 
-State: the Gemini report is back, as [driver-interface.md](research/driver-interface.md). It recommends to extend the in-house proxy and to attribute sessions with a header from `ANTHROPIC_CUSTOM_HEADERS`. The paste lost its source links, and step 25a checked the claims that the design depends on, in section 6 of the report. Next: the design session reads the report with its check, next to [claude-in-sandbox.md](research/claude-in-sandbox.md).
+State: the design is written, as [driver-layer.md](design/driver-layer.md) (step 25, 2026-10-03). It extends the in-house proxy, gives each driver one cost source, and runs the host proxy as a systemd user unit. Section 3 asks the user one question. Until the answer, the design follows its recommendation: `claude-glm` sessions go through the proxy, and sessions with a claude.ai login show in `top` from `claude agents --json` and the transcript.
+
+Next, one session each (details in section 4 of the design):
+
+1. 25b: spike by hand. Record which session headers and which `metadata.user_id` Claude Code 2.1.285 sends through the proxy.
+2. 25c: an Anthropic SSE tap, session attribution, and the key hygiene test in the proxy.
+3. 25d: the host proxy as a systemd user unit, with a `doctor` check and fix.
+4. 25e: an outbox task, so that `claude-glm` points at the host proxy.
+5. 25f: the driver interface, with the `opencode` driver around the existing code.
+6. 25g: the read side of the Claude drivers, so that `top` shows Claude sessions.
 
 ### Later
 
@@ -124,6 +133,7 @@ State: the Gemini report is back, as [driver-interface.md](research/driver-inter
 - Run the `!` command for the OpenRouter usage per project, for [claude-max-vs-openrouter.md](research/claude-max-vs-openrouter.md).
 - Make the access to `/dev/kvm` permanent. [wsl-kvm-access.md](research/wsl-kvm-access.md), section 7: the `kvm` group exists here with gid 990, and the udev rule of this distro already sets mode 0666. So the state of 2026-09-30 (gid 109, mode 0660) likely came from another WSL distro that shares the device node. Run `wsl.exe -l -v` on Windows and name the distros that run. The guard of this session blocked that command.
 - Decide on DeepInfra (step 2) and on unattended rechecks (step 3, 17d).
+- Decide from [driver-layer.md](design/driver-layer.md) section 3: whether sessions with a claude.ai login go through the proxy (Remote Control off, terms gray zone) or show in `top` from their transcript (recommended).
 - Decide from [deploy-access.md](research/deploy-access.md) section 8: whether Tailscale runs on the servers, and how long a debugging window lasts.
 - Optional: report the unhandled `AbortError` of the SSE client of `@opencode-ai/sdk` 1.18.32 upstream (lesson `opencode-sdk-sse-abort-unhandled.md` in meta). Then the handler in `src/top/app.tsx` can go.
 

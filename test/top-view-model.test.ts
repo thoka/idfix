@@ -13,6 +13,7 @@ import {
   screenLayout,
   serverLabel,
 } from "../src/top/view-model";
+import { splitFlag, tmuxAttachArgv } from "../src/top/tmux";
 
 function row(sessionId: string, overrides: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -152,6 +153,11 @@ describe("footer", () => {
     expect(attachCommand("ses_2a3b4cABCDEF")).toBe("oc-sub attach ABCDEF");
   });
 
+  test("the key help names o: attach", () => {
+    expect(KEY_HELP).toContain("o: attach ");
+    expect(KEY_HELP).not.toContain("attach command");
+  });
+
   test("names each server with its project, port, and state", () => {
     expect(serverLabel({ project: null, url: "http://127.0.0.1:8767", sandbox: false, state: "down" })).toBe("host :8767 down");
     expect(serverLabel({ project: "opencode-subagents", url: "http://127.0.0.1:18768", sandbox: true, state: "reconnecting" })).toBe(
@@ -170,5 +176,28 @@ describe("footer", () => {
     expect(footer).toEqual(["servers: host :8767 up", "2 sessions  cost $0.0125  scope: ~/dv/p", KEY_HELP]);
     const withMessage = footerLines({ servers: [], rows: [row("ses_a")], all: true, scopeLabel: "~/dv/p", message: "hi" });
     expect(withMessage).toEqual(["servers: no known server", "1 session  cost $0.0000  scope: all projects", "hi"]);
+  });
+});
+
+describe("tmux pane", () => {
+  test("splitFlag follows the aspect ratio of the pane", () => {
+    expect(splitFlag(200, 50)).toBe("-h");
+    expect(splitFlag(100, 50)).toBe("-v");
+    expect(splitFlag(80, 60)).toBe("-v");
+  });
+
+  test("tmuxAttachArgv builds the split-window command with the full session ID", () => {
+    expect(tmuxAttachArgv(["bun", "src/cli.ts"], "ses_2a3b4cABCDEF", "/repo", { columns: 200, rows: 50 })).toEqual([
+      "tmux",
+      "split-window",
+      "-h",
+      "-c",
+      "/repo",
+      "bun",
+      "src/cli.ts",
+      "attach",
+      "ses_2a3b4cABCDEF",
+    ]);
+    expect(tmuxAttachArgv(["bun", "src/cli.ts"], "ses_x", "/repo", { columns: 80, rows: 60 })[2]).toBe("-v");
   });
 });

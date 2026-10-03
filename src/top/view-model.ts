@@ -151,7 +151,7 @@ export function serverLabel(server: LiveServer): string {
 }
 
 /** The key help of the footer. */
-export const KEY_HELP = "j/k or arrows: move  o: attach command  a: all projects/this project  q: quit";
+export const KEY_HELP = "j/k or arrows: move  o: attach  a: all projects/this project  q: quit";
 
 /** The input of the footer. */
 export type FooterInput = {

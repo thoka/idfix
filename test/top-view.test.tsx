@@ -118,13 +118,63 @@ describe("TopView", () => {
     unmount();
   });
 
-  test("o shows the attach command of the selected session in the footer", async () => {
+  test("o shows the attach command in the footer when no pane opens (no tmux)", async () => {
     const source = fakeSource([row("ses_a0000ABCDEF")]);
-    const { lastFrame, stdin, unmount } = render(<TopView start={async () => source} initialAll={false} scopeLabel="~" />);
+    const opened: string[] = [];
+    const { lastFrame, stdin, unmount } = render(
+      <TopView
+        start={async () => source}
+        initialAll={false}
+        scopeLabel="~"
+        openPane={async (id) => {
+          opened.push(id);
+          return undefined;
+        }}
+      />,
+    );
     await tick();
     stdin.write("o");
     await tick();
+    expect(opened).toEqual(["ses_a0000ABCDEF"]);
     expect(plain(lastFrame())).toContain("attach with: oc-sub attach ABCDEF");
+    unmount();
+  });
+
+  test("o opens a tmux pane with the full session ID and shows the success line", async () => {
+    const source = fakeSource([row("ses_a0000ABCDEF")]);
+    const sizes: Array<{ columns: number; rows: number }> = [];
+    const { lastFrame, stdin, unmount } = render(
+      <TopView
+        start={async () => source}
+        initialAll={false}
+        scopeLabel="~"
+        openPane={async (id, size) => {
+          sizes.push(size);
+          return { ok: true };
+        }}
+      />,
+    );
+    await tick();
+    stdin.write("o");
+    await tick();
+    expect(sizes.length).toBe(1);
+    expect(sizes[0]?.columns).toBeGreaterThan(0);
+    expect(sizes[0]?.rows).toBeGreaterThan(0);
+    expect(plain(lastFrame())).toContain("attached ABCDEF in a new tmux pane");
+    unmount();
+  });
+
+  test("a failed split shows the error and the attach command", async () => {
+    const source = fakeSource([row("ses_a0000ABCDEF")]);
+    const { lastFrame, stdin, unmount } = render(
+      <TopView start={async () => source} initialAll={false} scopeLabel="~" openPane={async () => ({ ok: false, error: "no server" })} />,
+    );
+    await tick();
+    stdin.write("o");
+    await tick();
+    const frame = plain(lastFrame());
+    expect(frame).toContain("tmux error: no server");
+    expect(frame).toContain("attach with: oc-sub attach ABCDEF");
     unmount();
   });
 

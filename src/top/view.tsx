@@ -9,8 +9,9 @@
  * second, so that the times age. The first version only shows: no key
  * answers, aborts, or sends a message.
  *
- * Keys: `j`/`k` and the arrow keys move the selection, `o` shows the attach
- * command of the selected session, `a` switches between the scope of `--dir`
+ * Keys: `j`/`k` and the arrow keys move the selection, `o` attaches to the
+ * selected session in a new tmux pane (without tmux it shows the attach
+ * command), `a` switches between the scope of `--dir`
  * and `--all`, and `q` or Ctrl-C quit.
  */
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
@@ -19,6 +20,7 @@ import { makeProjectNameResolver } from "../project-config";
 import { GAP, padTable } from "./columns";
 import type { LiveHandle } from "./live";
 import type { SessionRow } from "./model";
+import { defaultOpenPane, type PaneResult } from "./tmux";
 import {
   attachCommand,
   detailLines,
@@ -31,6 +33,7 @@ import {
   type DetailTone,
   type Selection,
 } from "./view-model";
+import { sessionCode } from "./columns";
 
 /** The part of the live handle that the view uses, so that the tests can pass a fake. */
 export type ViewSource = Pick<LiveHandle, "onChange" | "servers" | "stop"> & {
@@ -48,6 +51,15 @@ export type TopViewProps = {
   nowMs?: () => number;
   /** How often the view redraws without a change. Default: 1000 ms. */
   redrawMs?: number;
+  /**
+   * Open the attach of a session in a new tmux pane. It gets the size of
+   * the pane of `top`, which sets the split direction. Default: tmux when
+   * `$TMUX` is set, otherwise nothing (the footer shows the command).
+   */
+  openPane?: (
+    sessionId: string,
+    size: { columns: number; rows: number },
+  ) => Promise<PaneResult | undefined>;
 };
 
 const TONE_COLORS: Record<DetailTone, string | undefined> = {
@@ -78,6 +90,7 @@ const projectName = makeProjectNameResolver();
 export function TopView(props: TopViewProps) {
   const nowMs = props.nowMs ?? Date.now;
   const redrawMs = props.redrawMs ?? 1000;
+  const openPane = props.openPane ?? defaultOpenPane;
   const { exit } = useApp();
   const { columns, rows: height } = useWindowSize();
   const [all, setAll] = useState(props.initialAll);
@@ -138,7 +151,21 @@ export function TopView(props: TopViewProps) {
       setMessage(undefined);
     } else if (input === "o") {
       const id = selectedRef.current;
-      setMessage(id === undefined ? "no session selected" : `attach with: ${attachCommand(id)}`);
+      if (id === undefined) {
+        setMessage("no session selected");
+        return;
+      }
+      // The footer shows the result; the view stays usable while the pane
+      // opens.
+      void openPane(id, { columns, rows: height }).then((result) => {
+        if (result === undefined) {
+          setMessage(`attach with: ${attachCommand(id)}`);
+        } else if (result.ok) {
+          setMessage(`attached ${sessionCode(id)} in a new tmux pane`);
+        } else {
+          setMessage(`tmux error: ${result.error}  attach with: ${attachCommand(id)}`);
+        }
+      });
     } else if (input === "a") {
       setAll((old) => !old);
       setMessage(undefined);

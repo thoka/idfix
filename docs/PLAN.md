@@ -120,6 +120,12 @@ Next, one session each (details in section 4 of the design):
 
 Task from the supervisor, 2026-10-03 (meta plan, step 9). A new global rule (meta df5ba4a) says that a research report follows ASD-STE100, with the skill `simple-english` in strict mode. That skill is a Claude Code plugin in `~/.claude/plugins/cache/simple-english/simple-english/<version>/`, and the folder changes with each plugin version (2.1.0 and 2.1.1 exist now). opencode in the sandbox loads skills only from `OC_SUB_SHARED_DIR` (`meta/agents/skills/`). Find a fix that survives plugin updates, for example a copy of the newest version at `oc-sub up` or a stable path. Research first: how others give opencode a skill of a Claude Code plugin.
 
+### 13. Step 28: a graph view of the plans
+
+The user wants a browser view (SVG or WebGL) of the plans: steps and dependencies as a graph, open decisions ranked by the work that they block, and the shortest path to an MVP. The user decided on 2026-10-04: the view starts in this project and moves to its own repository after a first milestone. The first milestone reads only the plans in `~/dv/*/docs/PLAN.md`. Meta is not the place for it.
+
+Research round 1: [plan-graph-tools.md](research/plan-graph-tools.md). No tool reads a free-form plan, so the report recommends a thin view on established libraries. Round 2 (`plan-graph-view.md`) closes its gaps: the plan format, the ranking score, the rendering stack, and the mission-control projects for agents. After round 2: interview the user, then a design.
+
 ### Later
 
 - Log rotation: the server and proxy logs grow without limit since step 16d.

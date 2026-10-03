@@ -87,8 +87,8 @@ describe("TopView", () => {
     const frame = plain(lastFrame());
     expect(frame).toMatch(/id +where +¢ +run +last/);
     expect(frame.split("\n")[0]).not.toContain("project");
-    expect(frame).toContain("111111 8g    🔧⚡");
-    expect(frame).toContain("222222 8g    🔧❓");
+    expect(frame).toContain("🔧111111 8g    ");
+    expect(frame).toContain("🔧222222 8g    ");
     expect(frame).toContain("tool bash: in ses_aaaaaa111111");
     expect(frame).toContain("servers: opencode-subagents :18768 up");
     expect(frame).toContain("2 sessions  cost $0.0200  scope: ~/dv/opencode-subagents");
@@ -143,7 +143,7 @@ describe("TopView", () => {
     await tick();
     expect(scopes).toEqual([false, true]);
     expect(sources[0]?.stopped).toBe(true);
-    expect(plain(lastFrame())).toMatch(/opencode-subagents\/8g 🔧⚡/);
+    expect(plain(lastFrame())).toMatch(/🔧a00001 opencode-subagents\/8g /);
     expect(plain(lastFrame())).toContain("opencode-subagents");
     expect(plain(lastFrame())).toContain("scope: all projects");
     stdin.write("a");

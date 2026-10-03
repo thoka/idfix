@@ -15,14 +15,16 @@
  *   name; the caller injects the name resolver (see
  *   `makeProjectNameResolver`). Without `--all` the cell shows only the
  *   worktree, because all rows belong to one project.
- * - The table is compact (step 25): one icon for the agent and one for the
- *   state, short times, the cost in cents, and one space between columns.
- *   Icons are two cells wide, so the padding measures the display width.
+ * - The table is compact (step 25): the agent icon in front of the CODE,
+ *   short times, the cost in cents, and one space between columns. The
+ *   state has no column: the live view colors the `id` cell. Only a plain
+ *   text table without color gets a `state` column (`stateColumn`). Icons
+ *   are two cells wide, so the padding measures the display width.
  */
 import path from "node:path";
 import cliTruncate from "cli-truncate";
 import stringWidth from "string-width";
-import type { SessionRow, SessionRowState } from "./model";
+import type { SessionRow } from "./model";
 
 /** How many characters of the session ID the session column shows. */
 export const CODE_LENGTH = 6;
@@ -55,17 +57,6 @@ export const AGENT_ICONS: Record<string, string> = {
   coder: "🔧",
   researcher: "🔎",
   reader: "📖",
-};
-
-/** The icon of each state. */
-export const STATE_ICONS: Record<SessionRowState, string> = {
-  waiting: "❓",
-  looping: "🔁",
-  stalled: "⌛",
-  reasoning: "💭",
-  retry: "🔄",
-  busy: "⚡",
-  idle: "💤",
 };
 
 /** Worktree name prefixes that the `where` column shows as an icon. */
@@ -114,8 +105,8 @@ export function formatContext(tokens: number): string {
 /** The key of every column, in order. The title comes last. */
 export const ALL_HEADERS = [
   "session",
+  "state",
   "where",
-  "icons",
   "cost",
   "elapsed",
   "last",
@@ -131,8 +122,8 @@ export type ColumnHeader = (typeof ALL_HEADERS)[number];
 /** The shown label of each column. The icon column has none. */
 export const HEADER_LABELS: Record<ColumnHeader, string> = {
   session: "id",
+  state: "state",
   where: "where",
-  icons: "",
   cost: "¢",
   elapsed: "run",
   last: "last",
@@ -146,8 +137,13 @@ export const HEADER_LABELS: Record<ColumnHeader, string> = {
 /** The columns with numbers. They align to the right. */
 const RIGHT_ALIGNED: ReadonlySet<ColumnHeader> = new Set(["cost", "elapsed", "last", "steps", "tools", "ctx", "reason"]);
 
-/** The column options: whether the project shows in the `where` column. */
+/** The column options: whether the project shows in the `where` column, and the state column. */
 export type ColumnOptions = {
+  /**
+   * Show the state as a word column after `id`. A table without color sets
+   * it, because there the color of the `id` cell cannot show the state.
+   */
+  stateColumn?: boolean;
   /** Show the project in the `where` column. `top --all` sets it. */
   showProject: boolean;
   /**
@@ -159,8 +155,8 @@ export type ColumnOptions = {
 };
 
 /** The keys of the shown columns. */
-export function columnHeaders(_options: ColumnOptions): ColumnHeader[] {
-  return [...ALL_HEADERS];
+export function columnHeaders(options: ColumnOptions): ColumnHeader[] {
+  return ALL_HEADERS.filter((header) => options.stateColumn === true || header !== "state");
 }
 
 /** The `where` cell: `project/worktree`, `project`, or without the project only the worktree. */
@@ -180,9 +176,9 @@ export function rowCells(rows: readonly SessionRow[], options: ColumnOptions): s
   const nameOf = options.projectName ?? ((directory: string) => splitFolder(directory).project);
   return rows.map((row) => {
     const cells: Record<ColumnHeader, string> = {
-      session: sessionCode(row.sessionId),
+      session: agentIcon(row.agent) + sessionCode(row.sessionId),
+      state: row.state,
       where: whereCell(row.directory, options, nameOf),
-      icons: agentIcon(row.agent) + STATE_ICONS[row.state],
       cost: formatCents(row.cost),
       elapsed: formatAge(row.elapsedMs),
       last: formatAge(row.msSinceEvent),

@@ -430,7 +430,7 @@ All GLM runs went through OpenRouter. Research: $0.1483 in six runs. Coding: $0.
 
 ## Step 25: a compact `top` table
 
-On 2026-10-03 the user asked for a table that says as much as possible in a narrow terminal. The `top` table now has one space between columns. One `where` column holds `project/worktree`, and 🔬 replaces the worktree prefix `research-`. One icon shows the agent and one shows the state. The cost shows in cents without `$`, and it comes right after the icons, so that a cut line still shows it. Times have at most five characters and drop the seconds after ten minutes. Numbers align to the right. The padding counts display cells with `string-width`, because an icon is two cells wide. The detail pane still names the agent and the state in words.
+On 2026-10-03 the user asked for a table that says as much as possible in a narrow terminal. The `top` table now has one space between columns. One `where` column holds `project/worktree`, and 🔬 replaces the worktree prefix `research-`. The agent icon stands in front of the CODE. The state has no icon: the color of the `id` shows it, and a `--once` table in a pipe gets a `state` word column instead (changed the same day on request of the user). The cost shows in cents without `$`, and it comes right after `where`, so that a cut line still shows it. Times have at most five characters and drop the seconds after ten minutes. Numbers align to the right. The padding counts display cells with `string-width`, because an icon is two cells wide. The detail pane still names the agent and the state in words.
 
 ## Step 26: empty researcher runs in meta
 

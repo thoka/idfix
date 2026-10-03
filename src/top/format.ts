@@ -1,10 +1,15 @@
 /** The text snapshot of `oc-sub top --once`: one padded table line per session. */
 import type { PendingRequest } from "../requests";
 import { formatRequest } from "../requests";
+import { Chalk, type ForegroundColorName } from "chalk";
 import { DEFAULT_WIDTH, GAP, padTable } from "./columns";
 import type { SessionRow } from "./model";
+import { STATE_COLORS } from "./view-model";
 
 export { DEFAULT_WIDTH } from "./columns";
+
+/** Basic ANSI colors. The caller decides with `color` whether the output gets them. */
+const ansi = new Chalk({ level: 1 });
 
 /** One row of the top table: a session row plus the pending requests of its session tree. */
 export type TopTableRow = SessionRow & { pending: readonly PendingRequest[] };
@@ -17,6 +22,11 @@ export type TopTableOptions = {
   projectName?: (directory: string) => string;
   /** The line width that the title is cut to. Default: `DEFAULT_WIDTH`. */
   width?: number;
+  /**
+   * Color the `id` cell by the state, like the live view. Without color,
+   * the table gets a `state` column instead. Default: false.
+   */
+  color?: boolean;
 };
 
 /**
@@ -32,7 +42,9 @@ export function formatTopTable(
   nowMs: number,
   options: TopTableOptions = {},
 ): string[] {
+  const color = options.color ?? false;
   const table = padTable(rows, {
+    stateColumn: !color,
     showProject: options.showProject ?? false,
     projectName: options.projectName,
     width: options.width ?? DEFAULT_WIDTH,
@@ -41,7 +53,9 @@ export function formatTopTable(
   rows.forEach((row, index) => {
     const cells = table.rows[index];
     if (cells === undefined) return;
-    lines.push(cells.join(GAP).trimEnd());
+    const [id = "", ...rest] = cells;
+    const shownId = color ? ansi[STATE_COLORS[row.state] as ForegroundColorName](id) : id;
+    lines.push([shownId, ...rest].join(GAP).trimEnd());
     for (const pending of row.pending) {
       lines.push(...formatRequest(pending).map((requestLine) => `  ${requestLine}`));
     }

@@ -66,8 +66,10 @@ describe("formatTopTable", () => {
     const titleStart = (line: string, title: string) => stringWidth(line) - stringWidth(title);
     expect(titleStart(lines[1] as string, "one")).toBe(titleStart(lines[0] as string, "title"));
     expect(titleStart(lines[2] as string, "two")).toBe(titleStart(lines[0] as string, "title"));
-    expect(lines[1]).toContain("🔧⚡");
-    expect(lines[2]).toContain("🔎💤");
+    // Without color, the state shows as a word column after the id.
+    expect(lines[0]?.startsWith("id       state")).toBe(true);
+    expect(lines[1]?.startsWith("🔧ses_1  busy")).toBe(true);
+    expect(lines[2]?.startsWith("🔎longer idle")).toBe(true);
     expect(lines[1]).toContain(" 0.1 ");
     expect(lines[1]).toContain("1m05s");
     expect(lines[1]).toContain(" 5s ");
@@ -81,19 +83,19 @@ describe("formatTopTable", () => {
       row({ sessionId: "ses_abcdef123456", directory: "/home/u/dv/opencode-subagents/.worktrees/8d" }),
       row({ sessionId: "ses_zzzzzz654321", directory: "/home/u/dv/opencode-subagents" }),
     ];
-    const hidden = formatTopTable(rows, NOW);
-    expect(hidden[0]?.startsWith("id     where")).toBe(true);
-    expect(hidden[1]?.startsWith("123456 8d    🔧⚡")).toBe(true);
-    expect(hidden[2]?.startsWith("654321 -     🔧⚡")).toBe(true);
+    const hidden = formatTopTable(rows, NOW, { color: true });
+    expect(hidden[0]?.startsWith("id       where")).toBe(true);
+    // With color, the id carries the state color and the state column is gone.
+    expect(hidden[1]?.startsWith("\u001b[32m🔧123456\u001b[39m 8d    ")).toBe(true);
+    expect(hidden.join("\n")).not.toContain("busy");
     expect(hidden.join("\n")).not.toContain("opsub");
     // Without a configured name, the full project name shows, with the worktree in one cell.
     const shown = formatTopTable(rows, NOW, { showProject: true });
-    expect(shown[1]?.startsWith("123456 opencode-subagents/8d 🔧⚡")).toBe(true);
-    expect(shown[2]?.startsWith("654321 opencode-subagents    🔧⚡")).toBe(true);
+    expect(shown[1]?.startsWith("🔧123456 busy  opencode-subagents/8d ")).toBe(true);
+    expect(shown[2]?.startsWith("🔧654321 busy  opencode-subagents    ")).toBe(true);
     // With a configured name, the shortName shows.
     const short = formatTopTable(rows, NOW, { showProject: true, projectName: () => "opsub" });
-    expect(short[0]?.startsWith("id     where    ")).toBe(true);
-    expect(short[1]?.startsWith("123456 opsub/8d 🔧⚡")).toBe(true);
+    expect(short[1]?.startsWith("🔧123456 busy  opsub/8d ")).toBe(true);
   });
 
   test("keeps a minimum title with a long worktree name", () => {

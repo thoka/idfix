@@ -277,7 +277,13 @@ async function snapshot(args: TopArgs, env: Env, deps: StatusDeps): Promise<numb
   // Without a terminal, `stdout.columns` is undefined; use a fixed width.
   const width = process.stdout.columns ?? DEFAULT_WIDTH;
   // Without --all, every row belongs to one project, so its column is hidden.
-  const options: TopTableOptions = { showProject: args.all, projectName: makeProjectNameResolver(), width };
+  // A terminal gets the state as the color of the id; a pipe gets a state column.
+  const options: TopTableOptions = {
+    showProject: args.all,
+    projectName: makeProjectNameResolver(),
+    width,
+    color: process.stdout.isTTY === true,
+  };
   for (const line of formatTopTable(rows, nowMs, options)) console.log(line);
   return 0;
 }

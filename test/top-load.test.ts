@@ -333,9 +333,9 @@ describe("top", () => {
           testDeps,
         );
         expect(code).toBe(0);
-        expect(captured.lines[0]).toMatch(/^id +where +¢ +run +last +stp +tls +ctx +rsn +title$/);
+        expect(captured.lines[0]).toMatch(/^id +state +where +¢ +run +last +stp +tls +ctx +rsn +title$/);
         // The session column shows the CODE, the last 6 characters of the ID.
-        expect(captured.lines).toContainEqual(expect.stringMatching(/^parent /));
+        expect(captured.lines).toContainEqual(expect.stringMatching(/^\S{2}parent /));
         const requestLines = captured.lines.filter((line) => line.startsWith("  "));
         expect(requestLines).toEqual([
           "  question que_2 in ses_parent",
@@ -343,7 +343,7 @@ describe("top", () => {
         ]);
         // Every non-request line starts in the first column, like the header.
         for (const line of captured.lines.slice(1)) {
-          if (!line.startsWith(" ")) expect(line.split(" ")[0]).toMatch(/^\S{1,6}$/);
+          if (!line.startsWith(" ")) expect(line.split(" ")[0]).toMatch(/^\S{1,8}$/);
         }
       } finally {
         captured.restore();

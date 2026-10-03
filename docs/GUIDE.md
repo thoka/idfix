@@ -165,9 +165,9 @@ A long model request is not a stall. While a session waits for the model, for ex
 
 `oc-sub top` opens a full-screen live view of the runs, like `htop`. It shows the runs of the current project and its worktrees. `oc-sub top --all` shows the runs of all projects and all known servers.
 
-- The table has one compact line per run: the CODE for `oc-sub attach CODE`, where it runs (the worktree, `-` for the main folder; with `--all` `project/worktree`; 🔬 replaces the prefix `research-`), an icon for the agent and one for the state, the cost in cents (`¢`, no `$`), the elapsed time (`run`), the time since the last event (`last`), the steps (`stp`), the tool calls (`tls`), the context size, the reasoning share (`rsn`), and the title.
+- The table has one compact line per run: the agent icon and the CODE for `oc-sub attach CODE`, where it runs (the worktree, `-` for the main folder; with `--all` `project/worktree`; 🔬 replaces the prefix `research-`), the cost in cents (`¢`, no `$`), the elapsed time (`run`), the time since the last event (`last`), the steps (`stp`), the tool calls (`tls`), the context size, the reasoning share (`rsn`), and the title.
 - Agent icons: 🔧 coder, 🔎 researcher, 📖 reader. Another agent shows its first two letters.
-- State icons, in the color of the state: ⚡ `busy` green, ❓ `waiting` yellow (the run waits for an answer), ⌛ `stalled` and 🔁 `looping` red, 💭 `reasoning` magenta (the last step used too many reasoning tokens), 🔄 `retry` yellow, and 💤 `idle` gray. The detail pane names the agent and the state in words.
+- The color of the `id` shows the state: `busy` green, `waiting` yellow (the run waits for an answer), `stalled` and `looping` red, `reasoning` magenta (the last step used too many reasoning tokens), `retry` yellow, and `idle` gray. The detail pane names the agent and the state in words. `oc-sub top --once` in a pipe has no color, so it adds a `state` column.
 - Times have at most five characters. Seconds show only below ten minutes, so an old run shows `3h12m` or `2d04h`.
 - Below the table, the detail pane shows the selected run: a pending question or permission request, the subagent sessions as a tree, and the last events.
 - The footer shows each server and its state (`up`, `down`, or `reconnecting`), the number of runs, their cost, and the keys.

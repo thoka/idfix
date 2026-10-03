@@ -105,7 +105,8 @@ describe("compact cells", () => {
 
 describe("columnHeaders and rowCells", () => {
   test("project and worktree share the where column", () => {
-    expect(columnHeaders({ showProject: true }).slice(0, 3)).toEqual(["session", "where", "icons"]);
+    expect(columnHeaders({ showProject: true }).slice(0, 3)).toEqual(["session", "where", "cost"]);
+    expect(columnHeaders({ showProject: true, stateColumn: true }).slice(0, 3)).toEqual(["session", "state", "where"]);
   });
 
   test("the cells follow the headers, and the project keeps its full name without a resolver", () => {
@@ -114,9 +115,8 @@ describe("columnHeaders and rowCells", () => {
       { showProject: true },
     );
     expect(cells).toEqual([
-      "ABCDEF",
+      "--ABCDEF",
       "opencode-subagents/8f",
-      "--⚡",
       "0.1",
       "1m05s",
       "5s",
@@ -150,7 +150,7 @@ describe("columnHeaders and rowCells", () => {
 describe("padTable", () => {
   test("pads the columns by display width and cuts the title to the width", () => {
     const table = padTable([row({ sessionId: "ses_1", title: "x".repeat(300) })], { showProject: false, width: 140 });
-    expect(table.header[0]).toBe("id   ");
+    expect(table.header[0]).toBe("id     ");
     const line = table.rows[0]?.join(" ") ?? "";
     expect(stringWidth(line)).toBe(140);
   });
@@ -160,7 +160,7 @@ describe("padTable", () => {
       [row({ sessionId: "ses_1", cost: 0.001 }), row({ sessionId: "ses_2", cost: 1.5 })],
       { showProject: false, width: 140 },
     );
-    expect(table.rows[0]?.[3]).toBe("0.1");
-    expect(table.rows[1]?.[3]).toBe("150");
+    expect(table.rows[0]?.[2]).toBe("0.1");
+    expect(table.rows[1]?.[2]).toBe("150");
   });
 });

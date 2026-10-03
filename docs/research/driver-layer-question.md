@@ -1,6 +1,6 @@
 # Deep research question: one driver layer with one cost path
 
-The deep research question for step 25, word for word for Gemini Deep Research. Paste everything below the line into the tool. The report that comes back goes next to this file as `driver-layer.md`, with a recheck head.
+The deep research question for step 25, word for word for Gemini Deep Research. Paste everything below the line into the tool. The report that comes back is [driver-interface.md](driver-interface.md).
 
 ---
 

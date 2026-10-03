@@ -63,6 +63,8 @@ On 2026-10-02 the user moved step 21 (deep research tools for expensive decision
 
 [api-browsers.md](research/api-browsers.md) found `vercel-labs/agent-browser` (Apache-2.0, 43k stars, 934k installs on skills.sh): a CLI and MCP server with persistent profiles, cookie import, and `read <url>` without Chrome. Test it in the sandbox as a fetch path of the `reader` for pages that webfetch cannot read (JavaScript, login, x.com). Fallback: `microsoft/playwright-mcp`.
 
+Research question from meta (2026-10-03, the user approved it): the user often shares x.com and t.co links, and agents must read them. Is there an established extractor that reads an x.com post or thread from its URL without a login? Candidates are an embed or syndication endpoint, an API like fxtwitter, a skill on skills.sh, or a library. Compare it with `agent-browser` with cookie import, which stays the fallback. A t.co link resolves with a plain HEAD request (the `Location` header), so only the x.com page needs a special path. The report goes into `docs/research/`.
+
 ### 9. Step 23: Claude Code as a subagent in the sandbox (starts when the user has Claude Max)
 
 The user decided on 2026-10-02: subagents that need Opus or Sonnet run as Claude Code, not as opencode, and inside the sbx sandbox. The work starts after the upgrade to Claude Max. Until then, Claude subagents stay on the host in worktrees. Research: [claude-in-sandbox.md](research/claude-in-sandbox.md), option A.

@@ -124,7 +124,7 @@ Task from the supervisor, 2026-10-03 (meta plan, step 9). A new global rule (met
 
 The user wants a browser view (SVG or WebGL) of the plans: steps and dependencies as a graph, open decisions ranked by the work that they block, and the shortest path to an MVP. The user decided on 2026-10-04: the view starts in this project and moves to its own repository after a first milestone. The first milestone reads only the plans in `~/dv/*/docs/PLAN.md`. Meta is not the place for it.
 
-Research round 1: [plan-graph-tools.md](research/plan-graph-tools.md). No tool reads a free-form plan, so the report recommends a thin view on established libraries. Round 2: [plan-graph-view.md](research/plan-graph-view.md). It recommends a `depends:` and `decision:` grammar in `PLAN.md`, a blocked-work count as the score, the ancestor set of a milestone as the MVP path, and React Flow with elkjs. Next: interview the user, then a design.
+Research round 1: [plan-graph-tools.md](research/plan-graph-tools.md). No tool reads a free-form plan, so the report recommends a thin view on established libraries. Round 2: [plan-graph-view.md](research/plan-graph-view.md). It recommends a `depends:` and `decision:` grammar in `PLAN.md`, a blocked-work count as the score, the ancestor set of a milestone as the MVP path, and React Flow with elkjs. The interview is done (2026-10-04). Design: [plan-graph.md](design/plan-graph.md). Next: step 28a, the parser.
 
 ### Later
 

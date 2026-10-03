@@ -40,4 +40,9 @@ In a `claude-glm` session, the auto mode classifier runs on the same model as th
 
 ## Fix
 
-The research for the fix is in `docs/research/glm-auto-mode-classifier.md`. The launcher `claude-glm` lives in meta, so the change goes to the supervisor through the outbox.
+The research is in [glm-auto-mode-classifier.md](../research/glm-auto-mode-classifier.md). Nobody can configure the timeout of the classifier, and it fails closed. Two changes remove the problem:
+
+1. The model id `z-ai/glm-5.3-flash:nitro` makes OpenRouter sort the providers by throughput. A test on 2026-10-03 took 1 to 4 seconds per answer, against 10 to 12 seconds without the suffix, at the same cost.
+2. Narrow allow rules, for example `Bash(git commit *)` and `SendMessage`, resolve before the classifier, so these calls skip it.
+
+The launcher `claude-glm` lives in meta, so the outbox task `docs/outbox/2026-10-03-task-claude-glm-classifier-fix.md` hands both changes to the supervisor.

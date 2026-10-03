@@ -103,6 +103,8 @@ Decisions of the user, 2026-10-03:
 - The research uses the deep-research tool of meta step 4. Its evaluation is not finished (4b and 4c are open), and its step 4d names the driver-layer question itself. So the research report waits for that evaluation, or the driver-layer question runs first in it.
 - The design comes first, before the rename in step 24. The design text already writes `idfx`.
 
+State: the interview is done, and the paste-ready question is [driver-layer-question.md](research/driver-layer-question.md). It waits on the user: the user pastes it into Gemini Deep Research and pastes the report back. The report becomes [driver-layer.md](research/driver-layer.md) with a recheck head. The design session reads it next to [claude-in-sandbox.md](research/claude-in-sandbox.md).
+
 ### Later
 
 - Log rotation: the server and proxy logs grow without limit since step 16d.

@@ -114,6 +114,10 @@ Next, one session each (details in section 4 of the design):
 5. 25f: the driver interface, with the `opencode` driver around the existing code.
 6. 25g: the read side of the Claude drivers, so that `top` shows Claude sessions.
 
+### 12. Step 27: the researcher loads the skill simple-english
+
+Task from the supervisor, 2026-10-03 (meta plan, step 9). A new global rule (meta df5ba4a) says that a research report follows ASD-STE100, with the skill `simple-english` in strict mode. That skill is a Claude Code plugin in `~/.claude/plugins/cache/simple-english/simple-english/<version>/`, and the folder changes with each plugin version (2.1.0 and 2.1.1 exist now). opencode in the sandbox loads skills only from `OC_SUB_SHARED_DIR` (`meta/agents/skills/`). Find a fix that survives plugin updates, for example a copy of the newest version at `oc-sub up` or a stable path. Research first: how others give opencode a skill of a Claude Code plugin.
+
 ### Later
 
 - Log rotation: the server and proxy logs grow without limit since step 16d.

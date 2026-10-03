@@ -19,7 +19,8 @@
  *   short times, the cost in cents, and one space between columns. The
  *   state has no column: the live view colors the `id` cell. Only a plain
  *   text table without color gets a `state` column (`stateColumn`). Icons
- *   are two cells wide, so the padding measures the display width.
+ *   are two cells wide, so the padding measures the display width. The
+ *   `id` header starts after the icon, so that it lines up with the codes.
  */
 import path from "node:path";
 import cliTruncate from "cli-truncate";
@@ -201,6 +202,9 @@ export const MIN_TITLE = 16;
 /** The gap between two columns. */
 export const GAP = " ";
 
+/** The width of the agent icon. The `id` header starts after it. */
+export const ICON_WIDTH = 2;
+
 /** The padded table: the headers and cells with padding, and the title cut to the width. */
 export type PaddedTable = {
   headers: ColumnHeader[];
@@ -228,18 +232,25 @@ export function padTable(rows: readonly SessionRow[], options: ColumnOptions & {
   const labels = headers.map((header) => HEADER_LABELS[header]);
   const cells = rowCells(rows, options);
   const last = headers.length - 1;
-  const widths = headers.map((_, column) =>
-    Math.max(stringWidth(labels[column] ?? ""), ...cells.map((cell) => stringWidth(cell[column] ?? ""))),
+  const widths = headers.map((header, column) =>
+    Math.max(
+      stringWidth(HEADER_LABELS[header] ?? "") + (header === "session" ? ICON_WIDTH : 0),
+      ...cells.map((cell) => stringWidth(cell[column] ?? "")),
+    ),
   );
   const prefix = widths.slice(0, -1).reduce((sum, width) => sum + width, 0) + GAP.length * last;
   const maxTitle = Math.max(MIN_TITLE, options.width - prefix);
-  const pad = (cell: string[]): string[] =>
-    cell.map((value, column) =>
-      column === last
-        ? stringWidth(value) > maxTitle
+  const pad = (cell: string[], isHeader: boolean): string[] =>
+    cell.map((value, column) => {
+      const header = headers[column] as ColumnHeader;
+      if (column === last) {
+        return stringWidth(value) > maxTitle
           ? cliTruncate(value, maxTitle, { position: "end", truncationCharacter: "" })
-          : value
-        : padCell(value, widths[column] ?? 0, RIGHT_ALIGNED.has(headers[column] as ColumnHeader)),
-    );
-  return { headers, header: pad(labels), rows: cells.map(pad) };
+          : value;
+      }
+      // The `id` header starts after the icon, so that it lines up with the codes.
+      const text = isHeader && header === "session" ? " ".repeat(ICON_WIDTH) + value : value;
+      return padCell(text, widths[column] ?? 0, RIGHT_ALIGNED.has(header));
+    });
+  return { headers, header: pad(labels, true), rows: cells.map((cell) => pad(cell, false)) };
 }

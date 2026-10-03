@@ -333,10 +333,10 @@ describe("top", () => {
           testDeps,
         );
         expect(code).toBe(0);
-        expect(captured.lines[0]).toMatch(/^id +state +where +¢ +run +last +stp +tls +ctx +rsn +title$/);
+        expect(captured.lines[0]).toMatch(/^  id +state +where +¢ +run +last +stp +tls +ctx +rsn +title$/);
         // The session column shows the CODE, the last 6 characters of the ID.
         expect(captured.lines).toContainEqual(expect.stringMatching(/^\S{2}parent /));
-        const requestLines = captured.lines.filter((line) => line.startsWith("  "));
+        const requestLines = captured.lines.slice(1).filter((line) => line.startsWith("  "));
         expect(requestLines).toEqual([
           "  question que_2 in ses_parent",
           "    1. [Delete file] Delete build/tmp.txt?",

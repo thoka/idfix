@@ -150,7 +150,7 @@ describe("columnHeaders and rowCells", () => {
 describe("padTable", () => {
   test("pads the columns by display width and cuts the title to the width", () => {
     const table = padTable([row({ sessionId: "ses_1", title: "x".repeat(300) })], { showProject: false, width: 140 });
-    expect(table.header[0]).toBe("id     ");
+    expect(table.header[0]).toBe("  id   ");
     const line = table.rows[0]?.join(" ") ?? "";
     expect(stringWidth(line)).toBe(140);
   });

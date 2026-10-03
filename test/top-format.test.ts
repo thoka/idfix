@@ -67,7 +67,7 @@ describe("formatTopTable", () => {
     expect(titleStart(lines[1] as string, "one")).toBe(titleStart(lines[0] as string, "title"));
     expect(titleStart(lines[2] as string, "two")).toBe(titleStart(lines[0] as string, "title"));
     // Without color, the state shows as a word column after the id.
-    expect(lines[0]?.startsWith("id       state")).toBe(true);
+    expect(lines[0]?.startsWith("  id     state")).toBe(true);
     expect(lines[1]?.startsWith("🔧ses_1  busy")).toBe(true);
     expect(lines[2]?.startsWith("🔎longer idle")).toBe(true);
     expect(lines[1]).toContain(" 0.1 ");
@@ -84,7 +84,7 @@ describe("formatTopTable", () => {
       row({ sessionId: "ses_zzzzzz654321", directory: "/home/u/dv/opencode-subagents" }),
     ];
     const hidden = formatTopTable(rows, NOW, { color: true });
-    expect(hidden[0]?.startsWith("id       where")).toBe(true);
+    expect(hidden[0]?.startsWith("  id     where")).toBe(true);
     // With color, the id carries the state color and the state column is gone.
     expect(hidden[1]?.startsWith("\u001b[32m🔧123456\u001b[39m 8d    ")).toBe(true);
     expect(hidden.join("\n")).not.toContain("busy");

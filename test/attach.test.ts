@@ -1,7 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { rmSync } from "node:fs";
 import path from "node:path";
-import { attach, matchingRuns, type AttachDeps } from "../src/attach";
+import { attach, matchingRuns, nextWatchState, normalizeCode, type AttachDeps, type SpawnHandle } from "../src/attach";
 import type { RunRecord } from "../src/runs";
 
 const BASE = "/tmp/opencode/attach-cmd-test";
@@ -17,21 +17,45 @@ function record(sessionId: string, directory: string, title?: string): RunRecord
   };
 }
 
-function makeDeps(records: RunRecord[]): {
+function makeDeps(
+  records: RunRecord[],
+  options: {
+    check?: AttachDeps["checkSession"];
+    /** When true, the child only exits when killed or via resolveChild(). */
+    hangs?: boolean;
+  } = {},
+): {
   deps: AttachDeps;
   spawned: string[][];
-  exitCode: number;
+  killed: { value: boolean };
+  /** Resolves the child exit with code 7, for a hung child. */
+  resolveChild: () => void;
 } {
   const spawned: string[][] = [];
+  const killed = { value: false };
+  let resolveExited: (code: number) => void = () => {};
   const deps: AttachDeps = {
     loadRecords: async () => records,
-    spawn: async (cmd) => {
+    spawn: (cmd) => {
       spawned.push(cmd);
-      return 7;
+      if (options.hangs) {
+        const exited = new Promise<number>((resolve) => (resolveExited = resolve));
+        return {
+          exited,
+          kill: () => {
+            killed.value = true;
+            resolveExited(0);
+          },
+        };
+      }
+      return { exited: Promise.resolve(7), kill: () => (killed.value = true) };
     },
+    checkSession: options.check ?? (async () => "present"),
+    pollMs: 0,
+    sleep: async () => {},
     cwd: BASE,
   };
-  return { deps, spawned, exitCode: 7 };
+  return { deps, spawned, killed, resolveChild: () => resolveExited(7) };
 }
 
 function capture(): { errors: string[]; restore: () => void } {
@@ -51,9 +75,38 @@ describe("matchingRuns", () => {
   });
 });
 
+describe("normalizeCode", () => {
+  test("strips the agent icon and spaces from a pasted top line", () => {
+    expect(normalizeCode("🔧3NcXxn")).toBe("3NcXxn");
+    expect(normalizeCode("🔎 3NcXxn")).toBe("3NcXxn");
+    expect(normalizeCode("3NcXxn")).toBe("3NcXxn");
+    expect(normalizeCode("a-b c")).toBe("abc");
+  });
+
+  test("nothing usable left", () => {
+    expect(normalizeCode("🔧")).toBe("");
+  });
+});
+
+describe("nextWatchState", () => {
+  test("a deleted session ends at once", () => {
+    expect(nextWatchState(0, "deleted")).toEqual({ misses: 0, end: "deleted" });
+    expect(nextWatchState(2, "deleted")).toEqual({ misses: 0, end: "deleted" });
+  });
+
+  test("three misses in a row end", () => {
+    expect(nextWatchState(0, "unreachable")).toEqual({ misses: 1 });
+    expect(nextWatchState(1, "unreachable")).toEqual({ misses: 2 });
+    expect(nextWatchState(2, "unreachable")).toEqual({ misses: 3, end: "gone" });
+  });
+
+  test("a present session resets the count", () => {
+    expect(nextWatchState(2, "present")).toEqual({ misses: 0 });
+  });
+});
+
 describe("oc-sub attach", () => {
-  test("no match exits 1 with an error", async () => {
-    const { deps } = makeDeps([record("ses_abc123", "/a")]);
+  test("no match exits 1 with an error", async () => {    const { deps } = makeDeps([record("ses_abc123", "/a")]);
     const captured = capture();
     try {
       const code = await attach({ code: "zzz" }, ENV, deps);
@@ -133,5 +186,89 @@ describe("oc-sub attach", () => {
     } finally {
       captured.restore();
     }
+  });
+
+  test("a code with only an icon exits 1 with an error", async () => {
+    const { deps } = makeDeps([record("ses_abc123", "/a")]);
+    const captured = capture();
+    try {
+      const code = await attach({ code: "🔧" }, ENV, deps);
+      expect(code).toBe(1);
+      expect(captured.errors.join("\n")).toContain("holds no usable part");
+    } finally {
+      captured.restore();
+    }
+  });
+
+  test("a pasted code with agent icon matches like the plain code", async () => {
+    const { deps, spawned } = makeDeps([record("ses_abc123", "/a")]);
+    const code = await attach({ code: "🔧 abc123" }, ENV, deps);
+    expect(code).toBe(7);
+    expect(spawned[0]).toContain("ses_abc123");
+  });
+
+  test("a deleted session kills the child and returns 0", async () => {
+    const { deps, spawned, killed } = makeDeps([record("ses_abc123", "/a")], {
+      check: async () => "deleted",
+      hangs: true,
+    });
+    const captured = capture();
+    try {
+      const code = await attach({ code: "abc123" }, ENV, deps);
+      expect(code).toBe(0);
+      expect(killed.value).toBe(true);
+      expect(captured.errors.join("\n")).toContain("attach ended: session ses_abc123 was deleted");
+    } finally {
+      captured.restore();
+    }
+    expect(spawned).toHaveLength(1);
+  });
+
+  test("the server being unreachable three times kills the child and returns 0", async () => {
+    let polls = 0;
+    const { deps, killed } = makeDeps([record("ses_abc123", "/a")], {
+      check: async () => {
+        polls += 1;
+        return "unreachable";
+      },
+      hangs: true,
+    });
+    const captured = capture();
+    try {
+      const code = await attach({ code: "abc123" }, ENV, deps);
+      expect(code).toBe(0);
+      expect(polls).toBe(3);
+      expect(killed.value).toBe(true);
+      expect(captured.errors.join("\n")).toContain("does not answer");
+    } finally {
+      captured.restore();
+    }
+  });
+
+  test("two misses then present keep the child alive, and it exits on its own", async () => {
+    let polls = 0;
+    const child = { resolve: () => {} };
+    const { deps, killed, resolveChild } = makeDeps([record("ses_abc123", "/a")], {
+      check: async () => {
+        polls += 1;
+        if (polls >= 4) child.resolve();
+        return polls <= 2 ? "unreachable" : "present";
+      },
+      hangs: true,
+    });
+    child.resolve = resolveChild;
+    const code = await attach({ code: "abc123" }, ENV, deps);
+    expect(code).toBe(7);
+    expect(killed.value).toBe(false);
+    expect(polls).toBeGreaterThan(2);
+  });
+
+  test("a child that exits first returns its own exit code without a kill", async () => {
+    const { deps, killed } = makeDeps([record("ses_abc123", "/a")], {
+      check: async () => "unreachable",
+    });
+    const code = await attach({ code: "abc123" }, ENV, deps);
+    expect(code).toBe(7);
+    expect(killed.value).toBe(false);
   });
 });

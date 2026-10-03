@@ -148,6 +148,9 @@ Attaches the opencode TUI to a known run, like `opencode attach URL --dir DIR --
 - No match: `error: no run matches "CODE"`, exit code 1.
 - Two or more matches: it lists the session ID, the title, and the directory of each match, tells you to give a longer part, and exits with code 1.
 - One match: it starts `opencode attach URL --dir DIR --session ID` with the current terminal. The URL comes from `--url`, then `OC_SUB_URL`, then the sandbox state of the directory, then the default. The command returns the exit code of the opencode process.
+- CODE may carry the agent icon of the `oc-sub top` line (for example `🔧3NcXxn`): attach keeps only the letters, digits, and `_` of CODE before it matches.
+
+While attach runs, it polls the server every 2 seconds. If the session is deleted, or if the server does not answer for about 6 seconds, attach ends the TUI. An idle session keeps the TUI open, so you can read the last screen and type a follow-up.
 
 ### oc-sub status
 

@@ -78,6 +78,16 @@ Each sub-step is one session, with tests and documentation:
 
 Known gaps from the research: permission requests have no documented two-way channel, so runs use pre-allowed tools and treat a denial as a failure; the remaining quota has no API; "ordinary, individual usage" is undefined, so keep the number of parallel runs small at first.
 
+### 10. Step 24: rename the project to idfix
+
+The user decided on 2026-10-03: the project becomes idfix 🐕 (the dog Idefix in Asterix), because it will support clients other than opencode. The CLI becomes `idfx`. Done: `bin/idfx` runs the same CLI as `oc-sub`, and `~/.local/bin/idfx` links to it. Both names work for now, so that the user gets used to the new one. Open, in small steps:
+
+1. Help text, messages, and docs say `idfx`. `oc-sub` stays as an alias.
+2. The plugin, the marketplace, and the skill `oc-sub` get the new name. Claude Code needs a reinstall of the plugin.
+3. State folders (`$XDG_STATE_HOME/oc-sub`), environment variables (`OC_SUB_*`), sandbox names, and `.opencode/oc-sub.json` move with a fallback to the old names, and `doctor --fix` migrates them.
+4. The repository folder and the GitHub repository get the new name. meta and arch-helper (links, rules, skills) change through the outbox.
+5. `oc-sub` goes away after the user agrees.
+
 ### Later
 
 - Log rotation: the server and proxy logs grow without limit since step 16d.

@@ -15,7 +15,8 @@
     "react": "19.3.0"
   },
   "bin": {
-    "oc-sub": "src/cli.ts"
+    "oc-sub": "src/cli.ts",
+    "idfx": "src/cli.ts"
   },
   "scripts": {
     "test": "bun test",

@@ -33,6 +33,7 @@ To update at every start instead, open `/plugin`, select the marketplace, and en
 - `skills/oc-sub/SKILL.md` — the skill: when to delegate, the workflow, and the rules
 - `skills/oc-sub/reference.md` — the full command reference and the details
 - `opencode/agents/` — the agents of the plugin: `coder`, `researcher`, and its hidden subagent `reader`. `oc-sub up` serves them through `OPENCODE_CONFIG_DIR`.
+- `bin/idfx` — a second launcher with the future name. It calls `bin/oc-sub`.
 - `bin/oc-sub` — the launcher. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), installs the locked dependencies on the first call, and runs `src/cli.ts`.
 
 Check the plugin with `claude plugin validate .` and `claude --plugin-dir . plugin details opencode-subagents`.
@@ -53,6 +54,12 @@ ln -sfn "$PWD/bin/oc-sub" ~/.local/bin/oc-sub
 ```
 
 The launcher follows the symlink back to this repository. Updates to the repository take effect at once.
+
+The project will become idfix 🐕, after the dog Idefix in Asterix, because it will support clients other than opencode. The command `idfx` already runs the same CLI as `oc-sub`. Link it the same way:
+
+```
+ln -sfn "$PWD/bin/idfx" ~/.local/bin/idfx
+```
 
 `mise.toml` pins `bun` and `opencode`. Check the setup with:
 

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# idfx launcher: the future name of oc-sub (project idfix). It runs the same
+# CLI as bin/oc-sub. It also works as a symlink, for example from
+# ~/.local/bin/idfx.
+set -euo pipefail
+exec "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/oc-sub" "$@"

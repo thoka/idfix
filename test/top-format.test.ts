@@ -3,6 +3,7 @@
  * No server and no clock: the tests pass `nowMs` themselves.
  */
 import { describe, expect, test } from "bun:test";
+import stringWidth from "string-width";
 import { formatTopTable, type TopTableRow } from "../src/top/format";
 import type { QuestionRequest } from "../src/requests";
 
@@ -61,19 +62,18 @@ describe("formatTopTable", () => {
       NOW,
     );
     expect(lines).toHaveLength(3);
-    const header = lines[0] as string;
-    // Every column of every line starts where the header column starts.
-    const starts = [...header.matchAll(/\S+/g)].map((match) => match.index ?? 0);
-    for (const line of lines.slice(1)) {
-      const cellStarts = [...line.matchAll(/\S+/g)].map((match) => match.index ?? 0);
-      expect(cellStarts.slice(0, -1)).toEqual(starts.slice(0, -1));
-    }
-    expect(lines[1]).toContain("ses_1");
-    expect(lines[1]).toContain("$0.0008");
+    // The title starts at the same display column in every line, also with icons.
+    const titleStart = (line: string, title: string) => stringWidth(line) - stringWidth(title);
+    expect(titleStart(lines[1] as string, "one")).toBe(titleStart(lines[0] as string, "title"));
+    expect(titleStart(lines[2] as string, "two")).toBe(titleStart(lines[0] as string, "title"));
+    expect(lines[1]).toContain("🔧⚡");
+    expect(lines[2]).toContain("🔎💤");
+    expect(lines[1]).toContain(" 0.1 ");
     expect(lines[1]).toContain("1m05s");
-    expect(lines[1]).toContain("0m05s");
+    expect(lines[1]).toContain(" 5s ");
     expect(lines[1]).toContain("6.3k");
     expect(lines[1]).toContain("10%");
+    expect(lines[1]).not.toContain("$");
   });
 
   test("shows the CODE, the worktree, and the project only with showProject", () => {
@@ -82,18 +82,18 @@ describe("formatTopTable", () => {
       row({ sessionId: "ses_zzzzzz654321", directory: "/home/u/dv/opencode-subagents" }),
     ];
     const hidden = formatTopTable(rows, NOW);
-    expect(hidden[0]?.startsWith("session  worktree  agent")).toBe(true);
-    expect(hidden[1]?.startsWith("123456   8d        coder")).toBe(true);
-    expect(hidden[2]?.startsWith("654321   -         coder")).toBe(true);
+    expect(hidden[0]?.startsWith("id     where")).toBe(true);
+    expect(hidden[1]?.startsWith("123456 8d    🔧⚡")).toBe(true);
+    expect(hidden[2]?.startsWith("654321 -     🔧⚡")).toBe(true);
     expect(hidden.join("\n")).not.toContain("opsub");
-    // Without a configured name, the full project name shows.
+    // Without a configured name, the full project name shows, with the worktree in one cell.
     const shown = formatTopTable(rows, NOW, { showProject: true });
-    expect(shown[0]?.startsWith("session  project             worktree  agent")).toBe(true);
-    expect(shown[1]?.startsWith("123456   opencode-subagents  8d        coder")).toBe(true);
+    expect(shown[1]?.startsWith("123456 opencode-subagents/8d 🔧⚡")).toBe(true);
+    expect(shown[2]?.startsWith("654321 opencode-subagents    🔧⚡")).toBe(true);
     // With a configured name, the shortName shows.
     const short = formatTopTable(rows, NOW, { showProject: true, projectName: () => "opsub" });
-    expect(short[0]?.startsWith("session  project  worktree  agent")).toBe(true);
-    expect(short[1]?.startsWith("123456   opsub    8d        coder")).toBe(true);
+    expect(short[0]?.startsWith("id     where    ")).toBe(true);
+    expect(short[1]?.startsWith("123456 opsub/8d 🔧⚡")).toBe(true);
   });
 
   test("keeps a minimum title with a long worktree name", () => {
@@ -101,9 +101,9 @@ describe("formatTopTable", () => {
     const lines = formatTopTable([row({ sessionId: "ses_1", directory: longFolder, title: "t".repeat(80) })], NOW, {
       width: 120,
     });
-    // The title keeps at least 24 characters, even when the line gets wider.
-    expect(lines[1]?.length).toBeGreaterThan(120);
-    expect(lines[1]).toContain("t".repeat(24));
+    // The title keeps at least 16 cells, even when the line gets wider.
+    expect(stringWidth(lines[1] as string)).toBeGreaterThan(120);
+    expect(lines[1]).toContain("t".repeat(16));
   });
 
   test("adds one indented line block per pending request", () => {
@@ -119,10 +119,10 @@ describe("formatTopTable", () => {
   test("cuts the title so that the line fits into the width", () => {
     const longTitle = "x".repeat(200);
     const lines = formatTopTable([row({ sessionId: "ses_1", title: longTitle })], NOW, { width: 160 });
-    for (const line of lines) expect(line.length).toBeLessThanOrEqual(160);
+    for (const line of lines) expect(stringWidth(line)).toBeLessThanOrEqual(160);
     // The title gets exactly the space between the padded prefix and the width.
     const header = lines[0] as string;
-    const prefix = header.length - "title".length;
+    const prefix = stringWidth(header) - "title".length;
     expect(header.endsWith("title")).toBe(true);
     const xCount = (lines[1]?.match(/x+$/) ?? [""])[0]?.length ?? 0;
     expect(xCount).toBe(160 - prefix);
@@ -130,7 +130,7 @@ describe("formatTopTable", () => {
 
   test("uses the elapsed time of the row, which stops for idle sessions", () => {
     const lines = formatTopTable([row({ sessionId: "ses_1", elapsedMs: 65_000 })], NOW + 500_000);
-    expect(lines[1]).toContain(" 1m05s ");
+    expect(lines[1]).toContain("1m05s ");
   });
 
   test("pads the title column with short values without breaking the alignment", () => {

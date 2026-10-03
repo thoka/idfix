@@ -165,14 +165,16 @@ A long model request is not a stall. While a session waits for the model, for ex
 
 `oc-sub top` opens a full-screen live view of the runs, like `htop`. It shows the runs of the current project and its worktrees. `oc-sub top --all` shows the runs of all projects and all known servers.
 
-- The table has one line per run: the CODE for `oc-sub attach CODE`, the project (only with `--all`), the worktree (`-` is the main folder), the agent, the state, the elapsed time, the time since the last event, the steps, the tool calls, the context size, the cost, the reasoning share, and the title.
-- The state has a color: `busy` green, `waiting` yellow (the run waits for an answer), `stalled`, `looping` red, `reasoning` magenta (the last step used too many reasoning tokens), `retry` yellow, and `idle` gray.
+- The table has one compact line per run: the CODE for `oc-sub attach CODE`, where it runs (the worktree, `-` for the main folder; with `--all` `project/worktree`; 🔬 replaces the prefix `research-`), an icon for the agent and one for the state, the cost in cents (`¢`, no `$`), the elapsed time (`run`), the time since the last event (`last`), the steps (`stp`), the tool calls (`tls`), the context size, the reasoning share (`rsn`), and the title.
+- Agent icons: 🔧 coder, 🔎 researcher, 📖 reader. Another agent shows its first two letters.
+- State icons, in the color of the state: ⚡ `busy` green, ❓ `waiting` yellow (the run waits for an answer), ⌛ `stalled` and 🔁 `looping` red, 💭 `reasoning` magenta (the last step used too many reasoning tokens), 🔄 `retry` yellow, and 💤 `idle` gray. The detail pane names the agent and the state in words.
+- Times have at most five characters. Seconds show only below ten minutes, so an old run shows `3h12m` or `2d04h`.
 - Below the table, the detail pane shows the selected run: a pending question or permission request, the subagent sessions as a tree, and the last events.
 - The footer shows each server and its state (`up`, `down`, or `reconnecting`), the number of runs, their cost, and the keys.
 
 Keys: `j`/`k` or the arrow keys select a run. `o` shows the attach command of the selected run. `a` switches between this project and all projects. `q` or Ctrl-C quit. The view only shows. Claude still answers, aborts, and follows up.
 
-The project column shows the full project name. A project can set a short name for it in the file `.opencode/oc-sub.json` of the project root: `{ "shortName": "opsub" }`. Without the file, the full name shows. The column is as wide as its longest name, like the other columns.
+With `--all`, the `where` column shows the full project name. A project can set a short name for it in the file `.opencode/oc-sub.json` of the project root: `{ "shortName": "opsub" }`. Without the file, the full name shows. The column is as wide as its longest value, like the other columns.
 
 ### Check what runs: `oc-sub status`
 

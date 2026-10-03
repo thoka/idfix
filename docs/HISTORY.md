@@ -427,3 +427,7 @@ Done on 2026-10-02, a task of the meta supervisor. `oc-sub worktree` took `host/
 ## Cost of the session of 2026-10-01, evening
 
 All GLM runs went through OpenRouter. Research: $0.1483 in six runs. Coding: $0.9232 in eleven runs, including one follow-up, plus $0.0276 for the type check run. Probes: $0.0002 (chat) and $0.0000185 (decisions), plus $0.0011 for the live Jev tagging.
+
+## Step 25: a compact `top` table
+
+On 2026-10-03 the user asked for a table that says as much as possible in a narrow terminal. The `top` table now has one space between columns. One `where` column holds `project/worktree`, and 🔬 replaces the worktree prefix `research-`. One icon shows the agent and one shows the state. The cost shows in cents without `$`, and it comes right after the icons, so that a cut line still shows it. Times have at most five characters and drop the seconds after ten minutes. Numbers align to the right. The padding counts display cells with `string-width`, because an icon is two cells wide. The detail pane still names the agent and the state in words.

@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@opencode-ai/sdk": "1.18.32",
+    "cli-truncate": "6.1.1",
     "eventsource-parser": "^4.1.1",
     "ink": "7.1.1",
-    "react": "19.3.0"
+    "react": "19.3.0",
+    "string-width": "8.3.0"
   },
   "bin": {
     "oc-sub": "src/cli.ts",

@@ -5,18 +5,24 @@
  *
  * - The session column shows the attach CODE: the last 6 characters of the
  *   session ID, the same CODE that `oc-sub attach CODE` takes.
- * - The folder of a session splits into two columns, project and worktree.
- *   A folder `<root>/.worktrees/<name>/...` belongs to the project
- *   `basename(<root>)` and the worktree `<name>`. Every other folder is the
- *   main folder of the project `basename(folder)`, with the worktree `-`.
- * - The project column shows the configured `shortName` of the project
- *   (`.opencode/oc-sub.json`), else the full project name; the caller
- *   injects the name resolver (see `makeProjectNameResolver`). Without
- *   `--all` the column is hidden, because all rows belong to one project.
+ * - The folder of a session splits into project and worktree. A folder
+ *   `<root>/.worktrees/<name>/...` belongs to the project `basename(<root>)`
+ *   and the worktree `<name>`. Every other folder is the main folder of the
+ *   project `basename(folder)`, with the worktree `-`.
+ * - The `where` column shows both in one cell: `project/worktree`, or only
+ *   `project` for the main folder. The project is the configured
+ *   `shortName` of the project (`.opencode/oc-sub.json`), else the full
+ *   name; the caller injects the name resolver (see
+ *   `makeProjectNameResolver`). Without `--all` the cell shows only the
+ *   worktree, because all rows belong to one project.
+ * - The table is compact (step 25): one icon for the agent and one for the
+ *   state, short times, the cost in cents, and one space between columns.
+ *   Icons are two cells wide, so the padding measures the display width.
  */
 import path from "node:path";
-import { formatCost, formatDuration } from "../summary";
-import type { SessionRow } from "./model";
+import cliTruncate from "cli-truncate";
+import stringWidth from "string-width";
+import type { SessionRow, SessionRowState } from "./model";
 
 /** How many characters of the session ID the session column shows. */
 export const CODE_LENGTH = 6;
@@ -44,28 +50,105 @@ export function splitFolder(directory: string): FolderParts {
   return { project: parts[parts.length - 1] ?? "/", worktree: "-" };
 }
 
-/** The header of every column, in order. The title comes last. */
+/** The icon of each agent. An unknown agent shows its first two letters. */
+export const AGENT_ICONS: Record<string, string> = {
+  coder: "🔧",
+  researcher: "🔎",
+  reader: "📖",
+};
+
+/** The icon of each state. */
+export const STATE_ICONS: Record<SessionRowState, string> = {
+  waiting: "❓",
+  looping: "🔁",
+  stalled: "⌛",
+  reasoning: "💭",
+  retry: "🔄",
+  busy: "⚡",
+  idle: "💤",
+};
+
+/** Worktree name prefixes that the `where` column shows as an icon. */
+export const WORKTREE_PREFIX_ICONS: ReadonlyArray<readonly [prefix: string, icon: string]> = [["research-", "🔬"]];
+
+/** The agent icon, or the first two letters of an unknown agent, or `--`. */
+export function agentIcon(agent: string): string {
+  if (agent.length === 0) return "--";
+  return AGENT_ICONS[agent] ?? agent.slice(0, 2).padEnd(2);
+}
+
+/** A worktree name with a known prefix replaced by its icon. */
+export function shortWorktree(worktree: string): string {
+  for (const [prefix, icon] of WORKTREE_PREFIX_ICONS) {
+    if (worktree.startsWith(prefix) && worktree.length > prefix.length) return icon + worktree.slice(prefix.length);
+  }
+  return worktree;
+}
+
+/**
+ * A duration in at most five characters. Seconds count only below ten
+ * minutes: "42s", "4m05s", "34m", "3h12m", "2d04h".
+ */
+export function formatAge(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (total < 60) return `${total}s`;
+  if (total < 600) return `${Math.floor(total / 60)}m${pad(total % 60)}s`;
+  if (total < 3600) return `${Math.floor(total / 60)}m`;
+  if (total < 86_400) return `${Math.floor(total / 3600)}h${pad(Math.floor((total % 3600) / 60))}m`;
+  return `${Math.floor(total / 86_400)}d${pad(Math.floor((total % 86_400) / 3600))}h`;
+}
+
+/** A cost in US dollars as cents without a unit: "0.1", "4.3", "57", "1234". */
+export function formatCents(cost: number): string {
+  const cents = Math.max(0, cost * 100);
+  return cents < 10 ? cents.toFixed(1) : String(Math.round(cents));
+}
+
+/** The context size in thousands of tokens: "6.3k", "123k". */
+export function formatContext(tokens: number): string {
+  const thousands = tokens / 1000;
+  return thousands < 100 ? `${thousands.toFixed(1)}k` : `${Math.round(thousands)}k`;
+}
+
+/** The key of every column, in order. The title comes last. */
 export const ALL_HEADERS = [
   "session",
-  "project",
-  "worktree",
-  "agent",
-  "state",
+  "where",
+  "icons",
+  "cost",
   "elapsed",
   "last",
   "steps",
   "tools",
   "ctx",
-  "cost",
   "reason",
   "title",
 ] as const;
 
 export type ColumnHeader = (typeof ALL_HEADERS)[number];
 
-/** The column options: whether the project column shows. */
+/** The shown label of each column. The icon column has none. */
+export const HEADER_LABELS: Record<ColumnHeader, string> = {
+  session: "id",
+  where: "where",
+  icons: "",
+  cost: "¢",
+  elapsed: "run",
+  last: "last",
+  steps: "stp",
+  tools: "tls",
+  ctx: "ctx",
+  reason: "rsn",
+  title: "title",
+};
+
+/** The columns with numbers. They align to the right. */
+const RIGHT_ALIGNED: ReadonlySet<ColumnHeader> = new Set(["cost", "elapsed", "last", "steps", "tools", "ctx", "reason"]);
+
+/** The column options: whether the project shows in the `where` column. */
 export type ColumnOptions = {
-  /** Show the project column. `top --all` sets it; without `--all` it is hidden. */
+  /** Show the project in the `where` column. `top --all` sets it. */
   showProject: boolean;
   /**
    * The shown project name of a run folder. Default: the computed name of
@@ -75,9 +158,18 @@ export type ColumnOptions = {
   projectName?: (directory: string) => string;
 };
 
-/** The headers of the shown columns. */
-export function columnHeaders(options: ColumnOptions): ColumnHeader[] {
-  return ALL_HEADERS.filter((header) => options.showProject || header !== "project");
+/** The keys of the shown columns. */
+export function columnHeaders(_options: ColumnOptions): ColumnHeader[] {
+  return [...ALL_HEADERS];
+}
+
+/** The `where` cell: `project/worktree`, `project`, or without the project only the worktree. */
+function whereCell(directory: string, options: ColumnOptions, nameOf: (directory: string) => string): string {
+  const worktree = splitFolder(directory).worktree;
+  const tree = worktree === "-" ? "-" : shortWorktree(worktree);
+  if (!options.showProject) return tree;
+  const project = nameOf(directory);
+  return tree === "-" ? project : `${project}/${tree}`;
 }
 
 /**
@@ -87,19 +179,16 @@ export function columnHeaders(options: ColumnOptions): ColumnHeader[] {
 export function rowCells(rows: readonly SessionRow[], options: ColumnOptions): string[][] {
   const nameOf = options.projectName ?? ((directory: string) => splitFolder(directory).project);
   return rows.map((row) => {
-    const folder = splitFolder(row.directory);
     const cells: Record<ColumnHeader, string> = {
       session: sessionCode(row.sessionId),
-      project: nameOf(row.directory),
-      worktree: folder.worktree,
-      agent: row.agent.length > 0 ? row.agent : "-",
-      state: row.state,
-      elapsed: formatDuration(row.elapsedMs),
-      last: formatDuration(Math.max(0, row.msSinceEvent)),
+      where: whereCell(row.directory, options, nameOf),
+      icons: agentIcon(row.agent) + STATE_ICONS[row.state],
+      cost: formatCents(row.cost),
+      elapsed: formatAge(row.elapsedMs),
+      last: formatAge(row.msSinceEvent),
       steps: String(row.steps),
       tools: String(row.toolCalls),
-      ctx: `${(row.contextTokens / 1000).toFixed(1)}k`,
-      cost: formatCost(row.cost),
+      ctx: formatContext(row.contextTokens),
       reason: `${Math.round(row.reasoningShare * 100)}%`,
       title: row.title,
     };
@@ -111,10 +200,10 @@ export function rowCells(rows: readonly SessionRow[], options: ColumnOptions): s
 export const DEFAULT_WIDTH = 160;
 
 /** The title never gets shorter than this, even when the line gets wider. */
-export const MIN_TITLE = 24;
+export const MIN_TITLE = 16;
 
 /** The gap between two columns. */
-export const GAP = "  ";
+export const GAP = " ";
 
 /** The padded table: the headers and cells with padding, and the title cut to the width. */
 export type PaddedTable = {
@@ -125,24 +214,36 @@ export type PaddedTable = {
   rows: string[][];
 };
 
+/** Pad a cell to a display width. Icons count as two cells. */
+function padCell(value: string, width: number, right: boolean): string {
+  const fill = " ".repeat(Math.max(0, width - stringWidth(value)));
+  return right ? fill + value : value + fill;
+}
+
 /**
  * Pad every column to its widest value and cut the title so that a line
- * fits into `width`. The title keeps at least 24 characters, so a long
- * value never hides it completely; such a line is then longer than `width`.
- * Joined with `GAP`, a padded row gives one table line.
+ * fits into `width`. Widths count display cells, so an icon counts two.
+ * The title keeps at least 16 cells, so a long value never hides it
+ * completely; such a line is then longer than `width`. Joined with `GAP`,
+ * a padded row gives one table line.
  */
 export function padTable(rows: readonly SessionRow[], options: ColumnOptions & { width: number }): PaddedTable {
   const headers = columnHeaders(options);
+  const labels = headers.map((header) => HEADER_LABELS[header]);
   const cells = rowCells(rows, options);
   const last = headers.length - 1;
-  const widths = headers.map((header, column) =>
-    Math.max(header.length, ...cells.map((cell) => cell[column]?.length ?? 0)),
+  const widths = headers.map((_, column) =>
+    Math.max(stringWidth(labels[column] ?? ""), ...cells.map((cell) => stringWidth(cell[column] ?? ""))),
   );
   const prefix = widths.slice(0, -1).reduce((sum, width) => sum + width, 0) + GAP.length * last;
   const maxTitle = Math.max(MIN_TITLE, options.width - prefix);
   const pad = (cell: string[]): string[] =>
     cell.map((value, column) =>
-      column === last ? (value.length > maxTitle ? value.slice(0, maxTitle) : value) : value.padEnd(widths[column] ?? 0),
+      column === last
+        ? stringWidth(value) > maxTitle
+          ? cliTruncate(value, maxTitle, { position: "end", truncationCharacter: "" })
+          : value
+        : padCell(value, widths[column] ?? 0, RIGHT_ALIGNED.has(headers[column] as ColumnHeader)),
     );
-  return { headers, header: pad([...headers]), rows: cells.map(pad) };
+  return { headers, header: pad(labels), rows: cells.map(pad) };
 }

@@ -6,9 +6,11 @@
       "name": "opencode-subagents",
       "dependencies": {
         "@opencode-ai/sdk": "1.18.32",
+        "cli-truncate": "6.1.1",
         "eventsource-parser": "^4.1.1",
         "ink": "7.1.1",
         "react": "19.3.0",
+        "string-width": "8.3.0",
       },
       "devDependencies": {
         "@types/bun": "1.4.2",

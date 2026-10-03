@@ -60,7 +60,7 @@ const TONE_COLORS: Record<DetailTone, string | undefined> = {
   dim: "gray",
 };
 
-/** One table row: the padded cells, with the state cell in its color. */
+/** One table row: the padded cells, with the icon cell in the color of the state. */
 function TableRow(props: { cells: string[]; stateIndex: number; state: SessionRow["state"]; selected: boolean }) {
   const { cells, stateIndex } = props;
   const before = cells.slice(0, stateIndex).join(GAP);
@@ -152,7 +152,7 @@ export function TopView(props: TopViewProps) {
   const layout = screenLayout(height);
   const width = Math.max(20, columns);
   const table = padTable(rows, { showProject: all, projectName, width });
-  const stateIndex = table.headers.indexOf("state");
+  const stateIndex = table.headers.indexOf("icons");
   const first = firstVisibleRow(rows.length, selected.index, layout.tableRows);
   const visible = rows.slice(first, first + layout.tableRows);
   const detail = selected.id === undefined || source === undefined ? undefined : source.model.session(selected.id);

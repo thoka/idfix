@@ -14,7 +14,7 @@ import {
   type KeyOwner,
 } from "./keys";
 import { makeRunRecord, writeRunRecord, writeStateRunRecord } from "./runs";
-import { resolveCommandUrl } from "./sandbox";
+import { defaultRunner, readSandboxState, resolveCommandUrl, sandboxStatePath, sbxBin } from "./sandbox";
 import { addDir, readDirs, serveDirsPath } from "./state";
 import { uniqueDirectories, worktreesOf } from "./status";
 
@@ -30,6 +30,8 @@ export type RunDeps = {
   worktreesOf: (directory: string) => string[];
   exists: (file: string) => boolean;
   cwd: string;
+  /** Whether a folder exists inside the sandbox. */
+  existsInSandbox: (sandbox: string, directory: string, env: Env) => boolean;
 };
 
 const defaultDeps: RunDeps = {
@@ -38,7 +40,35 @@ const defaultDeps: RunDeps = {
   worktreesOf,
   exists: existsSync,
   cwd: process.cwd(),
+  existsInSandbox: (sandbox, directory, env) =>
+    defaultRunner([sbxBin(env), "exec", sandbox, "test", "-d", directory]).exitCode === 0,
 };
+
+/**
+ * The refusal of a run whose folder is missing in the sandbox, or null.
+ * Without `--url` and `OC_SUB_URL`, `run` sends a run to the sandbox of the
+ * project when a sandbox state exists. In clone mode the sandbox has its
+ * own copy of the repository, so a worktree that `git worktree add` created
+ * on the host does not exist there. opencode then fails the prompt with a
+ * realPath error, and the session ends idle without an answer.
+ */
+export function missingSandboxFolder(
+  args: { url?: string; dir: string },
+  env: Env,
+  deps: Pick<RunDeps, "projectName" | "existsInSandbox">,
+): string | null {
+  if (args.url !== undefined || env.OC_SUB_URL !== undefined) return null;
+  const directory = path.resolve(args.dir);
+  const state = readSandboxState(sandboxStatePath(env, deps.projectName(directory)));
+  if (state === null || deps.existsInSandbox(state.name, directory, env)) return null;
+  const step = path.basename(path.dirname(directory)) === ".worktrees" ? path.basename(directory) : "STEP";
+  return [
+    `error: ${directory} does not exist in the sandbox ${state.name}.`,
+    "The sandbox has its own clone of the repository, so a worktree created on the host is not there.",
+    `Create the worktree inside the sandbox with: oc-sub worktree ${step}`,
+    `Or run it on a host server: oc-sub up --no-sandbox, then oc-sub run --url http://127.0.0.1:<port> ...`,
+  ].join("\n");
+}
 
 /**
  * The known directories, with the same sources as `oc-sub status --all`:
@@ -78,6 +108,11 @@ export async function run(
   env: Env = process.env,
   deps: RunDeps = defaultDeps,
 ): Promise<number> {
+  const missing = missingSandboxFolder(args, env, deps);
+  if (missing !== null) {
+    console.error(missing);
+    return 1;
+  }
   const baseUrl = resolveCommandUrl(args.url, env, args.dir);
   await requireServer(baseUrl, env);
   const directory = path.resolve(args.dir);

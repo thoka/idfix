@@ -83,7 +83,7 @@ function openrouterFetch(answer?: { usage?: number; throws?: Error }): RunDeps["
 }
 
 function makeDeps(fetch: RunDeps["fetch"]): RunDeps {
-  return { fetch, projectName: (d) => path.basename(d), worktreesOf: (d) => [d], exists: () => true, cwd: CWD };
+  return { fetch, projectName: (d) => path.basename(d), worktreesOf: (d) => [d], exists: () => true, cwd: CWD, existsInSandbox: () => true };
 }
 
 function writeDirsFile(url: string, dirs: string[]): void {

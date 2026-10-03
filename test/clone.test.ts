@@ -77,6 +77,24 @@ function callsOf(calls: Call[], match: (cmd: readonly string[]) => boolean): str
   return calls.filter((call) => match(call.cmd)).map((call) => call.cmd);
 }
 
+describe("worktree resets the cached opencode instance", () => {
+  test("a new worktree and an existing one both get a dispose, and a failed dispose only warns", async () => {
+    const deps = await makeDeps();
+    const disposed: string[] = [];
+    const { runner } = fakeRunner(() => ({}));
+    const code = await worktree({ step: "fresh" }, deps.env as never, {
+      ...deps,
+      runner,
+      dispose: async (_url, directory) => {
+        disposed.push(directory);
+        throw new Error("server down");
+      },
+    });
+    expect(code).toBe(0);
+    expect(disposed).toEqual([runWorktreePath(ROOT, "fresh")]);
+  });
+});
+
 describe("projectRootOfRun", () => {
   test("an existing folder decides as before", () => {
     // The host-mode worktree and the project root exist on the host. Without
@@ -142,7 +160,7 @@ describe("worktree", () => {
       }
       return {};
     });
-    const code = worktree({ step: "14b" }, deps.env as never, { ...deps, runner });
+    const code = await worktree({ step: "14b" }, deps.env as never, { ...deps, runner });
     expect(code).toBe(0);
 
     // The exact sbx commands, in order: the existence test, the host remote,
@@ -191,7 +209,7 @@ describe("worktree", () => {
   test("respects --base", async () => {
     const deps = await makeDeps();
     const { calls, runner } = fakeRunner((cmd) => (cmd[0] === "sbx" && cmd[3] === "test" ? { exitCode: 1 } : {}));
-    const code = worktree({ step: "x", base: "main" }, deps.env as never, { ...deps, runner });
+    const code = await worktree({ step: "x", base: "main" }, deps.env as never, { ...deps, runner });
     expect(code).toBe(0);
     expect(callsOf(calls, (c) => c.includes("worktree") && c.includes("host/main")).length).toBe(1);
   });
@@ -210,7 +228,7 @@ describe("worktree", () => {
   test("falls back to host/main when the host has no alpha", async () => {
     const deps = await makeDeps();
     const { calls, runner } = branchRunner(["main"]);
-    const code = worktree({ step: "x" }, deps.env as never, { ...deps, runner });
+    const code = await worktree({ step: "x" }, deps.env as never, { ...deps, runner });
     expect(code).toBe(0);
     expect(callsOf(calls, (c) => c.includes("worktree") && c.includes("host/main")).length).toBe(1);
   });
@@ -222,7 +240,7 @@ describe("worktree", () => {
     const original = console.error;
     console.error = (...parts: unknown[]) => errors.push(parts.join(" "));
     try {
-      expect(worktree({ step: "x" }, deps.env as never, { ...deps, runner })).toBe(1);
+      expect(await worktree({ step: "x" }, deps.env as never, { ...deps, runner })).toBe(1);
     } finally {
       console.error = original;
     }
@@ -238,7 +256,7 @@ describe("worktree", () => {
     const original = console.error;
     console.error = (...parts: unknown[]) => errors.push(parts.join(" "));
     try {
-      expect(worktree({ step: "x", base: "nope" }, deps.env as never, { ...deps, runner })).toBe(1);
+      expect(await worktree({ step: "x", base: "nope" }, deps.env as never, { ...deps, runner })).toBe(1);
     } finally {
       console.error = original;
     }
@@ -253,7 +271,7 @@ describe("worktree", () => {
       if (isSbxGit(cmd, ["remote", "get-url", "host"])) return { stdout: "/somewhere/else\n" };
       return {};
     });
-    const code = worktree({ step: "x" }, deps.env as never, { ...deps, runner });
+    const code = await worktree({ step: "x" }, deps.env as never, { ...deps, runner });
     expect(code).toBe(0);
     expect(callsOf(calls, (c) => isSbxGit(c, ["remote", "set-url", "host", HOST_SOURCE])).length).toBe(1);
     expect(callsOf(calls, (c) => isSbxGit(c, ["remote", "add", "host", HOST_SOURCE])).length).toBe(0);
@@ -272,7 +290,7 @@ describe("worktree", () => {
     console.error = (line: string) => errors.push(line);
     let code: number;
     try {
-      code = worktree({ step: "x" }, deps.env as never, { ...deps, runner });
+      code = await worktree({ step: "x" }, deps.env as never, { ...deps, runner });
     } finally {
       console.error = err;
     }
@@ -293,7 +311,7 @@ describe("worktree", () => {
     console.error = (line: string) => errors.push(line);
     let code: number;
     try {
-      code = worktree({ step: "x" }, deps.env as never, { ...deps, runner });
+      code = await worktree({ step: "x" }, deps.env as never, { ...deps, runner });
     } finally {
       console.error = err;
     }
@@ -305,7 +323,7 @@ describe("worktree", () => {
   test("says so and exits 0 when the worktree exists and git knows it", async () => {
     const deps = await makeDeps();
     const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 0 } : cmd.includes("rev-parse") ? { stdout: "/repo/.git/worktrees/14b\n" } : {}));
-    const code = worktree({ step: "14b" }, deps.env as never, { ...deps, runner });
+    const code = await worktree({ step: "14b" }, deps.env as never, { ...deps, runner });
     expect(code).toBe(0);
     // No fetch, no config, no add after the existence test.
     expect(callsOf(calls, (c) => c[3] === "git" && !c.includes("rev-parse")).length).toBe(0);
@@ -331,7 +349,7 @@ describe("worktree", () => {
     console.error = (line: string) => errors.push(line);
     let code: number;
     try {
-      code = worktree({ step: "14b" }, deps.env as never, { ...deps, runner });
+      code = await worktree({ step: "14b" }, deps.env as never, { ...deps, runner });
     } finally {
       console.error = err;
     }
@@ -353,7 +371,7 @@ describe("worktree", () => {
       }
       return miseAnswer(cmd) ?? {};
     });
-    const code = worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+    const code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
       ...deps,
       runner,
       setupCommand: (root) => (root === ROOT ? "bun install --frozen-lockfile" : undefined),
@@ -402,7 +420,7 @@ describe("worktree", () => {
       if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
       return miseAnswer(cmd) ?? {};
     });
-    const code = worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+    const code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
       ...deps,
       runner,
       setupCommand: () => undefined,
@@ -423,7 +441,7 @@ describe("worktree", () => {
       }
       return {};
     });
-    const code = worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+    const code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
       ...deps,
       runner,
       setupCommand: () => "bun install",
@@ -460,7 +478,7 @@ describe("worktree", () => {
     console.error = (line: string) => errors.push(line);
     let code: number;
     try {
-      code = worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+      code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
         ...deps,
         runner,
         setupCommand: () => "bun install",
@@ -480,7 +498,7 @@ describe("worktree", () => {
   test("runs no sh -c without a setup command and without a sandbox mise", async () => {
     const deps = await makeDeps();
     const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 1 } : {}));
-    const code = worktree({ step: "14b" }, deps.env as never, { ...deps, runner, setupCommand: () => undefined });
+    const code = await worktree({ step: "14b" }, deps.env as never, { ...deps, runner, setupCommand: () => undefined });
     expect(code).toBe(0);
     expect(callsOf(calls, (c) => c.includes("sh") && c.includes("-c")).length).toBe(0);
     // Without a sandbox mise, no `mise install` of the sandbox tool runs.
@@ -490,7 +508,7 @@ describe("worktree", () => {
   test("runs no setup with --no-setup", async () => {
     const deps = await makeDeps();
     const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 1 } : {}));
-    const code = worktree({ step: "14b", noSetup: true }, deps.env as never, {
+    const code = await worktree({ step: "14b", noSetup: true }, deps.env as never, {
       ...deps,
       runner,
       setupCommand: () => "bun install",
@@ -503,7 +521,7 @@ describe("worktree", () => {
   test("runs no setup when the worktree already exists", async () => {
     const deps = await makeDeps();
     const { calls, runner } = fakeRunner((cmd) => (cmd[3] === "test" ? { exitCode: 0 } : cmd.includes("rev-parse") ? { stdout: "/repo/.git/worktrees/14b\n" } : {}));
-    const code = worktree({ step: "14b" }, deps.env as never, {
+    const code = await worktree({ step: "14b" }, deps.env as never, {
       ...deps,
       runner,
       setupCommand: () => "bun install",
@@ -524,7 +542,7 @@ describe("worktree", () => {
     console.error = (line: string) => errors.push(line);
     let code: number;
     try {
-      code = worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+      code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
         ...deps,
         runner,
         setupCommand: () => "bun install",
@@ -547,7 +565,7 @@ describe("worktree", () => {
   test("stops with a clear error in host mode (no sandbox state)", async () => {
     const deps = await makeDeps();
     const { runner } = fakeRunner(() => ({}));
-    const code = worktree({ step: "14b" }, deps.env as never, {
+    const code = await worktree({ step: "14b" }, deps.env as never, {
       ...deps,
       runner,
       sandboxState: () => null,

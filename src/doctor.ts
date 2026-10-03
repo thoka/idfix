@@ -183,7 +183,8 @@ export function globalMiseConfigPath(env: Env): string {
 
 /** The default dependencies, with the real file system, git, `sbx`, and `mise`. */
 export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorDeps> = {}): DoctorDeps {
-  const root = path.resolve(dir);
+  // A worktree belongs to its project: the key files and the sandbox state use the name of the main checkout.
+  const root = projectRootOfRun(path.resolve(dir));
   const stat = (file: string) => {
     try {
       const info = lstatSync(file);

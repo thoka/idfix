@@ -132,11 +132,11 @@ export const DEFAULT_BASES = ["alpha", "main", "master"] as const;
  * of it. On a failing command it prints the output, tells how to run it by
  * hand, keeps the worktree, and exits 1.
  */
-export function worktree(
+export async function worktree(
   args: { step: string; dir?: string; base?: string; noSetup?: boolean },
   env: Env = process.env,
   depsOverrides: Partial<CloneDeps> = {},
-): number {
+): Promise<number> {
   const deps = mergeDeps(depsOverrides);
   const found = stateFor(args, env, deps);
   if (found === null) return fail(HOST_MODE_ERROR);
@@ -153,6 +153,7 @@ export function worktree(
     // `git worktree remove`. Git then knows nothing about the folder.
     const registered = run([bin, "exec", name, "git", "-C", worktreePath, "rev-parse", "--git-dir"]);
     if (registered.exitCode === 0) {
+      await disposeFresh(deps, state.port, worktreePath);
       console.log(`worktree already exists: ${worktreePath}`);
       return 0;
     }
@@ -201,6 +202,7 @@ export function worktree(
   }
   const add =sbxGit("worktree", "add", "-b", `feature/${args.step}`, worktreePath, `${HOST_REMOTE}/${base}`);
   if (add.exitCode !== 0) return fail(`git worktree add failed in the clone of ${name}`);
+  await disposeFresh(deps, state.port, worktreePath);
 
   // The worktree holds only tracked files, so it has no `node_modules`. The
   // project can set a setup command in `.opencode/oc-sub.json`; run it once
@@ -255,6 +257,21 @@ export function worktree(
   console.log(`worktree: ${worktreePath}`);
   console.log(`start the run with: oc-sub run --dir ${worktreePath} ...`);
   return 0;
+}
+
+/**
+ * Dispose the cached opencode instance of a new worktree. opencode keeps
+ * one instance per directory. When a run reached the folder before it
+ * existed, that instance stays broken, and every later prompt there fails
+ * with "NotFound: FileSystem.realPath" before any model call. A failed
+ * dispose is only a warning: the server may be down.
+ */
+async function disposeFresh(deps: CloneDeps, port: number, worktreePath: string): Promise<void> {
+  try {
+    await deps.dispose(`http://127.0.0.1:${port}`, worktreePath);
+  } catch (error) {
+    console.error(`warning: could not reset the opencode instance of ${worktreePath}: ${errorMessage(error)}`);
+  }
 }
 
 /**

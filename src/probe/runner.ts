@@ -416,7 +416,7 @@ function cloneDeps(deps: ProbeDeps): CloneDeps {
 
 /** Creates the run worktree with the same code as `oc-sub worktree`. */
 async function createWorktree(step: string, root: string, env: Env, deps: ProbeDeps): Promise<string> {
-  const code = worktree({ step, dir: root, noSetup: true }, env, cloneDeps(deps));
+  const code = await worktree({ step, dir: root, noSetup: true }, env, cloneDeps(deps));
   if (code !== 0) throw new Error(`creating the run worktree ${step} failed`);
   return path.join(root, ".worktrees", step);
 }

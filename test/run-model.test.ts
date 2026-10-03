@@ -67,6 +67,7 @@ describe("run --model request body", () => {
       worktreesOf: (d: string) => [d],
       exists: () => true,
       cwd: "/tmp/opencode/run-model-test",
+      existsInSandbox: () => true,
     };
     try {
       await run({ agent: "coder", dir: "/x", text: "hi", url, model: "openrouter/glm-probe-baseten" }, {}, deps);

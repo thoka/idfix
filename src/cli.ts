@@ -146,7 +146,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     case "say":
       return say(args);
     case "worktree":
-      return args.remove ? await worktreeRm(args, process.env) : worktree(args, process.env);
+      return args.remove ? await worktreeRm(args, process.env) : await worktree(args, process.env);
     case "fetch":
       return fetch(args, process.env);
     case "doctor":

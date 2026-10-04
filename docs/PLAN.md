@@ -178,6 +178,10 @@ Result of meta step 12f, from the supervisor on 2026-10-04 (arch-helper `alpha` 
 2. 32b, done on 2026-10-04: [runner-job-sandbox.md](design/runner-job-sandbox.md). idfix gets `idfx job run` and `idfx job prune`. arch-helper keeps the users, units, and credentials. No choice was open for the user.
 3. Next: 32c to 32f, as in section 5 of the design. 32c is a spike by hand as the user `gh-runner`. Fix 50 is not applied here, so `scripts/spike-32c-root-v2.sh` (apply, check, undo) adds an sbx daemon for `gh-runner` next to the live runner of fix 50 and logs to `~/.local/state/user-steps/spike-32c.log`. Do not run v1: its undo deletes the user and the files of fix 50. The user runs it with sudo after a review. The script is not tested yet, because the permission check of the session blocked a dry run. After `check`, read `~/.local/state/user-steps/spike-32c.log`, fix the design, and send the final change list for fix 50 to the supervisor.
 
+### 18. Step 33: every research brief ends with the critical-research footer
+
+Task from the supervisor, 2026-10-04. A new global rule and the skill `critical-research` (`meta/agents/skills/critical-research/SKILL.md`) say that every research question ends with a fixed footer, and every report has a section "Critical analysis" with four points. `oc-sub run --agent researcher` appends the footer, read from the skill file in `OC_SUB_SHARED_DIR`, after a line `---`. A brief that already ends with it stays unchanged. A missing skill file stops the run with an error. The researcher prompt asks for the section. A test compares the appended footer with the skill file.
+
 ### Later
 
 - Log rotation: the server and proxy logs grow without limit since step 16d.

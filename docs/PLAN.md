@@ -126,6 +126,15 @@ The user wants a browser view (SVG or WebGL) of the plans: steps and dependencie
 
 Research round 1: [plan-graph-tools.md](research/plan-graph-tools.md). No tool reads a free-form plan, so the report recommends a thin view on established libraries. Round 2: [plan-graph-view.md](research/plan-graph-view.md). It recommends a `depends:` and `decision:` grammar in `PLAN.md`, a blocked-work count as the score, the ancestor set of a milestone as the MVP path, and React Flow with elkjs. The interview is done (2026-10-04). Design: [plan-graph.md](design/plan-graph.md). Next: step 28a, the parser.
 
+### 14. Step 29: idle servers stop by themselves, and `top` stops its leak
+
+On 2026-10-04 five sandbox servers ran for up to 1.8 days with no session. `oc-sub top --all` used 7 GB RSS after 2 days in a tmux pane. Root cause of the servers: `up` starts a detached holder that runs until `down`, and `run` never starts a server, so nobody stops one. The user agreed on 2026-10-04 to this fix. It starts after the `down --all` work of the other session is on `alpha`.
+
+1. 29a, research (GLM researcher): does `opencode serve` or `sbx` 0.45.1 have an idle timeout that oc-sub can use?
+2. 29b: an idle watchdog. If `GET /session/status` shows no busy session for 30 minutes, the server stops through the `down` path.
+3. 29c: if the sandbox server of the project is down, `run` starts it.
+4. 29d: find the leak of `top --all` with a heap snapshot, fix it, and add a test that memory stays flat over many refreshes.
+
 ### Later
 
 - Log rotation: the server and proxy logs grow without limit since step 16d.

@@ -6,9 +6,9 @@ This file holds only the open work. Finished steps, their root causes, and their
 
 If four things hold, oc-sub is stable and useful. First, a plugin change reaches every running server without manual steps. Second, a sandbox starts after a reboot. Third, every project runs the same tested setup. Fourth, a coder can install the tools that it needs. Everything else is comfort.
 
-## Direction since 2026-10-04
+## Direction since 2026-10-04 evening
 
-The user decided on 2026-10-04 (meta plan, step 12, decision 16): idfix becomes the isolation layer of a GitHub Actions self-hosted runner on this machine. Later it becomes the base of the own stack of the user. New work only serves that goal: Claude Code as a client, and a sandbox for each runner job. The GLM features rest while the user has the Claude Max plan. A step that does not serve the goal is marked "Paused". A meta subagent (step 12f, in arch-helper) compares a runner user with rootless Docker against an sbx sandbox for each job. The session `supervisor` coordinates meta step 12 and sends its result and the change requests for idfix.
+The user decided on 2026-10-04 evening (meta 384ff44, global rules): our agents cooperate. A check catches mistakes, not attacks of our own agents. No protection work happens without a feature goal, and the goal is that the projects get finished. Secrets and keys stay protected. So idfix is no longer the isolation layer of the GitHub runner. The runner keeps running as fix 50 set it up. New work serves the user directly: Claude Code sessions in `top`, then the Telegram broker for approvals, without extra hardening. The GLM features still rest while the user has the Claude Max plan. A step that serves neither is marked "Paused" or "Dropped".
 
 ## Notes from meta, 2026-10-04
 
@@ -18,8 +18,9 @@ The user decided on 2026-10-04 (meta plan, step 12, decision 16): idfix becomes 
   1. Measured on 2026-10-04 (`~/dv/meta/docs/research/askuserquestion-afk-timer.md`): in Claude Code 2.1.285 an unanswered AskUserQuestion stays open. The AFK timer runs only if `askUserQuestionTimeout` or `CLAUDE_AFK_TIMEOUT_MS` is set. It never runs in `--bg` sessions or while Remote Control is connected. Do not set either value. Then the broker-down fallback `{}` is safe for questions.
   2. Only the broker, under its own system user, writes the sender allow list.
   3. The bot token never passes through a Claude session.
+  Open since the new direction of 2026-10-04 evening: the own system user of the broker and requirement 2 protect against our own agents. The bot token stays protected as a secret in any case. The supervisor decides with the user whether the own system user stays.
 - Task from meta-f2, after the broker plan: the journal `~/dv/gemini-journal` found four Deep Research reports of the user on a control layer that drives Claude Code autonomously. Merge them into `docs/design/driver-layer.md` or its research report if they cover the question, else into one new report, with a recheck head (skill `gemini-research`). Cite the Gemini chat ids, because no share links exist. Note what changes for idfix. The ids are `78cb4cb3b06a0b87`, `8132f53fd96bfd51`, `cac95a48f5594da9`, and `e01c776569945668`. The texts are private, in `~/.cache/gemini-journal/text/<id>.md`, and never go into a commit. Summaries are in `~/dv/gemini-journal/entries/<id>.md`.
-- Spike 32c: the supervisor reviewed `scripts/spike-32c-root-v2.sh` (d5da157) and queued it for the user after the grata smoke test. When `~/.local/state/user-steps/spike-32c.log` has a check run, the supervisor reports it.
+- Spike 32c is dropped (see Direction).
 
 ## State on 2026-10-02
 
@@ -95,6 +96,8 @@ Paused on 2026-10-04: it does not serve the runner goal (see Direction).
 Research question from meta (2026-10-03, the user approved it): the user often shares x.com and t.co links, and agents must read them. Is there an established extractor that reads an x.com post or thread from its URL without a login? Candidates are an embed or syndication endpoint, an API like fxtwitter, a skill on skills.sh, or a library. Compare it with `agent-browser` with cookie import, which stays the fallback. A t.co link resolves with a plain HEAD request (the `Location` header), so only the x.com page needs a special path. The report goes into `docs/research/`.
 
 ### 9. Step 23: Claude Code as a subagent in the sandbox (starts when the user has Claude Max)
+
+Paused on 2026-10-04 evening: the sandbox protects against our own agents and has no feature goal (see Direction). Claude subagents run on the host in worktrees. The read side of sub-step 4 and 5 (`status`, `top`) moves to step 25g.
 
 The user decided on 2026-10-02: subagents that need Opus or Sonnet run as Claude Code, not as opencode, and inside the sbx sandbox. The work starts after the upgrade to Claude Max. Until then, Claude subagents stay on the host in worktrees. Research: [claude-in-sandbox.md](research/claude-in-sandbox.md), option A.
 
@@ -180,6 +183,8 @@ Research: [process-labels.md](research/process-labels.md), with the review of th
 4. 31d: `doctor` lists the `ocsub-*` units with owner and reason, and warns for a unit whose owner is gone. `--fix --force` stops it.
 
 ### 17. Step 32: a sandbox for each runner job
+
+Dropped on 2026-10-04 evening (see Direction). The runner keeps running as fix 50 set it up. Spike 32c does not go to the user, and `scripts/spike-32c-root-v2.sh` is not run. 32a and 32b stay as records. The text below is history.
 
 Result of meta step 12f, from the supervisor on 2026-10-04 (arch-helper `alpha` 85e3ffd: `fixes/50-gh-runner.sh`, `lib/gh-runner/`, `docs/gh-runner.md`, `docs/research/self-hosted-runner.md`). The runner uses option (a) now: the Linux user `gh-runner`, rootless Docker, and a just-in-time runner for each job. A root-only token in `/etc/credstore/gh-runner.pat` mints the runners. The global rules come read-only from `/srv/meta-agents`. Option (c) is an idfix sbx sandbox for each job, and it is this step. It waits for a headless sbx login of the user `gh-runner`. Option (c) can close two gaps of (a): Docker images stay between jobs, and jobs have full network access. Fix 50 did not run on the real system yet. arch-helper belongs to the supervisor, so idfix sends it the changes that fix 50 needs.
 

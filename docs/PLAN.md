@@ -6,6 +6,10 @@ This file holds only the open work. Finished steps, their root causes, and their
 
 If four things hold, oc-sub is stable and useful. First, a plugin change reaches every running server without manual steps. Second, a sandbox starts after a reboot. Third, every project runs the same tested setup. Fourth, a coder can install the tools that it needs. Everything else is comfort.
 
+## Direction since 2026-10-04
+
+The user decided on 2026-10-04 (meta plan, step 12, decision 16): idfix becomes the isolation layer of a GitHub Actions self-hosted runner on this machine. Later it becomes the base of the own stack of the user. New work only serves that goal: Claude Code as a client, and a sandbox for each runner job. The GLM features rest while the user has the Claude Max plan. A step that does not serve the goal is marked "Paused". A meta subagent (step 12f, in arch-helper) compares a runner user with rootless Docker against an sbx sandbox for each job. The meta session `meta-f2` sends its result and the change requests for idfix.
+
 ## State on 2026-10-02
 
 `alpha` holds the branch `worktree-complete-plan` up to step 19, and the main checkout is on it, so `~/.local/bin/oc-sub` runs the new code. `oc-sub doctor --fix` ran: the plugin and the idle server use the new plugin. Steps 2b, 3, 4, 5 (11d), 8h, 15e, 16d, 17b, 17c, 18a, 18b, and 19 are done in code. The suite passes on the host: 978 tests. The research reports of steps 15e, 16, 17a, 18, 2b, and the KVM task are written. Details are in [HISTORY.md](HISTORY.md).
@@ -21,6 +25,8 @@ On 2026-10-02 `oc-sub doctor --fix --force` passed `sandbox-mounts` in this proj
 
 ### 1. Bring the branch onto `alpha`, then the live tests
 
+Since 2026-10-04 the live test 2b rests, because it tests a GLM feature. The other tests stay.
+
 `origin/alpha` is moved, and `oc-sub doctor --fix` ran. Open: the user fast-forwards the main checkout with `git merge --ff-only origin/alpha`, so that the `oc-sub` command runs the new code. Then the live tests:
 
 - 2b: a research run with `--model deepinfra/zai-org/GLM-5.3-Flash`. The proxy log must show the `reader` requests at DeepInfra, not at OpenRouter.
@@ -32,13 +38,19 @@ On 2026-10-02 `oc-sub doctor --fix --force` passed `sandbox-mounts` in this proj
 
 ### 2. Step 16: DeepInfra, a decision of the user
 
+Paused on 2026-10-04: it does not serve the runner goal (see Direction).
+
 [deepinfra-logprob.md](research/deepinfra-logprob.md) answers the root cause question. DeepInfra has no public report of the error. The client never asks for log probabilities, so no request option avoids it. opencode 1.18.32 does not retry the error (opencode issue #21893). The options are in its table. A proxy retry before the first content chunk (option D) is safe. The retry works in one case only: the bad chunk comes before any content. The append-mode logs of step 16d now keep the data that answers this. The user decides whether DeepInfra comes back and whether to report the bug to DeepInfra (option B needs the DeepInfra account). The draft of the report is [deepinfra-logprob-null.md](reports/deepinfra-logprob-null.md). Open gaps: the opencode estimate shows twice the real DeepInfra cost. An existing sandbox gets the network allow rule for `api.deepinfra.com` only with the first secret set.
 
 ### 3. Step 17: recurring research, the rest
 
+Paused on 2026-10-04: it does not serve the runner goal (see Direction).
+
 - 17d, after a decision of the user: whether unattended paid rechecks are allowed, and the cap per month. [recurring-research.md](research/recurring-research.md) found that only the Windows Task Scheduler can start a stopped WSL2, and only while the user is logged in. Until then, `research-due` only warns.
 
 ### 4. Step 18: the trace pipeline, stage three and quality
+
+Paused on 2026-10-04: it does not serve the runner goal (see Direction).
 
 Stage one (`oc-sub trace`) and stage two (`oc-sub trace --tag`, Jev through the OpenRouter decisions endpoint, about $0.00003 per step) work. Open:
 
@@ -49,9 +61,13 @@ Stage one (`oc-sub trace`) and stage two (`oc-sub trace --tag`, Jev through the 
 
 ### 5. Step 15e follow-ups
 
+Paused on 2026-10-04: it does not serve the runner goal (see Direction).
+
 `doctor --renovate` exists. Not yet covered: a project that still runs a host-mode server, and old setups that no check detects yet. Each new best practice becomes a check with a fix.
 
 ### 6. Step 20: research runs must read their sources
+
+Paused on 2026-10-04: it does not serve the runner goal (see Direction).
 
 On 2026-10-02 three researcher runs (openhands, langgraph, driver-layer) called `reader` zero times and still marked every source "fetched". The researcher prompt now says that only read pages count as sources, and that every software question searches skills.sh. Still open: `oc-sub watch` and `oc-sub log` must warn in one case. That case is a `researcher` run that ends without a `reader` call. The three reports get a note that their sources are search excerpts.
 
@@ -60,6 +76,8 @@ On 2026-10-02 three researcher runs (openhands, langgraph, driver-layer) called 
 On 2026-10-02 the user moved step 21 (deep research tools for expensive decisions) to meta, with its reports. It is now step 4 of `~/dv/meta/docs/PLAN.md`. The reports are in `~/dv/meta/docs/research/`: `deep-research-tools.md`, `oss-deep-research.md`, and `deep-research-eval/`. `api-browsers.md` stays here, because part 1 serves step 22. The meta step links its part 2.
 
 ### 8. Step 22: an agent browser for the reader
+
+Paused on 2026-10-04: it does not serve the runner goal (see Direction).
 
 [api-browsers.md](research/api-browsers.md) found `vercel-labs/agent-browser` (Apache-2.0, 43k stars, 934k installs on skills.sh): a CLI and MCP server with persistent profiles, cookie import, and `read <url>` without Chrome. Test it in the sandbox as a fetch path of the `reader` for pages that webfetch cannot read (JavaScript, login, x.com). Fallback: `microsoft/playwright-mcp`.
 
@@ -92,6 +110,8 @@ The user decided on 2026-10-03: the project becomes idfix 🐕 (the dog Idefix i
 
 ### 11. Step 25: one driver layer for opencode and Claude Code (design)
 
+Since 2026-10-04 only the Claude drivers go on. The opencode and `claude-glm` parts rest with the GLM features.
+
 Requested by the session of step 7c on 2026-10-03. The project gets one driver layer for three drivers: opencode on GLM, Claude Code on GLM, and Claude Code on Claude (step 23). Claude Code on GLM starts through `~/dv/meta/dv/bin/claude-glm`. The report about it is in meta, `docs/research/claude-code-with-glm.md`.
 
 The design gives the three drivers one shape. It covers: one run record, one cost path through the proxy, and one `top`. It also covers the shared commands `run`, `say`, `watch`, `log`, and `abort`. The cost path includes the Anthropic path `/v1/messages` and the attribution of requests to a Claude Code session. The design also decides where the proxy runs for host sessions and how the proxy keeps the keys out of its logs.
@@ -118,6 +138,8 @@ Next, one session each (details in section 4 of the design):
 
 ### 12. Step 27: the researcher loads the skill simple-english
 
+Paused on 2026-10-04: it does not serve the runner goal (see Direction).
+
 Task from the supervisor, 2026-10-03 (meta plan, step 9). A new global rule (meta df5ba4a) says that a research report follows ASD-STE100, with the skill `simple-english` in strict mode. That skill is a Claude Code plugin in `~/.claude/plugins/cache/simple-english/simple-english/<version>/`, and the folder changes with each plugin version (2.1.0 and 2.1.1 exist now). opencode in the sandbox loads skills only from `OC_SUB_SHARED_DIR` (`meta/agents/skills/`). Find a fix that survives plugin updates, for example a copy of the newest version at `oc-sub up` or a stable path. Research first: how others give opencode a skill of a Claude Code plugin.
 
 ### 13. Step 28: a graph view of the plans
@@ -130,7 +152,7 @@ Research round 1: [plan-graph-tools.md](research/plan-graph-tools.md). No tool r
 
 On 2026-10-04 five sandbox servers ran for up to 1.8 days with no session. `oc-sub top --all` used 7 GB RSS after 2 days in a tmux pane. Root cause of the servers: `up` starts a detached holder that runs until `down`, and `run` never starts a server, so nobody stops one. The user agreed on 2026-10-04 to this fix. It starts after the `down --all` work of the other session is on `alpha`.
 
-1. 29a, research (GLM researcher): does `opencode serve` or `sbx` 0.45.1 have an idle timeout that oc-sub can use?
+1. 29a, research (a Claude research agent, because GLM rests): does `opencode serve` or `sbx` 0.45.1 have an idle timeout that oc-sub can use?
 2. 29b: an idle watchdog. If `GET /session/status` shows no busy session for 30 minutes, the server stops through the `down` path.
 3. 29c: if the sandbox server of the project is down, `run` starts it.
 4. 29d: find the leak of `top --all` with a heap snapshot, fix it, and add a test that memory stays flat over many refreshes.
@@ -147,6 +169,10 @@ Research: [process-labels.md](research/process-labels.md), with the review of th
 2. 31b: `up` starts the host server, the cost proxy (with `Restart=on-failure` instead of the `sh` loop), and the holder through it. `down` stops the unit, so the whole tree stops.
 3. 31c: the integration tests use the same path with a test owner, and the teardown stops their units (this also closes the follow-up of step 30).
 4. 31d: `doctor` lists the `ocsub-*` units with owner and reason, and warns for a unit whose owner is gone. `--fix --force` stops it.
+
+### 17. Step 32: a sandbox for each runner job (waits for meta step 12f)
+
+Meta step 12f decides between a runner user with rootless Docker and an sbx sandbox for each job. If sbx wins, idfix gets the job sandbox: create it at job start, run Claude Code inside, and remove it at job end. The details come with the result from `meta-f2`.
 
 ### Later
 

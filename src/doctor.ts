@@ -134,7 +134,84 @@ export type DoctorDeps = {
    * deps leave it unset and the check uses the current local date.
    */
   today?: string;
+  /**
+   * The processes of the host (step 30), for the `top-memory` and
+   * `orphan-processes` checks. Null means the platform has no `/proc`, and
+   * both checks skip. A process that ends during the scan is left out.
+   */
+  listProcesses: () => ProcessInfo[] | null;
+  /** The process ID of this doctor process. The fixes never kill it. */
+  selfPid: number;
+  /** The user ID of this doctor process. The checks look only at own processes. */
+  uid: number;
+  /** Sends a signal to a process; false when the process is gone. */
+  killProcess: (pid: number, signal: "SIGTERM" | "SIGKILL") => boolean;
+  /** Waits the given milliseconds (the fix of `orphan-processes` waits 5 s). */
+  wait: (ms: number) => Promise<void>;
 };
+
+/** One process of the host, as the process checks of step 30 see it. */
+export type ProcessInfo = {
+  pid: number;
+  ppid: number;
+  uid: number;
+  rssBytes: number;
+  /** The command line, split on NUL, without empty entries. */
+  args: string[];
+  /** The target of `/proc/<pid>/cwd`, or null. A deleted folder ends in " (deleted)". */
+  cwd: string | null;
+};
+
+/**
+ * The real process scan: reads `/proc` with `node:fs`. `/proc/<pid>/status`
+ * gives the parent PID, the real UID (the first of the `Uid` line), and
+ * VmRSS in kB; `cmdline` gives the arguments split on NUL; `readlink` of
+ * `cwd` gives the working folder, with the suffix " (deleted)" when the
+ * folder no longer exists. A process that ends during the scan, or whose
+ * files cannot be read, is left out, never a throw. Null without `/proc`.
+ */
+export function readProcProcesses(): ProcessInfo[] | null {
+  if (process.platform !== "linux") return null;
+  let entries: string[];
+  try {
+    entries = readdirSync("/proc");
+  } catch {
+    return null;
+  }
+  const out: ProcessInfo[] = [];
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    try {
+      const status = readFileSync(`/proc/${pid}/status`, "utf8");
+      const ppid = Number(status.match(/^PPid:\s+(\d+)$/m)?.[1] ?? "-1");
+      const uid = Number(status.match(/^Uid:\s+(\d+)/m)?.[1] ?? "-1");
+      const rssKb = Number(status.match(/^VmRSS:\s+(\d+)/m)?.[1] ?? "0");
+      const cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8");
+      const args = cmdline.split("\0").filter((arg) => arg.length > 0);
+      let cwd: string | null = null;
+      try {
+        cwd = readlinkSync(`/proc/${pid}/cwd`);
+      } catch {
+        cwd = null;
+      }
+      out.push({ pid, ppid, uid, rssBytes: rssKb * 1024, args, cwd });
+    } catch {
+      continue;
+    }
+  }
+  return out;
+}
+
+/** The default kill: `process.kill`; false when the process is already gone. */
+export function defaultKillProcess(pid: number, signal: "SIGTERM" | "SIGKILL"): boolean {
+  try {
+    process.kill(pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** A runner whose child process shares the terminal of this process. */
 export type RootRunner = (cmd: readonly string[]) => { exitCode: number };
@@ -269,6 +346,11 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
       if (status.exitCode !== 0) return "error";
       return status.stdout.toString().trim().length === 0 ? "clean" : "modified";
     },
+    listProcesses: readProcProcesses,
+    selfPid: process.pid,
+    uid: process.getuid?.() ?? -1,
+    killProcess: defaultKillProcess,
+    wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   };
   return { ...deps, ...overrides };
 }
@@ -1173,6 +1255,191 @@ export function researchDueCheck(deps: DoctorDeps): CheckResult {
   return result("research-due", "pass", "no report is due");
 }
 
+/** The RSS limit of the `top-memory` check: 1 GiB. */
+export const TOP_RSS_LIMIT = 1024 * 1024 * 1024;
+
+/**
+ * Whether the command line runs the oc-sub CLI: one argument ends with the
+ * CLI entry, `src/cli.ts` (a run from the repository, as `top` starts it) or
+ * `dist/cli.js` (an installed build). A `top` of another program does not
+ * match, because its command line holds neither.
+ */
+export function isOcSubCli(args: readonly string[]): boolean {
+  return args.some((arg) => arg.endsWith("src/cli.ts") || arg.endsWith("dist/cli.js"));
+}
+
+/**
+ * Whether the command line runs the `top` command of oc-sub (step 30): the
+ * argument right after the CLI entry is `top`, so a `top` in a later
+ * argument, for example in the text of `say`, does not match.
+ */
+export function isOcSubTop(args: readonly string[]): boolean {
+  const entry = args.findIndex((arg) => arg.endsWith("src/cli.ts") || arg.endsWith("dist/cli.js"));
+  return entry >= 0 && args[entry + 1] === "top";
+}
+
+/**
+ * The selection of `top-memory`: each process of the current user that runs
+ * the `top` command of oc-sub with an RSS above 1 GiB, except doctor itself.
+ * Pure apart from the injected scan, so the fix uses the same rule.
+ */
+export function leakyTopProcesses(deps: DoctorDeps): ProcessInfo[] {
+  const processes = deps.listProcesses();
+  if (processes === null) return [];
+  return processes.filter(
+    (p) => p.uid === deps.uid && p.pid !== deps.selfPid && isOcSubTop(p.args) && p.rssBytes > TOP_RSS_LIMIT,
+  );
+}
+
+/**
+ * The `top-memory` check (step 30): a `top` of oc-sub that leaked keeps its
+ * whole table in memory, and one process can hold gigabytes. It warns with
+ * the PID and the RSS in MB of each process over 1 GiB. The fix needs
+ * `--force`, because it ends a view of the user: it sends SIGTERM to each
+ * listed process, never to doctor itself.
+ */
+export function topMemoryCheck(deps: DoctorDeps): CheckResult {
+  const processes = deps.listProcesses();
+  if (processes === null) return result("top-memory", "skip", "no /proc on this platform");
+  const leaky = leakyTopProcesses(deps);
+  if (leaky.length === 0) return result("top-memory", "pass", "no oc-sub top process over 1 GiB");
+  const listed = leaky.map((p) => `${p.pid} (${Math.round(p.rssBytes / (1024 * 1024))} MB)`);
+  return result(
+    "top-memory",
+    "warn",
+    `${leaky.length} oc-sub top process(es) over 1 GiB: ${listed.join(", ")}`,
+    "run oc-sub doctor --fix --force: it sends SIGTERM to each listed process",
+  );
+}
+
+/**
+ * The fix of `top-memory`: without `--force` nothing runs, because it ends a
+ * view of the user. With `--force` it re-scans the processes and sends
+ * SIGTERM to each match, never to doctor itself. A process that ended since
+ * the check is skipped.
+ */
+export function topMemoryFix(deps: DoctorDeps, _result: CheckResult, ctx: { force: boolean }): FixOutcome {
+  if (ctx.force !== true) {
+    return {
+      ok: false,
+      note: "ending an oc-sub top process needs --force. Run oc-sub doctor --fix --force",
+    };
+  }
+  const leaky = leakyTopProcesses(deps);
+  let stopped = 0;
+  for (const p of leaky) {
+    if (deps.killProcess(p.pid, "SIGTERM")) stopped++;
+  }
+  if (leaky.length === 0) return { ok: true, note: "no oc-sub top process over 1 GiB" };
+  return { ok: true, note: `sent SIGTERM to ${stopped} oc-sub top process(es)` };
+}
+
+/**
+ * The parent of an orphan: PID 1, or a parent whose command line is `/init`
+ * (the WSL init, which adopts orphaned processes).
+ */
+function parentIsInit(processes: readonly ProcessInfo[], ppid: number): boolean {
+  if (ppid === 1) return true;
+  const parent = processes.find((p) => p.pid === ppid);
+  return parent !== undefined && parent.args.length > 0 && parent.args[0] === "/init";
+}
+
+/**
+ * The selection of `orphan-processes`: each process of the current user
+ * whose parent is PID 1 or `/init` and whose working folder is deleted, except
+ * doctor itself. Pure apart from the injected scan, so the fix uses it too.
+ */
+export function orphanProcesses(deps: DoctorDeps): ProcessInfo[] {
+  const processes = deps.listProcesses();
+  if (processes === null) return [];
+  return processes.filter(
+    (p) =>
+      p.uid === deps.uid &&
+      p.pid !== deps.selfPid &&
+      parentIsInit(processes, p.ppid) &&
+      p.cwd !== null &&
+      p.cwd.endsWith(" (deleted)"),
+  );
+}
+
+/** How many `PID command (cwd)` entries the `orphan-processes` message lists. */
+const ORPHAN_LIST_LIMIT = 10;
+
+/** The `orphan-processes` check (step 30): see `orphanProcesses`. */
+export function orphanProcessesCheck(deps: DoctorDeps): CheckResult {
+  const processes = deps.listProcesses();
+  if (processes === null) return result("orphan-processes", "skip", "no /proc on this platform");
+  const orphans = orphanProcesses(deps);
+  if (orphans.length === 0) return result("orphan-processes", "pass", "no process runs in a deleted folder");
+  const listed = orphans.slice(0, ORPHAN_LIST_LIMIT).map((p) => `${p.pid} ${p.args.join(" ")} (${p.cwd})`);
+  const prefix = orphans.length > ORPHAN_LIST_LIMIT ? `${orphans.length} orphaned process(es), first ${ORPHAN_LIST_LIMIT}: ` : `${orphans.length} orphaned process(es): `;
+  return result(
+    "orphan-processes",
+    "warn",
+    `${prefix}${listed.join(", ")}`,
+    "run oc-sub doctor --fix --force: it sends SIGTERM to each listed process, then SIGKILL after 5 s",
+  );
+}
+
+/**
+ * The orphans plus all their descendants of the current user. Without the
+ * descendants, a stopped orphan leaves its children behind as new orphans,
+ * for example the `bun` child of a `sh -c "while :; do bun ...; done"` loop.
+ */
+export function withDescendants(all: readonly ProcessInfo[], roots: readonly ProcessInfo[], deps: DoctorDeps): ProcessInfo[] {
+  const out = [...roots];
+  const seen = new Set(roots.map((p) => p.pid));
+  for (let i = 0; i < out.length; i++) {
+    const parent = out[i];
+    if (parent === undefined) continue;
+    for (const child of all) {
+      if (child.ppid !== parent.pid || seen.has(child.pid)) continue;
+      if (child.uid !== deps.uid || child.pid === deps.selfPid) continue;
+      seen.add(child.pid);
+      out.push(child);
+    }
+  }
+  return out;
+}
+
+/** How long the fix of `orphan-processes` waits between SIGTERM and SIGKILL. */
+export const ORPHAN_KILL_WAIT_MS = 5000;
+
+/**
+ * The fix of `orphan-processes`: without `--force` nothing runs, because it
+ * ends processes. With `--force` it sends SIGTERM to each match and to all
+ * its descendants of the current user, waits up to
+ * 5 seconds, and sends SIGKILL to each process that still runs. A process
+ * that ended on the SIGTERM is not killed again. It returns ok with the
+ * count of stopped processes.
+ */
+export async function orphanProcessesFix(deps: DoctorDeps, _result: CheckResult, ctx: { force: boolean }): Promise<FixOutcome> {
+  if (ctx.force !== true) {
+    return {
+      ok: false,
+      note: "stopping orphaned processes needs --force. Run oc-sub doctor --fix --force",
+    };
+  }
+  const all = deps.listProcesses() ?? [];
+  const orphans = withDescendants(all, orphanProcesses(deps), deps);
+  if (orphans.length === 0) return { ok: true, note: "no process runs in a deleted folder" };
+  let alive = 0;
+  for (const p of orphans) {
+    if (deps.killProcess(p.pid, "SIGTERM")) alive++;
+  }
+  await deps.wait(ORPHAN_KILL_WAIT_MS);
+  const after = deps.listProcesses();
+  let killed = 0;
+  if (after !== null) {
+    const pids = new Set(after.map((p) => p.pid));
+    for (const p of orphans) {
+      if (pids.has(p.pid) && deps.killProcess(p.pid, "SIGKILL")) killed++;
+    }
+  }
+  const stopped = alive - killed;
+  return { ok: true, note: `stopped ${stopped} orphaned process(es), SIGKILL after 5 s for ${killed}` };
+}
+
 /** The fast checks: `up` and `run` run them on every invocation. */
 export const FAST_CHECKS: Check[] = [
   { name: "env-files", run: envFilesCheck },
@@ -1196,6 +1463,9 @@ export const SLOW_CHECKS: Check[] = [
   { name: "sandbox-mounts", run: sandboxMountsCheck, fix: sandboxMountsFix },
   { name: "deepinfra-key", run: deepinfraKeyCheck },
   { name: "research-due", run: researchDueCheck },
+  // Last: they scan /proc, and a fix must run after the plugin and sandbox fixes.
+  { name: "top-memory", run: topMemoryCheck, fix: topMemoryFix },
+  { name: "orphan-processes", run: orphanProcessesCheck, fix: orphanProcessesFix },
 ];
 
 /** All checks in their fixed order. */

@@ -30,9 +30,13 @@ import {
   SERVER_PLUGIN_FIX,
   serverPluginFix,
   SLOW_CHECKS,
+  TOP_RSS_LIMIT,
+  orphanProcessesFix,
+  topMemoryFix,
   type Check,
   type CheckResult,
   type DoctorDeps,
+  type ProcessInfo,
 } from "../src/doctor";
 import type { BusyCheck, RunningServer } from "../src/server-plugin";
 import {
@@ -142,6 +146,14 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
       files.delete(file);
     },
     gitFileState: () => "clean",
+    // No /proc scan and no kill by default; the process tests override these.
+    listProcesses: () => [],
+    selfPid: 99999,
+    uid: 1000,
+    killProcess: () => {
+      throw new Error("no process may be killed in this test");
+    },
+    wait: async () => {},
     ...overrides,
   };
   return deps;
@@ -2434,5 +2446,222 @@ describe("doctor --renovate --json keeps stdout pure JSON", () => {
     expect(parsed.fixes).toEqual([{ name: "global-rules", ok: true, note: expect.any(String) }]);
     expect(parsed.results).toHaveLength(ALL_CHECKS.length);
     expect(errors.some((line) => line.startsWith("fixing global-rules:"))).toBe(true);
+  });
+});
+
+describe("the process checks (step 30)", () => {
+  /** A process record for the fake scan. */
+  function proc(overrides: Partial<ProcessInfo> = {}): ProcessInfo {
+    return { pid: 100, ppid: 1, uid: 1000, rssBytes: 100 * 1024 * 1024, args: ["/bin/sleep", "10"], cwd: "/repo", ...overrides };
+  }
+
+  /** Fake deps with a process list; the signals land in `signals`. */
+  function procDeps(processes: ProcessInfo[], opts: { survivors?: Set<number>; noProc?: boolean } = {}): { deps: DoctorDeps; signals: string[] } {
+    const signals: string[] = [];
+    const deps = makeDeps(
+      {},
+      {
+        listProcesses: opts.noProc === true ? () => null : () => [...processes],
+        selfPid: 99999,
+        uid: 1000,
+        killProcess: (pid, signal) => {
+          signals.push(`${pid}:${signal}`);
+          return true;
+        },
+        wait: async () => {
+          // After the wait, only survivors remain in the scan.
+          const keep = opts.survivors ?? new Set<number>();
+          processes.splice(0, processes.length, ...processes.filter((p) => keep.has(p.pid)));
+        },
+      },
+    );
+    return { deps, signals };
+  }
+
+  const byCheck = (deps: DoctorDeps, name: string) => byName(results(deps, SLOW_CHECKS), name);
+
+  test("top-memory passes without processes", () => {
+    const { deps } = procDeps([]);
+    expect(byCheck(deps, "top-memory")?.status).toBe("pass");
+  });
+
+  test("top-memory warns with PID and RSS in MB", () => {
+    const { deps } = procDeps([proc({ pid: 42, args: ["/repo/src/cli.ts", "top"], rssBytes: 1.5 * TOP_RSS_LIMIT })]);
+    const check = byCheck(deps, "top-memory");
+    expect(check?.status).toBe("warn");
+    expect(check?.message).toContain("42 (1536 MB)");
+    expect(check?.fix).toContain("oc-sub doctor --fix --force");
+  });
+
+  test("top-memory ignores RSS at or under 1 GiB", () => {
+    const { deps } = procDeps([proc({ args: ["/repo/src/cli.ts", "top"], rssBytes: TOP_RSS_LIMIT })]);
+    expect(byCheck(deps, "top-memory")?.status).toBe("pass");
+  });
+
+  test("top-memory ignores a top of another program", () => {
+    const { deps } = procDeps([proc({ args: ["/usr/bin/top"], rssBytes: 2 * TOP_RSS_LIMIT })]);
+    expect(byCheck(deps, "top-memory")?.status).toBe("pass");
+  });
+
+  test("top-memory ignores another oc-sub command with top in a later argument", () => {
+    const { deps } = procDeps([proc({ args: ["/repo/src/cli.ts", "say", "ses_x", "top"], rssBytes: 2 * TOP_RSS_LIMIT })]);
+    expect(byCheck(deps, "top-memory")?.status).toBe("pass");
+  });
+
+  test("top-memory ignores a process of another user", () => {
+    const { deps } = procDeps([proc({ uid: 0, args: ["/repo/src/cli.ts", "top"], rssBytes: 2 * TOP_RSS_LIMIT })]);
+    expect(byCheck(deps, "top-memory")?.status).toBe("pass");
+  });
+
+  test("top-memory never lists doctor itself", () => {
+    const { deps } = procDeps([proc({ pid: 99999, args: ["/repo/src/cli.ts", "top"], rssBytes: 2 * TOP_RSS_LIMIT })]);
+    expect(byCheck(deps, "top-memory")?.status).toBe("pass");
+  });
+
+  test("top-memory fix needs --force", () => {
+    const { deps, signals } = procDeps([proc({ args: ["/repo/src/cli.ts", "top"], rssBytes: 2 * TOP_RSS_LIMIT })]);
+    const outcome = topMemoryFix(deps, { name: "top-memory", status: "warn", message: "x" }, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("--force");
+    expect(signals).toEqual([]);
+  });
+
+  test("top-memory fix sends SIGTERM with --force", () => {
+    const { deps, signals } = procDeps([proc({ pid: 42, args: ["/repo/src/cli.ts", "top"], rssBytes: 2 * TOP_RSS_LIMIT })]);
+    const outcome = topMemoryFix(deps, { name: "top-memory", status: "warn", message: "x" }, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(signals).toEqual(["42:SIGTERM"]);
+  });
+
+  test("orphan-processes passes without orphans", () => {
+    const { deps } = procDeps([]);
+    expect(byCheck(deps, "orphan-processes")?.status).toBe("pass");
+  });
+
+  test("orphan-processes warns with PID, command, and cwd", () => {
+    const { deps } = procDeps([proc({ pid: 42, args: ["caddy", "run"], cwd: "/repo/.worktrees/x (deleted)" })]);
+    const check = byCheck(deps, "orphan-processes");
+    expect(check?.status).toBe("warn");
+    expect(check?.message).toContain("42 caddy run (/repo/.worktrees/x (deleted))");
+    expect(check?.fix).toContain("oc-sub doctor --fix --force");
+  });
+
+  test("orphan-processes lists at most 10 entries and the total count", () => {
+    const many = Array.from({ length: 12 }, (_, i) => proc({ pid: 1000 + i, args: ["caddy"], cwd: "/gone (deleted)" }));
+    const { deps } = procDeps(many);
+    const check = byCheck(deps, "orphan-processes");
+    expect(check?.message.startsWith("12 orphaned process(es), first 10: ")).toBe(true);
+    expect(check?.message).not.toContain("1010");
+  });
+
+  test("orphan-processes ignores a parent that is not init", () => {
+    const parent = proc({ pid: 5, args: ["caddy", "run"] });
+    const { deps } = procDeps([parent, proc({ ppid: 5, cwd: "/gone (deleted)" })]);
+    expect(byCheck(deps, "orphan-processes")?.status).toBe("pass");
+  });
+
+  test("orphan-processes accepts a parent whose command line is /init", () => {
+    const init = proc({ pid: 2, args: ["/init"], uid: 0 });
+    const { deps } = procDeps([init, proc({ ppid: 2, cwd: "/gone (deleted)" })]);
+    expect(byCheck(deps, "orphan-processes")?.status).toBe("warn");
+  });
+
+  test("orphan-processes ignores a cwd that still exists", () => {
+    const { deps } = procDeps([proc({ cwd: "/repo" })]);
+    expect(byCheck(deps, "orphan-processes")?.status).toBe("pass");
+  });
+
+  test("orphan-processes ignores another user and doctor itself", () => {
+    const { deps } = procDeps([
+      proc({ pid: 3, uid: 0, cwd: "/gone (deleted)" }),
+      proc({ pid: 99999, cwd: "/gone (deleted)" }),
+    ]);
+    expect(byCheck(deps, "orphan-processes")?.status).toBe("pass");
+  });
+
+  test("orphan-processes fix needs --force", async () => {
+    const { deps, signals } = procDeps([proc({ cwd: "/gone (deleted)" })]);
+    const outcome = await orphanProcessesFix(deps, { name: "orphan-processes", status: "warn", message: "x" }, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("--force");
+    expect(signals).toEqual([]);
+  });
+
+  test("orphan-processes fix sends SIGTERM and stops after the wait", async () => {
+    const { deps, signals } = procDeps([proc({ pid: 42, cwd: "/gone (deleted)" }), proc({ pid: 43, cwd: "/gone (deleted)" })]);
+    const outcome = await orphanProcessesFix(deps, { name: "orphan-processes", status: "warn", message: "x" }, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(signals).toEqual(["42:SIGTERM", "43:SIGTERM"]);
+    expect(outcome.note).toContain("stopped 2 orphaned process(es)");
+    expect(outcome.note).toContain("SIGKILL after 5 s for 0");
+  });
+
+  test("orphan-processes fix also stops the descendants of an orphan", async () => {
+    // A sh loop (42) with its bun child (43) and grandchild (44); 45 belongs
+    // to another user, and 46 is not related.
+    const { deps, signals } = procDeps([
+      proc({ pid: 42, cwd: "/gone (deleted)" }),
+      proc({ pid: 43, ppid: 42, cwd: "/gone (deleted)" }),
+      proc({ pid: 44, ppid: 43, cwd: "/repo" }),
+      proc({ pid: 45, ppid: 42, uid: 0, cwd: "/gone (deleted)" }),
+      proc({ pid: 46, ppid: 7, cwd: "/repo" }),
+    ]);
+    const outcome = await orphanProcessesFix(deps, { name: "orphan-processes", status: "warn", message: "x" }, { force: true });
+    expect(signals).toEqual(["42:SIGTERM", "43:SIGTERM", "44:SIGTERM"]);
+    expect(outcome.note).toContain("stopped 3 orphaned process(es)");
+  });
+
+  test("orphan-processes fix sends SIGKILL to a survivor", async () => {
+    const { deps, signals } = procDeps([proc({ pid: 42, cwd: "/gone (deleted)" })], { survivors: new Set([42]) });
+    const outcome = await orphanProcessesFix(deps, { name: "orphan-processes", status: "warn", message: "x" }, { force: true });
+    expect(signals).toEqual(["42:SIGTERM", "42:SIGKILL"]);
+    expect(outcome.note).toContain("SIGKILL after 5 s for 1");
+  });
+
+  test("a process that disappears during the scan is skipped, never a throw", () => {
+    let ended = false;
+    const deps = makeDeps(
+      {},
+      {
+        listProcesses: () => (ended ? [] : [proc({ pid: 42, args: ["/repo/src/cli.ts", "top"], rssBytes: 2 * TOP_RSS_LIMIT })]),
+        selfPid: 99999,
+        uid: 1000,
+        killProcess: () => false,
+      },
+    );
+    const check = byCheck(deps, "top-memory");
+    expect(check?.status).toBe("warn");
+    ended = true; // The next scan returns no processes; the fix must still be ok.
+    const outcome = topMemoryFix(deps, check!, { force: true });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.note).toContain("no oc-sub top process");
+  });
+
+  test("both checks skip on a platform without /proc", () => {
+    const { deps } = procDeps([], { noProc: true });
+    expect(byCheck(deps, "top-memory")?.status).toBe("skip");
+    expect(byCheck(deps, "orphan-processes")?.status).toBe("skip");
+  });
+
+  test("--fix-as-root --force runs both fixes", async () => {
+    const { deps, signals } = procDeps([
+      proc({ pid: 42, args: ["/repo/src/cli.ts", "top"], rssBytes: 2 * TOP_RSS_LIMIT }),
+      proc({ pid: 43, cwd: "/gone (deleted)" }),
+    ]);
+    // The shared rules file exists, so the global-rules fix succeeds and
+    // does not fail the fix pass (see the kvm root fix tests above).
+    deps.readText = (file) => (file.endsWith("AGENTS.md") ? "# rules" : null);
+    deps.realpath = (file) => (file.endsWith("AGENTS.md") ? path.resolve(file) : null);
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    try {
+      const code = await doctor({ fixAsRoot: true, force: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      expect(code).toBe(0);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(signals).toEqual(["42:SIGTERM", "43:SIGTERM"]);
+    expect(lines.some((line) => line.startsWith("fixed top-memory:"))).toBe(true);
+    expect(lines.some((line) => line.startsWith("fixed orphan-processes:"))).toBe(true);
   });
 });

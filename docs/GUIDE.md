@@ -96,6 +96,8 @@ claude plugin marketplace remove opencode-subagents
 
    The check `research-due` reminds you when the facts of a research report went stale. It never fails. Reports without a recheck head do not count, and without any head in the project it passes with the note "no report has a recheck head". See "Recheck heads of research reports" below for the head and the recheck process.
 
+   Two checks look for leaked processes. `top-memory` warns when a process of your user runs the `top` command of oc-sub with more than 1 GiB of memory. A `top` that leaked keeps its whole table in memory, and one process can hold gigabytes. The fix sends SIGTERM to each such process, and it needs `--force`, because it ends a view of you: `oc-sub doctor --fix --force`. It never stops doctor itself. `orphan-processes` warns when a process of your user whose parent is PID 1 or `/init` (the WSL init) works in a folder that no longer exists, for example a deleted worktree. It lists at most 10 entries with PID, command, and folder, and the total count. The fix needs `--force` too. It sends SIGTERM to each listed process and to all descendants of your user, waits up to 5 seconds, and sends SIGKILL to each one that still runs. Both checks read `/proc`, so they skip on a platform without `/proc`, and they never touch a process of another user. Known gap: an orphan whose folder still exists is not found.
+
 ### Recheck heads of research reports
 
 A research report records facts with a date, but nothing told you when a fact goes stale or which decision rests on it. So a report can start with a YAML front matter head:

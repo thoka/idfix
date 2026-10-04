@@ -143,7 +143,7 @@ The three ways are not on the same level. The systemd credential moves the token
 |---|---|---|---|---|
 | A. `sbx exec -e CLAUDE_CODE_OAUTH_TOKEN` (bare name, value from the environment of the job script) | In the environment of the runner process in the VM, and in all its child processes. The agent has sudo in the VM, so it can read the value. | `sbx rm` removes the VM and the value. | Yes. If no global Anthropic secret exists, `-e CLAUDE_CODE_OAUTH_TOKEN=<token>` works (issue #144). | Read the token and send it to an allowed host (section 3.2). Then use the subscription for model requests from anywhere until the user revokes the token, for up to one year. |
 | B. Secret proxy with a placeholder | On the host only. The VM sees a placeholder. | If the proxy secret is sandbox-scoped, `sbx rm` removes it. | No. Custom secrets for `api.anthropic.com` fail since v0.43.0 (issue #601). Sandbox-scoped `anthropic` secrets go out as `x-api-key` (issue #144). A kit credential is not tested. | Use the subscription through the proxy during the job only. It cannot take the token out of the VM. |
-| C. systemd credential, `LoadCredential=claude-oauth:/etc/credstore/claude-oauth.token` in `gh-runner@.service` | In `$CREDENTIALS_DIRECTORY` of that unit, in memory, readable by `gh-runner` and root. | At the stop of the unit, systemd removes it. | Yes (systemd feature). It is a host step, so it combines with A or B. | Nothing more than A or B, because the job code is in the VM. A VM escape as `gh-runner` can read it during the job. |
+| C. systemd credential, `LoadCredential=claude-oauth.token` (file `/etc/credstore/claude-oauth.token`) in `gh-runner@.service` | In `$CREDENTIALS_DIRECTORY` of that unit, in memory, readable by `gh-runner` and root. | At the stop of the unit, systemd removes it. | Yes (systemd feature). It is a host step, so it combines with A or B. | Nothing more than A or B, because the job code is in the VM. A VM escape as `gh-runner` can read it during the job. |
 
 Result: use C together with A. This is the only way that works with sbx v0.45.1. If sbx can inject a `setup-token` token for `api.anthropic.com` in a later release, change to C together with B. Watch issues #11 and #601.
 
@@ -238,7 +238,7 @@ These changes are for the supervisor, who owns arch-helper. They come after the 
 4. Add the units `gh-runner-sbx-login.service` and `gh-runner-sbx.service` (section 7.3).
 5. In `gh-runner@.service`:
    - Keep `PrivateDevices=yes`, because the daemon has its own unit. If the daemon stays in the job unit, remove the setting.
-   - Add `LoadCredential=claude-oauth:/etc/credstore/claude-oauth.token`.
+   - Done in arch-helper `alpha` 0856b95: `LoadCredential=claude-oauth.token`, written by `set-claude-token`. `run-job` exports `CLAUDE_CODE_OAUTH_TOKEN` before `run.sh`. The job command passes it on with `sbx exec -e CLAUDE_CODE_OAUTH_TOKEN`.
    - Add `ReadWritePaths=/var/lib/gh-runner`, because the sbx client writes logs and locks below `~/.local/state/sandboxes` and `~/.config/sandboxes`.
    - Add `Requires=gh-runner-sbx.service` and `After=gh-runner-sbx.service`.
    - Remove `Environment=DOCKER_HOST=...`.

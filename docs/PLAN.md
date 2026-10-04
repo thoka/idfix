@@ -14,7 +14,10 @@ The user decided on 2026-10-04 (meta plan, step 12, decision 16): idfix becomes 
 
 - Git: the user changed the Git rules (meta `agents/AGENTS.md`, section Git, and the report `~/dv/meta/docs/research/branching-model.md`). `alpha` goes away, agent PRs auto-merge into `main`, release-please keeps one release PR, and CI moves the tag `stable`. This project migrates third in meta plan step 16c, after grata and markgraf. Do not start before the supervisor says so. Until then the `alpha` flow stays, but a merge into `main` no longer needs the approval of the user. After the move, the `~/.local/bin` links and the marketplace use `ref: stable`.
 - User scripts end with `notify-session <session-id> <text>` (report `~/dv/meta/docs/research/script-notifies-session.md`, template `~/dv/meta/dv/bin/user-step-template.sh`). After the session writes such a script, it ends its turn.
-- New work from meta-f2: a Telegram broker for Claude Code sessions, inside idfix (meta step 12, decision 16). It is planned together with step 25g (Claude sessions in `top`), because both read the same Claude Code hooks. The plan entry follows after the grill with the user. Reports go to meta-f2.
+- New work from meta-f2: a Telegram broker for Claude Code sessions, inside idfix (meta step 12, decision 16). It is planned together with step 25g (Claude sessions in `top`), because both read the same Claude Code hooks. The plan entry follows after the grill with the user. Reports go to meta-f2. Three requirements from meta-f2 (report `~/dv/meta/docs/research/deep-research-eval/eval-remote-approval.md`):
+  1. AskUserQuestion can return "Proceed using your best judgment" after 60 seconds (issue #70294, `CLAUDE_AFK_TIMEOUT_MS` in Claude Code 2.1.285). If the broker is down or times out, the hook denies a question, or the sessions set `CLAUDE_AFK_TIMEOUT_MS` high. meta measures the real behavior and sends the result.
+  2. Only the broker, under its own system user, writes the sender allow list.
+  3. The bot token never passes through a Claude session.
 - Spike 32c: the supervisor reviewed `scripts/spike-32c-root-v2.sh` (d5da157) and queued it for the user after the grata smoke test. When `~/.local/state/user-steps/spike-32c.log` has a check run, the supervisor reports it.
 
 ## State on 2026-10-02

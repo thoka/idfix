@@ -8,7 +8,7 @@ If four things hold, oc-sub is stable and useful. First, a plugin change reaches
 
 ## Direction since 2026-10-04
 
-The user decided on 2026-10-04 (meta plan, step 12, decision 16): idfix becomes the isolation layer of a GitHub Actions self-hosted runner on this machine. Later it becomes the base of the own stack of the user. New work only serves that goal: Claude Code as a client, and a sandbox for each runner job. The GLM features rest while the user has the Claude Max plan. A step that does not serve the goal is marked "Paused". A meta subagent (step 12f, in arch-helper) compares a runner user with rootless Docker against an sbx sandbox for each job. The meta session `meta-f2` sends its result and the change requests for idfix.
+The user decided on 2026-10-04 (meta plan, step 12, decision 16): idfix becomes the isolation layer of a GitHub Actions self-hosted runner on this machine. Later it becomes the base of the own stack of the user. New work only serves that goal: Claude Code as a client, and a sandbox for each runner job. The GLM features rest while the user has the Claude Max plan. A step that does not serve the goal is marked "Paused". A meta subagent (step 12f, in arch-helper) compares a runner user with rootless Docker against an sbx sandbox for each job. The session `supervisor` coordinates meta step 12 and sends its result and the change requests for idfix.
 
 ## State on 2026-10-02
 
@@ -172,7 +172,7 @@ Research: [process-labels.md](research/process-labels.md), with the review of th
 
 ### 17. Step 32: a sandbox for each runner job (waits for meta step 12f)
 
-Meta step 12f decides between a runner user with rootless Docker and an sbx sandbox for each job. If sbx wins, idfix gets the job sandbox: create it at job start, run Claude Code inside, and remove it at job end. The details come with the result from `meta-f2`.
+Meta step 12f decides between a runner user with rootless Docker and an sbx sandbox for each job. If sbx wins, idfix gets the job sandbox: create it at job start, run Claude Code inside, and remove it at job end. The details come with the result from `supervisor`.
 
 ### Later
 

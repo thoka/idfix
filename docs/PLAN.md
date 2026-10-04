@@ -153,11 +153,9 @@ Paused on 2026-10-04: it does not serve the runner goal (see Direction).
 
 Task from the supervisor, 2026-10-03 (meta plan, step 9). A new global rule (meta df5ba4a) says that a research report follows ASD-STE100, with the skill `simple-english` in strict mode. That skill is a Claude Code plugin in `~/.claude/plugins/cache/simple-english/simple-english/<version>/`, and the folder changes with each plugin version (2.1.0 and 2.1.1 exist now). opencode in the sandbox loads skills only from `OC_SUB_SHARED_DIR` (`meta/agents/skills/`). Find a fix that survives plugin updates, for example a copy of the newest version at `oc-sub up` or a stable path. Research first: how others give opencode a skill of a Claude Code plugin.
 
-### 13. Step 28: a graph view of the plans
+### 13. Step 28: moved to meta step 19
 
-The user wants a browser view (SVG or WebGL) of the plans: steps and dependencies as a graph, open decisions ranked by the work that they block, and the shortest path to an MVP. The user decided on 2026-10-04: the view starts in this project and moves to its own repository after a first milestone. The first milestone reads only the plans in `~/dv/*/docs/PLAN.md`. Meta is not the place for it.
-
-Research round 1: [plan-graph-tools.md](research/plan-graph-tools.md). No tool reads a free-form plan, so the report recommends a thin view on established libraries. Round 2: [plan-graph-view.md](research/plan-graph-view.md). It recommends a `depends:` and `decision:` grammar in `PLAN.md`, a blocked-work count as the score, the ancestor set of a milestone as the MVP path, and React Flow with elkjs. The interview is done (2026-10-04). Design: [plan-graph.md](design/plan-graph.md). Next: step 28a, the parser.
+On 2026-10-04 the user widened the graph view of the plans into a generic graph viewer in its own new project (meta plan step 19, name still open). Nothing is built here. The research reports stay here, because step 19 links to them: [plan-graph-tools.md](research/plan-graph-tools.md) and [plan-graph-view.md](research/plan-graph-view.md). The design [plan-graph.md](design/plan-graph.md) also stays.
 
 ### 14. Step 29: idle servers stop by themselves, and `top` stops its leak
 

@@ -58,7 +58,14 @@ The allow list is a data file in the repository, `src/job/allow-hosts.txt`, one 
 2. `github.com` and `*.blob.core.windows.net` stay open, so data can still leave through them. An HTTP path rule for `github.com` is a test of the spike.
 3. The runner copy and its libraries make each start slower. A template image comes later.
 
-## 5. Sub-steps after the spike
+## 5. Notes for the final change list of fix 50
+
+These notes come from the review of `scripts/spike-32c-root.sh` by the supervisor on 2026-10-04.
+
+1. The spike installs sbx as root from the mise folder of the user, and the user can write to that folder. Fix 50 must install sbx from a release download with a checksum.
+2. The `undo` mode of the spike deletes `/usr/local/lib/gh-runner`, `/etc/gh-runner`, and `/etc/credstore/claude-oauth.token`. Fix 50 uses the same paths. The final design keeps the paths of a spike separate from the paths of fix 50.
+
+## 6. Sub-steps after the spike
 
 1. 32c: the spike by hand as `gh-runner` (items of section 10 of the report, and the narrowest PAT scope that `sbx login` accepts). Then the final change list for fix 50 to the supervisor.
 2. 32d: `idfx job run` and `idfx job prune` with unit tests on a fake runner, and one real run against a test repository. The lesson `fake-runner-hides-wrong-command` applies: each new sbx command runs once for real.

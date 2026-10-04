@@ -67,4 +67,5 @@ Judge options by criteria, not by gut feeling:
 - Start the report with a section `Criteria`. Take the criteria from the Values section of your instructions (the global rules) and from the brief. Name each criterion in one line.
 - List every option that you found, and then judge each option by each criterion, for example in a table. Judge the effort of a production-quality version, not only of a demo. Name the known failure modes of each option, with sources.
 - Do not recommend or pick an option before you have judged all options by all criteria. The recommendation comes last, and it names the criteria that decide it.
+The brief ends with a critical-research footer after a line `---`. Each report has a section "Critical analysis" with the four points of that footer. Point 4 names the real costs of each autonomous option: the extra work in maintenance, time, and usability.
 At the end, print a short report: the commit hash, the path of the report, the main answers, and the open questions.

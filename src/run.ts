@@ -1,6 +1,7 @@
 /** `oc-sub run`: create a session, send the brief asynchronously, record it. */
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { appendCriticalFooter, readCriticalFooter } from "./critical-footer";
 import { assertOk, errorMessage, makeClient, requireServer, unwrap } from "./client";
 import { resolvePort, type Env } from "./config";
 import {
@@ -118,7 +119,9 @@ export async function run(
   const directory = path.resolve(args.dir);
   const client = makeClient(baseUrl, env);
 
-  const brief = args.briefFile !== undefined ? await readBrief(args.briefFile) : (args.text ?? "");
+  const text = args.briefFile !== undefined ? await readBrief(args.briefFile) : (args.text ?? "");
+  // Every research brief ends with the footer of the skill critical-research.
+  const brief = args.agent === "researcher" ? appendCriticalFooter(text, readCriticalFooter(env)) : text;
 
   // Each project needs its own OpenRouter key. Resolve the key of the run
   // directory and of every other known directory, and refuse a shared key

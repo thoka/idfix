@@ -180,7 +180,7 @@ Result of meta step 12f, from the supervisor on 2026-10-04 (arch-helper `alpha` 
 
 ### 18. Step 33: every research brief ends with the critical-research footer
 
-Task from the supervisor, 2026-10-04. A new global rule and the skill `critical-research` (`meta/agents/skills/critical-research/SKILL.md`) say that every research question ends with a fixed footer, and every report has a section "Critical analysis" with four points. `oc-sub run --agent researcher` appends the footer, read from the skill file in `OC_SUB_SHARED_DIR`, after a line `---`. A brief that already ends with it stays unchanged. A missing skill file stops the run with an error. The researcher prompt asks for the section. A test compares the appended footer with the skill file.
+Task from the supervisor, 2026-10-04. A new global rule and the skill `critical-research` (`meta/agents/skills/critical-research/SKILL.md`) say that every research question ends with a fixed footer, and every report has a section "Critical analysis" with four points. `oc-sub run --agent researcher` appends the footer, read from the skill file in `OC_SUB_SHARED_DIR`, after a line `---`. A brief that already ends with it stays unchanged. A missing skill file stops the run with an error. The researcher prompt asks for the section. A test compares the appended footer with the skill file. Done on 2026-10-04 in 20a6bb3: `src/critical-footer.ts`, 1048 tests pass in the main checkout. Known gap: in a worktree under `.claude/worktrees/`, 9 Ink tests of `top` fail with "Invalid hook call" (two copies of React), and they pass in the main checkout.
 
 ### Later
 

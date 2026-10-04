@@ -14,6 +14,8 @@ export type ParsedArgs =
       url?: string;
       port?: number;
       force: boolean;
+      /** Only `down`: stop every server that oc-sub started. */
+      all: boolean;
       sandbox: boolean;
       dir?: string;
       noCostProxy: boolean;
@@ -184,17 +186,25 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "restart": {
       const { flags, positionals, globals } = collectFlags(
         rest,
-        new Set(["port", "force", "url", "sandbox", "no-sandbox", "dir", "no-cost-proxy"]),
-        new Set(["force", "sandbox", "no-sandbox", "no-cost-proxy"]),
+        new Set(["port", "force", "url", "sandbox", "no-sandbox", "dir", "no-cost-proxy", "all"]),
+        new Set(["force", "sandbox", "no-sandbox", "no-cost-proxy", "all"]),
       );
       if (positionals.length > 0) {
         throw new UsageError(`${head} takes no positional arguments, got "${positionals.join(" ")}"`);
+      }
+      const all = flags.get("all") === true;
+      if (all && head !== "down") {
+        throw new UsageError("--all is only allowed with down");
+      }
+      if (all && (globals.url !== undefined || ["dir", "port", "sandbox", "no-sandbox", "no-cost-proxy"].some((name) => flags.has(name)))) {
+        throw new UsageError("--all takes only --force, because it stops every server");
       }
       return {
         command: head,
         url: globals.url,
         port: parsePort(flags),
         force: flags.get("force") === true,
+        all,
         ...parseSandboxFlags(flags, globals),
         noCostProxy: flags.get("no-cost-proxy") === true,
       };

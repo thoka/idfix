@@ -3,6 +3,7 @@
 import { UsageError, parseArgs } from "./args";
 import { up } from "./up";
 import { down } from "./down";
+import { downAll } from "./down-all";
 import { upSandbox, downSandbox } from "./sandbox";
 import { run } from "./run";
 import { attach } from "./attach";
@@ -26,6 +27,7 @@ Usage:
   oc-sub up --no-sandbox [--port N] [--no-cost-proxy]
   oc-sub down [--dir DIR] [--force]
   oc-sub down --no-sandbox [--port N] [--force]
+  oc-sub down --all [--force]
   oc-sub restart [--dir DIR] [--force] [--no-cost-proxy]
   oc-sub restart --no-sandbox [--port N] [--force] [--no-cost-proxy]
   oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T] [--model PROVIDER/MODEL]
@@ -114,6 +116,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     case "up":
       return args.sandbox ? upSandbox(args, process.env) : up(args);
     case "down":
+      if (args.all) return downAll(args, process.env);
       return args.sandbox ? downSandbox(args, process.env) : down(args);
     case "restart": {
       if (args.sandbox) {

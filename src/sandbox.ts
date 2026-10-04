@@ -1547,12 +1547,38 @@ export async function downSandbox(
     console.error(`error: no sandbox state for project ${project}. Run oc-sub up first.`);
     return 1;
   }
+  return stopSandbox(state, args.force, env, deps);
+}
+
+/**
+ * Whether the output of `sbx ls` lists the sandbox `name` with the STATUS
+ * `running`. The columns are `SANDBOX AGENT STATUS PORTS WORKSPACE`.
+ */
+export function listsRunning(stdout: string, name: string): boolean {
+  return stdout.split("\n").some((line) => {
+    const [sandbox, , status] = line.trim().split(/\s+/);
+    return sandbox === name && status === "running";
+  });
+}
+
+/**
+ * Stops the sandbox of a state file: the busy check (unless `force`), then
+ * `sbx stop` and the holder process. The state file stays, so that the port
+ * stays the same. `downSandbox` and `downAll` share it.
+ */
+export async function stopSandbox(
+  state: SandboxState,
+  force: boolean,
+  env: Env = process.env,
+  depsOverrides: Partial<SandboxDeps> = {},
+): Promise<number> {
+  const deps = mergeDeps(depsOverrides);
   const { name, port } = state;
   const serveUrl = `http://127.0.0.1:${port}`;
   const pidPath = servePidPath(env, port);
   const dirsPath = serveDirsPath(env, port);
 
-  const server = args.force ? null : await deps.probe(serveUrl);
+  const server = force ? null : await deps.probe(serveUrl);
   // Without the credentials, the busy check cannot run. Only --force skips it.
   if (server?.state === "unauthorized") assertUsable(server, serveUrl, env);
   if (server?.state === "up") {

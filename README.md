@@ -106,6 +106,12 @@ Stops the server that `oc-sub up` started on the port. It reads the PID file and
 
 `down` knows only the sessions that `oc-sub run` started. It does not see a session that you started in the opencode interface.
 
+```
+oc-sub down --all [--force]
+```
+
+Stops every server that oc-sub started: each sandbox with a state file that `sbx ls` shows as `running`, and each host server with a PID file `serve-<port>.pid`. Each server gets the same busy check as a single `down`. Without `--force`, a busy server stays up, and the other servers still stop. If one server does not stop, `down --all` exits with code 1. `--all` takes no other flag, and `restart` does not accept it.
+
 ### oc-sub restart
 
 ```
@@ -352,7 +358,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 - `src/attach.ts` — the `attach` command
 - `src/doctor.ts` — the health checks, the fast gate for `up` and `run`, and the `doctor` command
 - `src/top/` — `oc-sub top`: `model.ts` (the pure session model), `load.ts` (the REST seed and `--once`), `live.ts` (the event streams), `columns.ts` and `format.ts` (the columns and the text table, pure), `view-model.ts` (the pure view logic), `view.tsx` and `app.tsx` (the Ink view)
-- `src/up.ts`, `src/down.ts`, `src/run.ts`, `src/status.ts`, `src/ping.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts`, `src/answer.ts` — the commands
+- `src/up.ts`, `src/down.ts`, `src/down-all.ts`, `src/run.ts`, `src/status.ts`, `src/ping.ts`, `src/watch.ts`, `src/log.ts`, `src/abort.ts`, `src/answer.ts` — the commands
 
 ## License
 

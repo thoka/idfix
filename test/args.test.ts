@@ -28,11 +28,12 @@ describe("parseArgs", () => {
   });
 
   test("down and restart default to sandbox mode, host flags imply host mode", () => {
-    expect(parseArgs(["down"])).toEqual({ command: "down", force: false, sandbox: true, noCostProxy: false });
+    expect(parseArgs(["down"])).toEqual({ command: "down", force: false, all: false, sandbox: true, noCostProxy: false });
     expect(parseArgs(["down", "--no-sandbox", "--port", "8790", "--force"])).toEqual({
       command: "down",
       port: 8790,
       force: true,
+      all: false,
       sandbox: false,
       noCostProxy: false,
     });
@@ -40,14 +41,24 @@ describe("parseArgs", () => {
       command: "restart",
       port: 8790,
       force: false,
+      all: false,
       sandbox: false,
       noCostProxy: false,
     });
   });
 
+  test("down --all takes only --force", () => {
+    expect(parseArgs(["down", "--all"])).toEqual({ command: "down", force: false, all: true, sandbox: true, noCostProxy: false });
+    expect(parseArgs(["down", "--all", "--force"])).toMatchObject({ command: "down", force: true, all: true });
+    expect(() => parseArgs(["restart", "--all"])).toThrow("--all is only allowed with down");
+    for (const extra of [["--dir", "/w"], ["--port", "8790"], ["--url", "http://127.0.0.1:8790"], ["--no-sandbox"], ["--sandbox"]]) {
+      expect(() => parseArgs(["down", "--all", ...extra])).toThrow("--all takes only --force");
+    }
+  });
+
   test("--sandbox stays the explicit form of the default", () => {
     expect(parseArgs(["up", "--sandbox"])).toEqual({ command: "up", sandbox: true, noCostProxy: false });
-    expect(parseArgs(["down", "--sandbox", "--force"])).toEqual({ command: "down", force: true, sandbox: true, noCostProxy: false });
+    expect(parseArgs(["down", "--sandbox", "--force"])).toEqual({ command: "down", force: true, all: false, sandbox: true, noCostProxy: false });
   });
 
   test("--dir works with the explicit sandbox flag and in default sandbox mode", () => {
@@ -57,6 +68,7 @@ describe("parseArgs", () => {
       sandbox: true,
       dir: "/w",
       force: true,
+      all: false,
       noCostProxy: false,
     });
     expect(parseArgs(["restart", "--dir", "/w"])).toEqual({
@@ -64,6 +76,7 @@ describe("parseArgs", () => {
       sandbox: true,
       dir: "/w",
       force: false,
+      all: false,
       noCostProxy: false,
     });
   });

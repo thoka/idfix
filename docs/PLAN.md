@@ -18,6 +18,7 @@ The user decided on 2026-10-04 (meta plan, step 12, decision 16): idfix becomes 
   1. Measured on 2026-10-04 (`~/dv/meta/docs/research/askuserquestion-afk-timer.md`): in Claude Code 2.1.285 an unanswered AskUserQuestion stays open. The AFK timer runs only if `askUserQuestionTimeout` or `CLAUDE_AFK_TIMEOUT_MS` is set. It never runs in `--bg` sessions or while Remote Control is connected. Do not set either value. Then the broker-down fallback `{}` is safe for questions.
   2. Only the broker, under its own system user, writes the sender allow list.
   3. The bot token never passes through a Claude session.
+- Task from meta-f2, after the broker plan: the journal `~/dv/gemini-journal` found four Deep Research reports of the user on a control layer that drives Claude Code autonomously. Merge them into `docs/design/driver-layer.md` or its research report if they cover the question, else into one new report, with a recheck head (skill `gemini-research`). Cite the Gemini chat ids, because no share links exist. Note what changes for idfix. The ids are `78cb4cb3b06a0b87`, `8132f53fd96bfd51`, `cac95a48f5594da9`, and `e01c776569945668`. The texts are private, in `~/.cache/gemini-journal/text/<id>.md`, and never go into a commit. Summaries are in `~/dv/gemini-journal/entries/<id>.md`.
 - Spike 32c: the supervisor reviewed `scripts/spike-32c-root-v2.sh` (d5da157) and queued it for the user after the grata smoke test. When `~/.local/state/user-steps/spike-32c.log` has a check run, the supervisor reports it.
 
 ## State on 2026-10-02

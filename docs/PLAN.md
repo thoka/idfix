@@ -10,6 +10,13 @@ If four things hold, oc-sub is stable and useful. First, a plugin change reaches
 
 The user decided on 2026-10-04 (meta plan, step 12, decision 16): idfix becomes the isolation layer of a GitHub Actions self-hosted runner on this machine. Later it becomes the base of the own stack of the user. New work only serves that goal: Claude Code as a client, and a sandbox for each runner job. The GLM features rest while the user has the Claude Max plan. A step that does not serve the goal is marked "Paused". A meta subagent (step 12f, in arch-helper) compares a runner user with rootless Docker against an sbx sandbox for each job. The session `supervisor` coordinates meta step 12 and sends its result and the change requests for idfix.
 
+## Notes from meta, 2026-10-04
+
+- Git: the user changed the Git rules (meta `agents/AGENTS.md`, section Git; report `~/dv/meta/docs/research/branching-model.md`). `alpha` goes away, agent PRs auto-merge into `main`, release-please keeps one release PR, and CI moves the tag `stable`. This project migrates third in meta plan step 16c, after grata and markgraf. Do not start before the supervisor says so. Until then the `alpha` flow stays, but a merge into `main` no longer needs the approval of the user. After the move, the `~/.local/bin` links and the marketplace use `ref: stable`.
+- User scripts end with `notify-session <session-id> <text>` (report `~/dv/meta/docs/research/script-notifies-session.md`, template `~/dv/meta/dv/bin/user-step-template.sh`). After the session writes such a script, it ends its turn.
+- New work from meta-f2: a Telegram broker for Claude Code sessions, inside idfix (meta step 12, decision 16). It is planned together with step 25g (Claude sessions in `top`), because both read the same Claude Code hooks. The plan entry follows after the grill with the user. Reports go to meta-f2.
+- Spike 32c: the supervisor reviewed `scripts/spike-32c-root-v2.sh` (d5da157) and queued it for the user after the grata smoke test. The supervisor reports when `~/.local/state/user-steps/spike-32c.log` has a check run.
+
 ## State on 2026-10-02
 
 `alpha` holds the branch `worktree-complete-plan` up to step 19, and the main checkout is on it, so `~/.local/bin/oc-sub` runs the new code. `oc-sub doctor --fix` ran: the plugin and the idle server use the new plugin. Steps 2b, 3, 4, 5 (11d), 8h, 15e, 16d, 17b, 17c, 18a, 18b, and 19 are done in code. The suite passes on the host: 978 tests. The research reports of steps 15e, 16, 17a, 18, 2b, and the KVM task are written. Details are in [HISTORY.md](HISTORY.md).

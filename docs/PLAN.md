@@ -170,9 +170,13 @@ Research: [process-labels.md](research/process-labels.md), with the review of th
 3. 31c: the integration tests use the same path with a test owner, and the teardown stops their units (this also closes the follow-up of step 30).
 4. 31d: `doctor` lists the `ocsub-*` units with owner and reason, and warns for a unit whose owner is gone. `--fix --force` stops it.
 
-### 17. Step 32: a sandbox for each runner job (waits for meta step 12f)
+### 17. Step 32: a sandbox for each runner job
 
-Meta step 12f decides between a runner user with rootless Docker and an sbx sandbox for each job. If sbx wins, idfix gets the job sandbox: create it at job start, run Claude Code inside, and remove it at job end. The details come with the result from `supervisor`.
+Result of meta step 12f, from the supervisor on 2026-10-04 (arch-helper `alpha` 85e3ffd: `fixes/50-gh-runner.sh`, `lib/gh-runner/`, `docs/gh-runner.md`, `docs/research/self-hosted-runner.md`). The runner uses option (a) now: the Linux user `gh-runner`, rootless Docker, and a just-in-time runner for each job. A root-only token in `/etc/credstore/gh-runner.pat` mints the runners. The global rules come read-only from `/srv/meta-agents`. Option (c) is an idfix sbx sandbox for each job, and it is this step. It waits for a headless sbx login of the user `gh-runner`. Option (c) can close two gaps of (a): Docker images stay between jobs, and jobs have full network access. Fix 50 did not run on the real system yet. arch-helper belongs to the supervisor, so idfix sends it the changes that fix 50 needs.
+
+1. 32a, research (a Claude research agent): a headless sbx login for a second Linux user, the lifecycle of one sandbox for each job, the network policy of sbx, and how Claude Code logs in inside the sandbox without a token in the VM. The report goes to `docs/research/runner-job-sandbox.md`.
+2. 32b: the design, in `docs/design/runner-job-sandbox.md`, after an interview of the user if the research leaves open choices.
+3. 32c: a spike by hand as the user `gh-runner`, then the change list for fix 50 to the supervisor.
 
 ### Later
 

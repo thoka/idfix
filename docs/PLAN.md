@@ -135,6 +135,14 @@ On 2026-10-04 five sandbox servers ran for up to 1.8 days with no session. `oc-s
 3. 29c: if the sandbox server of the project is down, `run` starts it.
 4. 29d: find the leak of `top --all` with a heap snapshot, fix it, and add a test that memory stays flat over many refreshes.
 
+### 15. Step 30: `doctor` stops leaked processes
+
+On 2026-10-04 the VM used 13 GB RAM after `idfx down --all`. 7.5 GB came from one `oc-sub top --all` process in a tmux pane (the leak of 29d). 0.7 GB came from 33 orphaned `caddy` processes of grata: their parent is `/init`, and 26 of them run in deleted worktrees or scratchpads. The user asked on 2026-10-04 that `doctor --fix --force` cleans both up. Root cause: a detached child outlives its starter, and nothing on the host looks for it. The leak itself stays a task of 29d and of grata (outbox task, imported on 2026-10-04).
+
+1. Check `top-memory` (slow): warns for each process of the user that runs the `top` command of oc-sub with more than 1 GB RSS. The fix needs `--force`, because it ends a view of the user: SIGTERM.
+2. Check `orphan-processes` (slow): warns for each process of the user whose parent is PID 1 or `/init` (the WSL init) and whose working folder is deleted. The fix needs `--force`: SIGTERM, then SIGKILL after 5 seconds. It never stops a process of another user, so no root fix. Known gap: an orphan in a folder that still exists (7 grata caddy processes) is not found.
+3. `--fix-as-root --force` implies `--fix --force`, so both fixes also run there.
+
 ### Later
 
 - Log rotation: the server and proxy logs grow without limit since step 16d.

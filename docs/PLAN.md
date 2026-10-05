@@ -2,17 +2,19 @@
 
 ## Hand-off
 
-2026-10-05, interactive session in `~/dv/opencode-subagents` (Opus 5.5). The research report on the Claude session sources is written and linted.
+2026-10-05, interactive session in `~/dv/idfix` (Opus 5.5). The supervisor renamed the repository and the folder to idfix. This session added the scan task for the old name (step 24, sub-step 4b) on the request of the supervisor (brief `~/inbox/idfix-rename-scan-task.md`).
 
-State: the temp folder leak of the tests is fixed (900d438). A test run leaves nothing in `/tmp`. `test/watch-guards.test.ts` is flaky under load (see Later). The Telegram work is stopped by the user, step 32 is dropped, and step 23 is paused (see Direction). A grill with the user on step 25g, "idfx top shows Claude sessions", is in progress. Settled: `top` and `status` show Claude sessions, interactive and background, from `claude agents --json`, `~/.claude/sessions/<pid>.json`, `~/.claude/jobs/<id>/state.json`, and the transcripts, by polling (no proxy, no hooks). Subagents show as children. The folder rule of `top` applies, and `--all` also shows sessions outside `~/dv`. The `o` key runs `claude attach <id>` for a background session and switches to the tmux pane of an interactive one. Open: Q6 (a gray API price in the `¢` column) and Q7 (the 60-minute rule, and a waiting session always shows). The facts on the data sources: [claude-session-sources.md](research/claude-session-sources.md).
+State: the temp folder leak of the tests is fixed (900d438). `test/watch-guards.test.ts` is flaky under load (see Later). The Telegram work is stopped by the user, step 32 is dropped, and step 23 is paused (see Direction). A grill with the user on step 25g, "idfx top shows Claude sessions", is in progress. Settled: `top` and `status` show Claude sessions, interactive and background, from `claude agents --json`, `~/.claude/sessions/<pid>.json`, `~/.claude/jobs/<id>/state.json`, and the transcripts, by polling (no proxy, no hooks). Subagents show as children. The folder rule of `top` applies, and `--all` also shows sessions outside `~/dv`. The `o` key runs `claude attach <id>` for a background session and switches to the tmux pane of an interactive one. The facts on the data sources: [claude-session-sources.md](research/claude-session-sources.md).
 
-Next step: get the answers to Q6 and Q7, write the design of step 25g into `docs/design/`, review it, and build it in a worktree.
+Asked, no answer yet: Q6, the cost column. The recommendation is A: the API price of the tokens in gray in the `¢` column, as the field `apiEquivalentUsd` in `status --json`. Q7, which sessions show. The recommendation: the 60-minute rule of `src/top/load.ts:30` for ended sessions, a live session always shows, and a waiting session always shows and sorts to the top.
+
+Next step: step 24, sub-step 4b, the scan for the old name `opencode-subagents` (see that step). After it, get the answers to Q6 and Q7, write the design of step 25g into `docs/design/`, review it, and build the read side in a worktree. The watch slice of 25g comes after the scan.
 
 Scope from the supervisor, 2026-10-05 (grill in `~/dv/meta/docs/interviews/2026-10-05-watch-protocol.md`, meta plan step 22). The first slice has two parts. First, 25g as settled: Claude sessions in `top` and `status --all --json`, read only. Each row also shows the model and the context size, its share of the model window, and the last activity. The context size is the input plus cache tokens of the last request. Second, `idfx watch --all`: a deterministic systemd user service without an LLM. It writes one JSON line per event to a log in `~/.local/state/` and wakes the session `supervisor` with `notify-session`. It has five events, with starting thresholds. A session waits for the user over 10 minutes. A session is busy, but its transcript did not grow for 15 minutes. The context is over 50% of the window. A session ended, and `handover check` fails in its project. The transcript shows an API, usage limit, or authentication error. The event format is provisional, because meta researches it now. All tools follow one protocol: `doctor [--json] [--fix]`, `status --json`, and `watch`. Later, not now: `idfx restart <name>`, and the hand-off as a markgraf type. Do not rename the repository yet. Report to the supervisor at each merge.
 
 Open tasks of the user: section "Open tasks of the user" below.
 
-Next context: this context is long and holds the dead ends of the broker and step 32. A new context is better after the grill ends.
+Next context: this context is short, so the session continues here with the answers to Q6 and Q7. The scan of step 24 4b has a new topic and can run in a new session.
 
 This file holds only the open work. Finished steps, their root causes, and their details are in [HISTORY.md](HISTORY.md), under the same step numbers. Measured runs and costs are in [EXPERIENCE.md](EXPERIENCE.md). How to use the tool is in [GUIDE.md](GUIDE.md).
 
@@ -129,7 +131,8 @@ The user decided on 2026-10-03: the project becomes idfix 🐕 (the dog Idefix i
 1. Help text, messages, and docs say `idfx`. `oc-sub` stays as an alias.
 2. The plugin, the marketplace, and the skill `oc-sub` get the new name. Claude Code needs a reinstall of the plugin.
 3. State folders (`$XDG_STATE_HOME/oc-sub`), environment variables (`OC_SUB_*`), sandbox names, and `.opencode/oc-sub.json` move with a fallback to the old names. `doctor --fix` migrates them.
-4. The repository folder and the GitHub repository get the new name. meta and arch-helper (links, rules, skills) change through the outbox.
+4. The repository folder and the GitHub repository get the new name. meta and arch-helper (links, rules, skills) change through the outbox. Done on 2026-10-05 by the supervisor: GitHub `thoka/opencode-subagents` is now `thoka/idfix` (the old URL redirects), the folder is `~/dv/idfix`, and the remote, the worktrees, and the links `~/.local/bin/idfx` and `~/.local/bin/oc-sub` are fixed.
+4b. Next step. Scan the repository for the old name `opencode-subagents`. Replace it where it names the live repository, folder, or plugin. Look in code, configuration, `.opencode`, `.claude-plugin`, `package.json`, the README, the tests, and the sandbox mounts and clone paths of oc-sub. Also rename the plugin and its marketplace entry. Old research reports and history files keep the old name as a record. Make sure that the sandboxes work with `oc-sub doctor`. This comes before the watch slice of step 25g.
 5. `oc-sub` goes away after the user agrees.
 
 ### 11. Step 25: one driver layer for opencode and Claude Code (design)

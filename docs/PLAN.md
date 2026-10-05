@@ -8,6 +8,8 @@ State: the temp folder leak of the tests is fixed (900d438). A test run leaves n
 
 Next step: get the answers to Q6 and Q7, write the design of step 25g into `docs/design/`, review it, and build it in a worktree.
 
+Scope from the supervisor, 2026-10-05 (grill in `~/dv/meta/docs/interviews/2026-10-05-watch-protocol.md`, meta plan step 22). The first slice has two parts. First, 25g as settled: Claude sessions in `top` and `status --all --json`, read only. Each row also shows the model, the context size (input plus cache tokens of the last request), its share of the model window, and the last activity. Second, `idfx watch --all`: a deterministic systemd user service without an LLM. It writes one JSON line per event to a log in `~/.local/state/` and wakes the session `supervisor` with `notify-session`. It has five events, with starting thresholds. A session waits for the user over 10 minutes. A session is busy, but its transcript did not grow for 15 minutes. The context is over 50% of the window. A session ended, and `handover check` fails in its project. The transcript shows an API, usage limit, or authentication error. The event format is provisional, because meta researches it now. All tools follow one protocol: `doctor [--json] [--fix]`, `status --json`, and `watch`. Later, not now: `idfx restart <name>`, and the hand-off as a markgraf type. Do not rename the repository yet. Report to the supervisor at each merge.
+
 Open tasks of the user: section "Open tasks of the user" below.
 
 Next context: this context is long and holds the dead ends of the broker and step 32. A new context is better after the grill ends.

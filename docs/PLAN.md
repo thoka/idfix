@@ -2,7 +2,7 @@
 
 ## Hand-off
 
-2026-10-05, interactive session in `~/dv/opencode-subagents` (Opus 5.5).
+2026-10-05, interactive session in `~/dv/opencode-subagents` (Opus 5.5). The research report on the Claude session sources is written and linted.
 
 State: the temp folder leak of the tests is fixed (900d438). A test run leaves nothing in `/tmp`. `test/watch-guards.test.ts` is flaky under load (see Later). The Telegram work is stopped by the user, step 32 is dropped, and step 23 is paused (see Direction). A grill with the user on step 25g, "idfx top shows Claude sessions", is in progress. Settled: `top` and `status` show Claude sessions, interactive and background, from `claude agents --json`, `~/.claude/sessions/<pid>.json`, `~/.claude/jobs/<id>/state.json`, and the transcripts, by polling (no proxy, no hooks). Subagents show as children. The folder rule of `top` applies, and `--all` also shows sessions outside `~/dv`. The `o` key runs `claude attach <id>` for a background session and switches to the tmux pane of an interactive one. Open: Q6 (a gray API price in the `¢` column) and Q7 (the 60-minute rule, and a waiting session always shows). The facts on the data sources: [claude-session-sources.md](research/claude-session-sources.md).
 

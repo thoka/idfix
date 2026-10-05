@@ -1,7 +1,7 @@
 ---
 checked: 2026-10-04
 recheck: each new Claude Code release
-decisions: ["idfx top and status read Claude Code sessions from local files by polling, without the proxy and without hooks (step 25g)"]
+decisions: ["step 25g: idfx top and status poll local Claude Code files", "step 25g: no proxy and no hooks for Claude sessions"]
 ---
 
 # Claude Code sessions: local data sources
@@ -29,13 +29,13 @@ The list gives no tokens, no model, and no state "waits for a permission".
 
 ## 2. Files under `~/.claude`
 
-`sessions/<pid>.json` exists for each live process, also for `--bg`. Its fields are `pid`, `procStart`, `sessionId`, `cwd`, `name`, `nameSource`, `kind` (`interactive` or `bg`), `entrypoint`, `version`, `jobId` (background only), `status`, `waitingFor`, `updatedAt`, and `statusUpdatedAt`. `tmux` holds the pane id, for example `4:@4.%14`. `messagingSocketPath` holds the socket of the session.
+`sessions/<pid>.json` exists for each live process, also for `--bg`. Its fields are `pid`, `procStart`, `sessionId`, `cwd`, `name`, `nameSource`, and `kind` (`interactive` or `bg`). More fields are `entrypoint`, `version`, `jobId` (background only), `status`, `waitingFor`, `updatedAt`, and `statusUpdatedAt`. `tmux` holds the pane id, for example `4:@4.%14`. `messagingSocketPath` holds the socket of the session.
 
 The binary sets `status: "waiting"` with a reason in `waitingFor`: the title of a permission dialog, "input needed", "dialog open", "sandbox request", or "worker request". Else it sets `busy` or `idle`. The agent also saw `status: "shell"` while a shell command ran, and `claude agents` showed it as `busy`. This file is the only source that tells that an interactive session waits for the user. A crash can leave the file behind, so a reader compares `pid` and `procStart` with the live process. The `.key` files next to these files are secrets, and idfx never reads them.
 
-`jobs/<id>/state.json` exists only for background sessions. Its fields are `state`, `tempo`, `inFlight`, `fan`, `tokens`, `respawnFlags`, `createdAt`, and `updatedAt`. `detail` is a one-line progress text. `needs` tells what the user must do when the session is blocked. `intent` is the first prompt, and idfx keeps it out of its view. `providerEnv` holds the model variables. `jobs/<id>/timeline.jsonl` holds one line for each change of state: `{at, state, detail, text}`.
+`jobs/<id>/state.json` exists only for background sessions. Its fields are `state`, `tempo`, `inFlight`, `fan`, `tokens`, `respawnFlags`, `createdAt`, and `updatedAt`. `detail` is a one-line progress text. If the session is blocked, `needs` tells what the user must do. `intent` is the first prompt, and idfx keeps it out of its view. `providerEnv` holds the model variables. `jobs/<id>/timeline.jsonl` holds one line for each change of state: `{at, state, detail, text}`.
 
-`projects/<cwd with dashes>/<sessionId>.jsonl` is the transcript. Each line has a type: `user`, `assistant`, `attachment`, `system` (with subtypes such as `turn_duration`, `api_error`, and `compact_boundary`), `custom-title`, `agent-name`, `ai-title`, `permission-mode`, `last-prompt`, `cost-state`, and others. Common fields are `timestamp`, `uuid`, `parentUuid`, `isSidechain`, `cwd`, `gitBranch`, `version`, `entrypoint`, and `sessionKind`. An `assistant` line has `message.model`, `message.id`, and `message.usage` with the input, output, and cache tokens.
+`projects/<cwd with dashes>/<sessionId>.jsonl` is the transcript. Each line has a type. The main types are `user`, `assistant`, `attachment`, and `system`. A `system` line has a subtype, for example `turn_duration`, `api_error`, or `compact_boundary`. Other types are `custom-title`, `agent-name`, `ai-title`, `permission-mode`, `last-prompt`, and `cost-state`. Common fields are `timestamp`, `uuid`, `parentUuid`, `isSidechain`, `cwd`, `gitBranch`, `version`, `entrypoint`, and `sessionKind`. An `assistant` line has `message.model`, `message.id`, and `message.usage` with the input, output, and cache tokens.
 
 Each subagent of the Agent tool writes its own transcript, `projects/<dir>/<sessionId>/subagents/agent-<id>.jsonl`, with `isSidechain: true`. Next to it, `agent-<id>.meta.json` holds `agentType`, `description`, `model`, and `spawnDepth`.
 
@@ -43,7 +43,7 @@ No transcript line records a permission prompt. Only the result shows: `toolDeni
 
 ## 3. Live events
 
-Claude Code gives no public event stream for a session that it did not start. `--output-format stream-json` works only for runs with `-p` or the SDK. Hooks (`SessionStart`, `Stop`, `PermissionRequest`, `Notification` with `permission_prompt` and `idle_prompt`, and others) can write events to a file, but they need a change to the configuration of the user. OpenTelemetry gives `claude_code.token.usage` and `claude_code.cost.usage`, but it needs a collector. The messaging socket is internal.
+Claude Code gives no public event stream for a session that it did not start. `--output-format stream-json` works only for runs with `-p` or the SDK. Hooks can write events to a file, but they need a change to the configuration of the user. Examples are `SessionStart`, `Stop`, `PermissionRequest`, and `Notification` with `permission_prompt` and `idle_prompt`. OpenTelemetry gives `claude_code.token.usage` and `claude_code.cost.usage`, but it needs a collector. The messaging socket is internal.
 
 ## 4. GLM sessions
 
@@ -55,7 +55,7 @@ Claude Code gives no public event stream for a session that it did not start. `-
 
 ## 6. Cost
 
-One API response spans several `assistant` lines, and each line repeats the same `message.usage`. So a reader counts one `usage` for each `message.id` and adds the subagent transcripts. The line `type: "cost-state"` holds `totalCostUSD` and the usage for each model. Claude Code writes it near the end of a transcript, so it is not live. For a Claude session on the Max plan, the USD value is the price that the API would charge, not a real charge. For GLM, the value is wrong (`hasUnknownModelCost: true`).
+One API response spans several `assistant` lines, and each line repeats the same `message.usage`. So a reader counts one `usage` for each `message.id` and adds the subagent transcripts. The line `type: "cost-state"` holds `totalCostUSD` and the usage for each model. Claude Code writes it near the end of a transcript, so it is not live. For a Claude session on the Max plan, the USD value is the API price of the same tokens, not a real charge. For GLM, the value is wrong (`hasUnknownModelCost: true`).
 
 ## Critical analysis
 

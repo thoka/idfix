@@ -341,6 +341,8 @@ bun run src/cli.ts log <session-id> --dir <repo>
 
 `bun test` runs the unit tests in `test/` (argument parsing, event filtering and line formatting, cost and token summary, the end check of a session missing from the status map, the child sessions of a session and their usage, run records, state files, the process check of `down`, client helpers, the pending question and permission requests, and the pause detection of `watch` against a fake server) and integration tests. The integration tests start a real `opencode serve` on a free port from 8790 upward, run `up`, create sessions over the SDK without sending any prompt, check `status`, run `abort`, check the pending lists and `answer` against a server without pending requests, and stop the server with `restart` and `down`. They never call a model and cost nothing. They skip themselves with a clear message when the command `opencode` is not on the PATH.
 
+The preload `test/setup.ts` gives each test run one temporary folder, `oc-sub-test-run-*` in the system temp folder. It points `TMPDIR` and the XDG data and state folders at it, and a global `afterAll` hook removes it after the last test. So a test can create temporary folders with `mkdtempSync(tmpdir())` and leaves nothing in `/tmp`. The preload also removes run folders older than six hours, which a killed run left behind. `test/temp-hygiene.test.ts` makes sure that the redirect is active.
+
 ## Layout
 
 - `src/cli.ts` — entry point and command dispatch

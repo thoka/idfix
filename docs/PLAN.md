@@ -194,6 +194,7 @@ Task from the supervisor, 2026-10-04. A new global rule and the skill `critical-
 
 ### Later
 
+- Flaky test: `test/watch-guards.test.ts` ("watch with a guard finding") times out after 20 seconds in some runs, with or without the temp folder fix of 2026-10-05. It was seen at a load average of about 10. The fake server likely pushes events before `watch` subscribes.
 - Log rotation: the server and proxy logs grow without limit since step 16d.
 - `oc-sub say --file FILE`: a message from a file. The guard of Claude Code refuses a `say` text that names git commands.
 - `oc-sub fetch` prints `+N over alpha` and `git diff alpha...` also in a repository without `alpha`. It needs the same base fallback as `oc-sub worktree` (step 19).

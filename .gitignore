@@ -3,3 +3,4 @@
 !.opencode/oc-sub.json
 node_modules/
 .worktrees/
+.claude/

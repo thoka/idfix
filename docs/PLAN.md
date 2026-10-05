@@ -1,5 +1,17 @@
 # Plan
 
+## Hand-off
+
+2026-10-05, interactive session in `~/dv/opencode-subagents` (Opus 5.5).
+
+State: the temp folder leak of the tests is fixed (900d438). A test run leaves nothing in `/tmp`. `test/watch-guards.test.ts` is flaky under load (see Later). The Telegram work is stopped by the user, step 32 is dropped, and step 23 is paused (see Direction). A grill with the user on step 25g, "idfx top shows Claude sessions", is in progress. Settled: `top` and `status` show Claude sessions, interactive and background, from `claude agents --json`, `~/.claude/sessions/<pid>.json`, `~/.claude/jobs/<id>/state.json`, and the transcripts, by polling (no proxy, no hooks). Subagents show as children. The folder rule of `top` applies, and `--all` also shows sessions outside `~/dv`. The `o` key runs `claude attach <id>` for a background session and switches to the tmux pane of an interactive one. Open: Q6 (a gray API price in the `¢` column) and Q7 (the 60-minute rule, and a waiting session always shows). The facts on the data sources: [claude-session-sources.md](research/claude-session-sources.md).
+
+Next step: get the answers to Q6 and Q7, write the design of step 25g into `docs/design/`, review it, and build it in a worktree.
+
+Open tasks of the user: section "Open tasks of the user" below.
+
+Next context: this context is long and holds the dead ends of the broker and step 32. A new context is better after the grill ends.
+
 This file holds only the open work. Finished steps, their root causes, and their details are in [HISTORY.md](HISTORY.md), under the same step numbers. Measured runs and costs are in [EXPERIENCE.md](EXPERIENCE.md). How to use the tool is in [GUIDE.md](GUIDE.md).
 
 ## Goal
@@ -152,10 +164,6 @@ Paused on 2026-10-04: it does not serve the runner goal (see Direction).
 
 Task from the supervisor, 2026-10-03 (meta plan, step 9). A new global rule (meta df5ba4a) says that a research report follows ASD-STE100, with the skill `simple-english` in strict mode. That skill is a Claude Code plugin in `~/.claude/plugins/cache/simple-english/simple-english/<version>/`, and the folder changes with each plugin version (2.1.0 and 2.1.1 exist now). opencode in the sandbox loads skills only from `OC_SUB_SHARED_DIR` (`meta/agents/skills/`). Find a fix that survives plugin updates, for example a copy of the newest version at `oc-sub up` or a stable path. Research first: how others give opencode a skill of a Claude Code plugin.
 
-### 13. Step 28: moved to meta step 19
-
-On 2026-10-04 the user widened the graph view of the plans into a generic graph viewer in its own new project (meta plan step 19, name still open). Nothing is built here. The research reports stay here, because step 19 links to them: [plan-graph-tools.md](research/plan-graph-tools.md) and [plan-graph-view.md](research/plan-graph-view.md). The design [plan-graph.md](design/plan-graph.md) also stays.
-
 ### 14. Step 29: idle servers stop by themselves, and `top` stops its leak
 
 On 2026-10-04 five sandbox servers ran for up to 1.8 days with no session. `oc-sub top --all` used 7 GB RSS after 2 days in a tmux pane. Root cause of the servers: `up` starts a detached holder that runs until `down`, and `run` never starts a server, so nobody stops one. The user agreed on 2026-10-04 to this fix. It starts after the `down --all` work of the other session is on `alpha`.
@@ -177,20 +185,6 @@ Research: [process-labels.md](research/process-labels.md), with the review of th
 2. 31b: `up` starts the host server, the cost proxy (with `Restart=on-failure` instead of the `sh` loop), and the holder through it. `down` stops the unit, so the whole tree stops.
 3. 31c: the integration tests use the same path with a test owner, and the teardown stops their units (this also closes the follow-up of step 30).
 4. 31d: `doctor` lists the `ocsub-*` units with owner and reason, and warns for a unit whose owner is gone. `--fix --force` stops it.
-
-### 17. Step 32: a sandbox for each runner job
-
-Dropped on 2026-10-04 evening (see Direction). The runner keeps running as fix 50 set it up. Spike 32c does not go to the user, and `scripts/spike-32c-root-v2.sh` is not run. 32a and 32b stay as records. The text below is history.
-
-Result of meta step 12f, from the supervisor on 2026-10-04 (arch-helper `alpha` 85e3ffd: `fixes/50-gh-runner.sh`, `lib/gh-runner/`, `docs/gh-runner.md`, `docs/research/self-hosted-runner.md`). The runner uses option (a) now: the Linux user `gh-runner`, rootless Docker, and a just-in-time runner for each job. A root-only token in `/etc/credstore/gh-runner.pat` mints the runners. The global rules come read-only from `/srv/meta-agents`. Option (c) is an idfix sbx sandbox for each job, and it is this step. It waits for a headless sbx login of the user `gh-runner`. Option (c) can close two gaps of (a): Docker images stay between jobs, and jobs have full network access. Fix 50 did not run on the real system yet. arch-helper belongs to the supervisor, so idfix sends it the changes that fix 50 needs.
-
-1. 32a, research (a Claude research agent): a headless sbx login for a second Linux user, the lifecycle of one sandbox for each job, the network policy of sbx, and how the sandbox gets the one Claude Max token for exactly one job and loses it afterwards. User decision 17 (meta plan step 12): the token lives in `/etc/credstore/claude-oauth.token` of the runner and reaches each job as `CLAUDE_CODE_OAUTH_TOKEN`. Done on 2026-10-04: [runner-job-sandbox.md](research/runner-job-sandbox.md). The whole runner process of a job operates in a fresh sbx VM, and `sbx rm --force` removes it. The user `gh-runner` logs in with a Docker PAT through `sbx login --password-stdin`, fed by `LoadCredential=`. The Claude token goes in as `sbx exec -e CLAUDE_CODE_OAUTH_TOKEN`, because the secret proxy of sbx 0.45.1 cannot inject it (issue #601). An injected prompt can still copy the token. Defaults that follow from the goal of a sandbox: the daemon of `gh-runner` starts with `--policy deny-all` and an allow list for each project, the token moves to the proxy when sbx supports it, and no global Anthropic secret or `/login` exists in the store of `gh-runner`. Default until a measurement: one job at a time. The user decided on 2026-10-04 (meta plan 760d063): the existing Docker account of the user owns the PAT.
-2. 32b, done on 2026-10-04: [runner-job-sandbox.md](design/runner-job-sandbox.md). idfix gets `idfx job run` and `idfx job prune`. arch-helper keeps the users, units, and credentials. No choice was open for the user.
-3. Next: 32c to 32f, as in section 5 of the design. 32c is a spike by hand as the user `gh-runner`. Fix 50 is not applied here, so `scripts/spike-32c-root-v2.sh` (apply, check, undo) adds an sbx daemon for `gh-runner` next to the live runner of fix 50 and logs to `~/.local/state/user-steps/spike-32c.log`. Do not run v1: its undo deletes the user and the files of fix 50. The user runs it with sudo after a review. The script is not tested yet, because the permission check of the session blocked a dry run. After `check`, read `~/.local/state/user-steps/spike-32c.log`, fix the design, and send the final change list for fix 50 to the supervisor.
-
-### 18. Step 33: every research brief ends with the critical-research footer
-
-Task from the supervisor, 2026-10-04. A new global rule and the skill `critical-research` (`meta/agents/skills/critical-research/SKILL.md`) say that every research question ends with a fixed footer, and every report has a section "Critical analysis" with four points. `oc-sub run --agent researcher` appends the footer, read from the skill file in `OC_SUB_SHARED_DIR`, after a line `---`. A brief that already ends with it stays unchanged. A missing skill file stops the run with an error. The researcher prompt asks for the section. A test compares the appended footer with the skill file. Done on 2026-10-04 in 20a6bb3: `src/critical-footer.ts`, 1048 tests pass in the main checkout. Known gap: in a worktree under `.claude/worktrees/`, 9 Ink tests of `top` fail with "Invalid hook call" (two copies of React), and they pass in the main checkout.
 
 ### Later
 

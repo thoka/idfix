@@ -87,6 +87,7 @@ One server serves many project folders, so its state lives in one folder per use
 - `serve-<port>.pid` holds its PID.
 - `serve-<port>.dirs` lists the folders that `oc-sub run` sent sessions to. `oc-sub down` checks these folders for busy sessions.
 - `idle-<port>.pid` holds the PID of the idle watchdog of the server.
+- `serve-<port>.lock` is the server lock. `oc-sub run` holds it while it starts a session, and the idle watchdog holds it while it stops the server. It is a folder, because the lock library `proper-lockfile` locks with `mkdir`.
 - `runs/` holds a copy of every run record, so `watch` and `log` find the real cost from any working directory.
 
 #### The idle watchdog
@@ -101,6 +102,8 @@ After a new server is healthy, `up` also starts an idle watchdog in the backgrou
 - It also exits without a stop when the server PID file changes or disappears, or when the server does not answer the health check 3 times in a row. So it never outlives its server for long.
 - `down`, `down --all`, and `restart` stop the watchdog after the server stops. A stale `idle-<port>.pid` does no harm.
 - An `up` that finds a running server starts no watchdog.
+- The watchdog takes the server lock `serve-<port>.lock` before its final check and keeps it through the stop. It does not wait for the lock. When `oc-sub run` holds it, a run starts a session now. Then the watchdog resets its timer and writes one line into the log.
+- After an idle stop, the next `oc-sub run` starts a sandbox server again (see `oc-sub run`).
 
 ### oc-sub down
 
@@ -137,6 +140,10 @@ Creates a session for the directory DIR, sends the brief to the agent asynchrono
 With `--agent researcher`, `run` appends the critical-research footer to the brief, after a blank line. It reads the footer from `<OC_SUB_SHARED_DIR>/skills/critical-research/SKILL.md`: the first fenced block after the heading `## The footer`. The footer starts with a line `---` and asks for a section "Critical analysis" with four points. A brief that already ends with the footer stays unchanged. If the skill file or the block is missing, `run` stops with an error that names the file. Other agents get no footer.
 
 When the project has a sandbox state and you pass neither `--url` nor `OC_SUB_URL`, `run` sends the run to the sandbox server. It first checks with `sbx exec NAME test -d DIR` that DIR exists inside the sandbox clone. A worktree that `git worktree add` created on the host is not in the clone. In that case `run` stops with exit code 1 before any session exists, and it names the two fixes: `oc-sub worktree STEP`, or a host server with `--url`. Without this check, opencode fails the prompt with `NotFound: FileSystem.realPath`, and the session ends idle without an answer.
+
+When `run` uses the sandbox server in this way and the server does not answer `GET /global/health`, `run` starts it first. It runs the same steps as `oc-sub up` for the project, with the defaults, so the idle watchdog starts too. It prints `started the sandbox server of <project> (it was down)` to stderr and goes on. The output of the start also goes to stderr, so the session ID stays the first line on stdout. If the start fails, `run` stops with the error and the exit code of `up`. The start comes before the folder check, because that check runs `sbx exec` in the sandbox. With `--url`, with `OC_SUB_URL`, or without a sandbox state, `run` starts nothing and keeps its old error for a server that is down.
+
+`run` holds the server lock `serve-<port>.lock` in the state folder from its health check until the prompt of the new session is sent. It releases the lock also on an error. The lock keeps the idle watchdog from stopping the server while a run starts a session on it. It also keeps two runs from starting the same sandbox server twice: the second run waits up to about one minute for the lock. If the lock stays held, `run` stops with an error that names the lock. A lock of a dead process counts as stale after 10 seconds, and the next run takes it over.
 
 Before it creates the session, `run` checks the OpenRouter key. Each project needs its own key. The run directory must use its project key file `~/.config/<project>/openrouter.key`, and no directory of another project may resolve to the same key. The known directories come from the same sources as `status --all`: the folders of past runs, the projects of the server, and their git worktrees. A directory of the same project may share the key, because it has the same git common dir. When another project shares the key, or when the run directory uses the global key from auth.json or the environment, `run` stops with exit code 1 before any session exists. The message names the other project and tells you to create `~/.config/<project>/openrouter.key` for one of the projects and to run `oc-sub restart`. A directory that cannot be checked prints `warning: <directory>: <message>` to stderr and does not stop the run.
 
@@ -372,6 +379,8 @@ bun run src/cli.ts fetch [--dir ROOT]
 
 Sandbox clone mode only. Runs `git fetch sandbox-<name>` on the host and prints every fetched `feature/*` branch with its commit count over `alpha`, plus the review and merge commands. Exit 1 without a sandbox state file.
 
+`sbx stop` removes the remote `sandbox-<name>` from the host repository, and the next start of the sandbox adds it again. So `fetch` fails while the sandbox is stopped, for example after an idle stop. Start the sandbox first with `oc-sub up`.
+
 ### Typical flow
 
 ```
@@ -404,7 +413,8 @@ A git hook sets repository-local git variables such as `GIT_DIR` and `GIT_INDEX_
 - `src/runs.ts` — run records in `.opencode/runs/` and in the state folder, real-cost line
 - `src/realcost.ts` — the real-cost output of `watch` and `log`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
-- `src/state.ts` — per-user state files of the server (PID, log, folders with runs)
+- `src/state.ts`: per-user state files of the server (PID, log, folders with runs, lock)
+- `src/lock.ts`: the server lock `serve-<port>.lock` of `run` and the idle watchdog
 - `src/idle.ts`: the idle watchdog of a server: the pure busy tracker, the hidden `idle-watch` command, and its start and stop
 - `src/attach.ts` — the `attach` command
 - `src/doctor.ts` — the health checks, the fast gate for `up` and `run`, and the `doctor` command

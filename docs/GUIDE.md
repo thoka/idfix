@@ -510,6 +510,19 @@ An idle server stops by itself. After a new server is healthy, `oc-sub up` start
 - An `oc-sub up` that finds a running server starts no watchdog. A server that an older oc-sub started has none, so stop it once with `oc-sub down`.
 - A session that you only read in `opencode attach` is not busy. The watchdog can stop its server after the limit.
 
+### A run starts a stopped sandbox server
+
+You do not need to run `oc-sub up` again after an idle stop. `oc-sub run` starts the sandbox server of the project when the server is down. This happens only when `run` would use the sandbox: you pass neither `--url` nor `OC_SUB_URL`, and the project has a sandbox state. The start uses the same steps as `oc-sub up`, with the defaults, so the idle watchdog starts too. `run` prints `started the sandbox server of <project> (it was down)` to stderr and then sends the brief. The start takes some seconds. If it fails, `run` stops with the error of `up`.
+
+The server lock `serve-<port>.lock` in the state folder guards the start and the idle stop:
+
+- `run` takes the lock before its health check and keeps it until the prompt of the new session is sent. It releases the lock also on an error.
+- The watchdog tries the lock without a wait before its final check and keeps it through the stop. If a run holds it, the watchdog resets its timer.
+- A second run waits up to about one minute for the lock, so two runs do not start the same server twice.
+- A lock of a dead process counts as stale after 10 seconds.
+
+`sbx stop` removes the git remote `sandbox-<name>` from the host repository. The next start of the sandbox adds it again. So `oc-sub fetch` needs a running sandbox: after an idle stop, run `oc-sub up` first.
+
 ### Recreating a sandbox
 
 The `sandbox-mounts` check fails when the sandbox lacks a required mount, has no clone, or is not in clone mode. All three need the same repair: remove the sandbox and create it again. `oc-sub doctor --fix --force` does this for you. It runs `oc-sub down` (when the server of the sandbox runs), then `sbx rm --force NAME`, then `oc-sub up`, which creates the sandbox again in clone mode with all required mounts.
@@ -645,7 +658,7 @@ problem: `oc-sub status` shows nothing
 cause-and-fix: The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. `oc-sub status --all` shows the running sessions of all known servers, all projects, and their worktrees, each with its folder. From a host git worktree of the project, `status` resolves to the project root through the git common dir; if git fails there (for example a dubious-ownership error), it cannot, so run it with `--dir <root>` instead. `--json` prints one object, and the sessions are in its `items`.
 --
 problem: The server stopped by itself
-cause-and-fix: The idle watchdog stopped it, because no session was busy and no event came for the idle limit. The server log `serve-<port>.log` shows the line `idle-stop port=<port> idle=<limit>`. Start it again with `oc-sub up`. To keep a server up longer, start it with `oc-sub up --idle-minutes N`, or with `--idle-minutes 0` for no limit.
+cause-and-fix: The idle watchdog stopped it, because no session was busy and no event came for the idle limit. The server log `serve-<port>.log` shows the line `idle-stop port=<port> idle=<limit>`. The next `oc-sub run` on the sandbox of the project starts it again. Else start it with `oc-sub up`. To keep a server up longer, start it with `oc-sub up --idle-minutes N`, or with `--idle-minutes 0` for no limit.
 --
 problem: A run seems stuck
 cause-and-fix: The agent may wait for an answer to a question or a permission request. Run `oc-sub watch <session-id> --dir <worktree>` again. It ends with exit code 3 and prints the request.

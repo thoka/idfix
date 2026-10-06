@@ -31,6 +31,7 @@ import {
   type PlanCommitReader,
   type WatchRow,
 } from "./conditions";
+import { projectNameOfRun } from "../keys";
 import { createWaker, nodeNotifier, type Notifier } from "./wake";
 import {
   acquireLock,
@@ -77,12 +78,17 @@ export type WatchAllDeps = {
   signal?: AbortSignal;
 };
 
-/** The fields of a Claude row that the conditions read. A row with a PID has a live process. */
-export function toWatchRow(row: ClaudeRow): WatchRow {
+/**
+ * The fields of a Claude row that the conditions read. A row with a PID has
+ * a live process. `projectName` gives the project of the folder; tests
+ * replace it, so that they need no real folders.
+ */
+export function toWatchRow(row: ClaudeRow, projectName: (directory: string) => string = projectNameOfRun): WatchRow {
   return {
     sessionId: row.sessionId,
     name: row.name,
     directory: row.directory,
+    project: projectName(row.directory),
     kind: row.kind,
     state: row.state,
     live: row.pid !== undefined,
@@ -140,7 +146,7 @@ export async function runWatchAll(options: { json: boolean; once: boolean }, dep
       for (;;) {
         const nowMs = deps.now();
         try {
-          const rows = (await deps.loadRows(nowMs)).map(toWatchRow);
+          const rows = (await deps.loadRows(nowMs)).map((row) => toWatchRow(row));
           const result = evaluate(state, rows, nowMs, deps.handoverCheck, deps.planCommit);
           state = result.state;
           for (const edge of result.edges) emit(writer.append((sequence) => conditionEvent(edge, sequence, source)));

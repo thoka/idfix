@@ -317,7 +317,7 @@ export const STATUS_SKIPPED_CONDITIONS: ReadonlySet<ConditionType> = new Set(["H
 export function statusConditions(rows: readonly ClaudeRow[], log: LogState, nowMs: number): StatusCondition[] {
   const old = restoreState(log.records, log.lastTimeMs ?? nowMs);
   // No `handover check` here: a code of -1 keeps the old value, and the result is left out below.
-  const { state } = evaluate(old, rows.map(toWatchRow), nowMs, () => ({ code: -1, firstLine: undefined }));
+  const { state } = evaluate(old, rows.map((row) => toWatchRow(row)), nowMs, () => ({ code: -1, firstLine: undefined }));
   const conditions: StatusCondition[] = [];
   for (const row of rows) {
     for (const type of CONDITION_TYPES) {

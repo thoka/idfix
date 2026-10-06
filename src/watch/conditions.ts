@@ -89,12 +89,20 @@ export const REASON_GONE = "SessionGone";
 export const REASON_HANDED_OFF = "HandoverCheckPassed";
 /** The file whose last commit marks a new hand-off. */
 export const PLAN_FILE = "docs/PLAN.md";
+/** The reason of `SessionUnnamed` for a live session without a name. */
+export const REASON_NO_NAME = "NoName";
+/** The reason of `SessionUnnamed` for a live session whose name breaks the naming rule. */
+export const REASON_NAME_OFF_RULE = "NameOffRule";
+/** The name that is valid in every folder (`~/dv/AGENTS.md`). */
+export const SUPERVISOR_NAME = "supervisor";
 
 /** The fields of one Claude row that the conditions read. `ClaudeRow` of `src/claude/rows.ts` has them all. */
 export type WatchRow = {
   sessionId: string;
   name: string | undefined;
   directory: string;
+  /** The project of the folder, from `projectNameOfRun`. */
+  project: string;
   kind: string;
   state: SessionRowState;
   /** Whether a live process belongs to the session. */
@@ -304,9 +312,22 @@ function apiError(row: WatchRow, seen: SeenSession | undefined, watermarkMs: num
   return FALSE;
 }
 
+/**
+ * The naming rule of the user (idfix plan, step 36): a session name is its
+ * project, or `<project>-<step>` with a non-empty step. The name
+ * `supervisor` is valid in every folder.
+ */
+export function nameFollowsRule(name: string, project: string): boolean {
+  if (name === SUPERVISOR_NAME || name === project) return true;
+  const prefix = `${project}-`;
+  return name.startsWith(prefix) && name.length > prefix.length;
+}
+
 function unnamed(row: WatchRow): Wanted {
-  if (!row.live || row.name !== undefined) return FALSE;
-  return { status: "True", reason: "NoName", message: "" };
+  if (!row.live) return FALSE;
+  if (row.name === undefined) return { status: "True", reason: REASON_NO_NAME, message: "" };
+  if (nameFollowsRule(row.name, row.project)) return FALSE;
+  return { status: "True", reason: REASON_NAME_OFF_RULE, message: cut(`expected "${row.project}" or "${row.project}-<step>"`) };
 }
 
 /**

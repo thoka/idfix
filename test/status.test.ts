@@ -1064,6 +1064,8 @@ describe("Claude sessions in status", () => {
         },
         expect.objectContaining({ type: "SessionWaitsForUser", reason: "input_required", subject: "blocked-job", session: S5 }),
         expect.objectContaining({ type: "SessionStalled", reason: "NoTranscriptGrowth", subject: "bg-worker", session: S2 }),
+        // The fixture name "bg-worker" in the folder w2 breaks the naming rule (step 36).
+        expect.objectContaining({ type: "SessionUnnamed", reason: "NameOffRule", message: 'expected "w2" or "w2-<step>"', session: S2 }),
       ]);
       expect((out.items as Array<{ id: string }>).map((item) => item.id)).toEqual([S1, S5, S2, S7]);
     });
@@ -1126,7 +1128,8 @@ describe("Claude sessions in status", () => {
       const { lines } = await snapshot({ dir: "/home/u/dv/proj", all: false });
       const out = parseJsonStdout(lines) as { conditions: Array<{ session: string }>; items: Array<{ id: string }> };
       expect(out.items.map((item) => item.id)).toEqual([S1, S2, S7]);
-      expect(out.conditions.map((condition) => condition.session)).toEqual([S1, S2]);
+      // S2 has two conditions: SessionStalled and SessionUnnamed (its name breaks the naming rule).
+      expect(out.conditions.map((condition) => condition.session)).toEqual([S1, S2, S2]);
     });
   });
 

@@ -5,6 +5,10 @@ import {
   emptyState,
   openCount,
   evaluate,
+  MESSAGE_LENGTH,
+  nameFollowsRule,
+  REASON_NAME_OFF_RULE,
+  REASON_NO_NAME,
   restoreState,
   STALL_THRESHOLD_MS,
   WAIT_THRESHOLD_MS,
@@ -27,6 +31,7 @@ function row(overrides: Partial<WatchRow> = {}): WatchRow {
     sessionId: ID,
     name: "meta",
     directory: "/home/u/dv/meta",
+    project: "meta",
     kind: "interactive",
     state: "idle",
     live: true,
@@ -313,6 +318,59 @@ describe("SessionUnnamed", () => {
   test("a session without a process is not unnamed", () => {
     const { edges } = polls([{ atMs: T0, rows: [row({ name: undefined, live: false, state: "ended", lastActivityMs: T0 - MIN })] }]);
     expect(edges[0]).toEqual([]);
+  });
+
+  test("the project name and <project>-<step> follow the rule", () => {
+    for (const name of ["meta", "meta-36", "meta-25g-watch"]) {
+      const { edges } = polls([{ atMs: T0, rows: [row({ name })] }]);
+      expect(only(edges[0] ?? [], "SessionUnnamed")).toEqual([]);
+    }
+  });
+
+  test("the name supervisor is valid in every folder", () => {
+    const { edges } = polls([{ atMs: T0, rows: [row({ name: "supervisor", directory: "/home/u/dv", project: "dv" })] }]);
+    expect(only(edges[0] ?? [], "SessionUnnamed")).toEqual([]);
+    expect(nameFollowsRule("supervisor", "idfix")).toBe(true);
+  });
+
+  test("a name off the rule is True with reason NameOffRule and the expected form", () => {
+    for (const name of ["Step 7c", "glm-3a-start-hook", "meta-"]) {
+      const { edges } = polls([{ atMs: T0, rows: [row({ name })] }]);
+      const unnamedEdges = only(edges[0] ?? [], "SessionUnnamed");
+      expect(summary(unnamedEdges)).toEqual([["SessionUnnamed", "True", REASON_NAME_OFF_RULE]]);
+      expect(unnamedEdges[0]?.message).toBe('expected "meta" or "meta-<step>"');
+      expect(unnamedEdges[0]?.severity.text).toBe("INFO");
+    }
+  });
+
+  test("the message stays within MESSAGE_LENGTH for a long project name", () => {
+    const project = "p".repeat(300);
+    const { edges } = polls([{ atMs: T0, rows: [row({ name: "x", project })] }]);
+    expect(only(edges[0] ?? [], "SessionUnnamed")[0]?.message.length).toBeLessThanOrEqual(MESSAGE_LENGTH);
+  });
+
+  test("a rename from a name off the rule to a valid name gives False Cleared", () => {
+    const { edges } = polls([
+      { atMs: T0, rows: [row({ name: "Step 7c" })] },
+      { atMs: T0 + MIN, rows: [row({ name: "meta-7c" })] },
+    ]);
+    expect(summary(only(edges[0] ?? [], "SessionUnnamed"))).toEqual([["SessionUnnamed", "True", REASON_NAME_OFF_RULE]]);
+    expect(summary(only(edges[1] ?? [], "SessionUnnamed"))).toEqual([["SessionUnnamed", "False", "Cleared"]]);
+  });
+
+  test("an ended session with a name off the rule gives no event", () => {
+    const { edges } = polls([{ atMs: T0, rows: [row({ name: "Step 7c", live: false, state: "ended", lastActivityMs: T0 - MIN })] }]);
+    expect(edges[0]).toEqual([]);
+  });
+
+  test("nameFollowsRule", () => {
+    expect(nameFollowsRule("idfix", "idfix")).toBe(true);
+    expect(nameFollowsRule("idfix-36", "idfix")).toBe(true);
+    expect(nameFollowsRule("idfix-", "idfix")).toBe(false);
+    expect(nameFollowsRule("idfix36", "idfix")).toBe(false);
+    expect(nameFollowsRule("pac-review", "podcast-autocutter")).toBe(false);
+    expect(nameFollowsRule("", "idfix")).toBe(false);
+    expect(REASON_NO_NAME).toBe("NoName");
   });
 });
 

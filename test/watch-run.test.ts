@@ -7,7 +7,7 @@ import { createClaudeSource, loadClaudeRows, type ClaudeRow } from "../src/claud
 import type { HandoverCheck, PlanCommitReader } from "../src/watch/conditions";
 import { acquireLock, EVENTS_FILE, type LockProcess } from "../src/watch/log";
 import type { Notifier } from "../src/watch/wake";
-import { HEARTBEAT_MS, humanLine, nodePlanCommit, POLL_MS, runWatchAll, type WatchAllDeps } from "../src/watch/run";
+import { HEARTBEAT_MS, humanLine, nodePlanCommit, POLL_MS, runWatchAll, toWatchRow, type WatchAllDeps } from "../src/watch/run";
 import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, MINUTE, NOW, S1, S2, S5, statLine } from "./claude-fixture";
 import { claudeRowOf } from "./top-rows";
 
@@ -382,6 +382,24 @@ describe("the wake-up of the supervisor", () => {
     expect(await runWatchAll({ json: true, once: true }, h.deps)).toBe(0);
     expect(h.notices).toHaveLength(1);
     expect(h.err).toEqual(["idfx watch: the wake-up failed: notify-session exited with code 1"]);
+  });
+});
+
+describe("toWatchRow", () => {
+  test("it fills project from the folder of the row", () => {
+    const seen: string[] = [];
+    const row = claudeRowOf(S1, { name: "idfix-36", directory: "/home/u/dv/idfix/.worktrees/36-worker-names", pid: 1 });
+    const watchRow = toWatchRow(row, (directory) => {
+      seen.push(directory);
+      return "idfix";
+    });
+    expect(seen).toEqual(["/home/u/dv/idfix/.worktrees/36-worker-names"]);
+    expect(watchRow).toMatchObject({ project: "idfix", name: "idfix-36", live: true });
+  });
+
+  test("the default project is the folder name when the folder does not exist", () => {
+    const row = claudeRowOf(S1, { directory: "/nonexistent-idfix-test/dv/proj" });
+    expect(toWatchRow(row).project).toBe("proj");
   });
 });
 

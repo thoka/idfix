@@ -26,11 +26,16 @@
  *   gray, and a table without color marks it with `~`. A session without a
  *   known price has an empty cost cell. The `ctx` cell adds the share of
  *   the context window when the window of the model is known.
+ * - An inactive row (no process, see `SessionRow.active`) that did not end
+ *   gets the mark `·` (`INACTIVE_MARK`) after its state: in the `state`
+ *   cell when the table has that column (`waiting·`), else after the CODE
+ *   in the `id` cell (`abc123·`), because there the color of the `id` cell
+ *   shows the state. An ended row needs no mark: it never has a process.
  */
 import path from "node:path";
 import cliTruncate from "cli-truncate";
 import stringWidth from "string-width";
-import type { SessionRow } from "./model";
+import { isActive, type SessionRow } from "./model";
 
 /** How many characters of the session ID the session column shows. */
 export const CODE_LENGTH = 6;
@@ -38,6 +43,19 @@ export const CODE_LENGTH = 6;
 /** The attach CODE of a session: the last 6 characters of its ID. */
 export function sessionCode(sessionId: string): string {
   return sessionId.slice(-CODE_LENGTH);
+}
+
+/** The mark of a row without a process: `waiting·` means "waits, but no process runs". */
+export const INACTIVE_MARK = "·";
+
+/** Whether a row gets the inactive mark: no process, and not ended. */
+export function hasInactiveMark(row: Pick<SessionRow, "active" | "state">): boolean {
+  return !isActive(row) && row.state !== "ended";
+}
+
+/** The state of a row as text, with the inactive mark when it applies, for example `waiting·`. */
+export function stateText(row: Pick<SessionRow, "active" | "state">): string {
+  return hasInactiveMark(row) ? `${row.state}${INACTIVE_MARK}` : row.state;
 }
 
 /** The project and the worktree of a session folder. */
@@ -217,10 +235,13 @@ function whereCell(directory: string, options: ColumnOptions, nameOf: (directory
  */
 export function rowCells(rows: readonly SessionRow[], options: ColumnOptions): string[][] {
   const nameOf = options.projectName ?? ((directory: string) => splitFolder(directory).project);
+  const stateColumn = options.stateColumn === true;
   return rows.map((row) => {
+    // The mark goes where the state shows: the state cell, or the colored `id` cell.
+    const idMark = !stateColumn && hasInactiveMark(row) ? INACTIVE_MARK : "";
     const cells: Record<ColumnHeader, string> = {
-      session: rowIcon(row) + sessionCode(row.sessionId),
-      state: row.state,
+      session: rowIcon(row) + sessionCode(row.sessionId) + idMark,
+      state: stateText(row),
       where: whereCell(row.directory, options, nameOf),
       cost: costCell(row, options.costMarker === true),
       elapsed: formatAge(row.elapsedMs),

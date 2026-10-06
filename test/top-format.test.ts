@@ -169,6 +169,16 @@ describe("Claude rows in the snapshot", () => {
     expect(colored[1]?.endsWith("\u001b[39m")).toBe(true);
   });
 
+  test("an inactive row is dim with color, and has the mark in the state column without color", () => {
+    const rows = [claude({ sessionId: "abc-555555", state: "waiting", active: false })];
+    const colored = formatTopTable(rows, NOW, { color: true });
+    expect(colored[1]?.startsWith("\u001b[2m")).toBe(true);
+    expect(colored[1]).toContain("555555·");
+    const plain = formatTopTable(rows, NOW);
+    expect(plain[1]).toContain("waiting·");
+    expect(plain[1]).not.toContain("555555·");
+  });
+
   test("a waiting Claude row gets its waitingFor text as a pending line", () => {
     const lines = formatTopTable(
       [claude({ sessionId: "abc-555555", state: "waiting", waitingFor: "approve\n  Bash" })],

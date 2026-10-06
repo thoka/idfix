@@ -14,21 +14,13 @@
  *   cover the Claude rows. The opencode model stays as it is.
  */
 import { inScope, type ClaudeRow } from "../claude/rows";
-import type { SessionDetail, SessionRow, SessionRowState, TopModel } from "./model";
+import { isActive, type SessionDetail, type SessionRow, type SessionRowState, type TopModel } from "./model";
 
 /** The sort group of a state: waiting first, ended last, every other state between. */
 export function stateRank(state: SessionRowState): number {
   if (state === "waiting") return 0;
   if (state === "ended") return 2;
   return 1;
-}
-
-/**
- * Whether a process belongs to the row. A row in the state `ended` is
- * never active, whatever its `active` field says.
- */
-export function isActive(row: Pick<SessionRow, "active" | "state">): boolean {
-  return row.active && row.state !== "ended";
 }
 
 /**

@@ -3,7 +3,7 @@ import type { PendingRequest } from "../requests";
 import { formatRequest } from "../requests";
 import { Chalk, type ForegroundColorName } from "chalk";
 import { DEFAULT_WIDTH, GAP, padTable } from "./columns";
-import type { SessionRow } from "./model";
+import { isActive, type SessionRow } from "./model";
 import { STATE_COLORS, waitingLine } from "./view-model";
 
 export { DEFAULT_WIDTH } from "./columns";
@@ -71,7 +71,8 @@ export function formatTopTable(
         if (column === costColumn && row.costKind === "apiEquivalent") return ansi.gray(cell);
         return cell;
       });
-      lines.push(shown.join(GAP).trimEnd());
+      const line = shown.join(GAP).trimEnd();
+      lines.push(isActive(row) ? line : ansi.dim(line));
     }
     for (const pending of row.pending) {
       lines.push(...formatRequest(pending).map((requestLine) => `  ${requestLine}`));

@@ -99,6 +99,14 @@ export type SessionRow = {
   kind?: "interactive" | "background";
 };
 
+/**
+ * Whether a process belongs to the row. A row in the state `ended` is
+ * never active, whatever its `active` field says.
+ */
+export function isActive(row: Pick<SessionRow, "active" | "state">): boolean {
+  return row.active && row.state !== "ended";
+}
+
 /** One session with its log, its pending requests, and its child sessions. */
 export type SessionDetail = SessionRow & {
   log: WatchLine[];

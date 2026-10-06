@@ -16,6 +16,8 @@ import {
   shortWorktree,
   splitFolder,
   ICON_WIDTH,
+  INACTIVE_MARK,
+  stateText,
 } from "../src/top/columns";
 import type { SessionRow } from "../src/top/model";
 import { claudeRowOf, openRow } from "./top-rows";
@@ -152,6 +154,25 @@ describe("columnHeaders and rowCells", () => {
       },
     );
     expect(cells?.[1]).toBe("opsub/8i");
+  });
+});
+
+describe("the inactive mark", () => {
+  test("an inactive row that did not end gets the mark after its state, an ended row none", () => {
+    expect(INACTIVE_MARK).toBe("·");
+    expect(stateText(row({ sessionId: "a", state: "waiting", active: false }))).toBe("waiting·");
+    expect(stateText(row({ sessionId: "b", state: "waiting", active: true }))).toBe("waiting");
+    expect(stateText(row({ sessionId: "c", state: "ended", active: false }))).toBe("ended");
+  });
+
+  test("with a state column the mark is in the state cell, else after the CODE", () => {
+    const rows = [row({ sessionId: "ses_xxxxABCDEF", state: "waiting", active: false, agent: "" })];
+    const [plain] = rowCells(rows, { showProject: false, stateColumn: true });
+    expect(plain?.slice(0, 2)).toEqual(["--ABCDEF", "waiting·"]);
+    const [colored] = rowCells(rows, { showProject: false });
+    expect(colored?.[0]).toBe("--ABCDEF·");
+    const [active] = rowCells([row({ sessionId: "ses_xxxxABCDEF", agent: "" })], { showProject: false });
+    expect(active?.[0]).toBe("--ABCDEF");
   });
 });
 

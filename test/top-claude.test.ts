@@ -1,7 +1,7 @@
 /** Tests for the merge of the Claude rows into the model of `top`. */
 import { describe, expect, test } from "bun:test";
-import { claudeDetail, isActive, scopeClaudeRows, sortTopRows, withClaudeRows } from "../src/top/claude";
-import { createTopModel, type TopModel } from "../src/top/model";
+import { claudeDetail, scopeClaudeRows, sortTopRows, withClaudeRows } from "../src/top/claude";
+import { createTopModel, isActive, type TopModel } from "../src/top/model";
 import { claudeRowOf, openRow } from "./top-rows";
 
 describe("sortTopRows", () => {

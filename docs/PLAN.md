@@ -2,9 +2,9 @@
 
 ## Hand-off
 
-Next step: 39a. Agree the order of the move of the planning files with the supervisor and meta.
-Waits for: the notice plan_dir ready from the supervisor (meta step 44)
-New context: yes. Step 39 has a new topic, and this context holds the measurements of step 29d.
+Next step: 29e. Fix the crash of `idfx top` outside the repository: the start script sets NODE_ENV (a subagent works in .worktrees/29e-node-env-at-start).
+Waits for: nothing
+New context: no. 29e runs in this context. After it, step 39b follows (plan_dir is ready since meta 44).
 
 2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5).
 

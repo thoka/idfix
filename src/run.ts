@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { appendCriticalFooter, readCriticalFooter } from "./critical-footer";
-import { assertOk, errorMessage, makeClient, requireServer, unwrap } from "./client";
+import { assertOk, errorMessage, makeClient, probeServer, requireServer, unwrap, type ServerState } from "./client";
 import { resolvePort, type Env } from "./config";
 import {
   checkOpenRouterKey,
@@ -14,9 +14,18 @@ import {
   type KeyFetch,
   type KeyOwner,
 } from "./keys";
+import { acquireLock, lockServer, RUN_LOCK_WAIT, type AcquireLock, type Release } from "./lock";
 import { makeRunRecord, writeRunRecord, writeStateRunRecord } from "./runs";
-import { defaultRunner, readSandboxState, resolveCommandUrl, sandboxStatePath, sbxBin } from "./sandbox";
-import { addDir, readDirs, serveDirsPath } from "./state";
+import {
+  defaultRunner,
+  readSandboxState,
+  resolveCommandUrl,
+  sandboxStatePath,
+  sbxBin,
+  upSandbox,
+  type SandboxState,
+} from "./sandbox";
+import { addDir, readDirs, serveDirsPath, serveLockPath } from "./state";
 import { uniqueDirectories, worktreesOf } from "./status";
 
 /** The CODE that identifies a session for `oc-sub attach`: the last 6 characters. Pure. */
@@ -33,7 +42,28 @@ export type RunDeps = {
   cwd: string;
   /** Whether a folder exists inside the sandbox. */
   existsInSandbox: (sandbox: string, directory: string, env: Env) => boolean;
+  /** The health check of a server. Default: `GET /global/health`. */
+  probe?: (url: string, env: Env) => Promise<ServerState>;
+  /** Starts the sandbox server of the project of a folder (the `up` path). Returns its exit code. */
+  startSandbox?: (directory: string, env: Env) => Promise<number>;
+  /** Takes the server lock. Default: `proper-lockfile`. */
+  acquireLock?: AcquireLock;
 };
+
+/**
+ * The real start of a sandbox server: `upSandbox` with its defaults, so the
+ * idle watchdog starts too. Its output goes to stderr, because the first
+ * line on stdout of `run` is the session ID.
+ */
+async function defaultStartSandbox(directory: string, env: Env): Promise<number> {
+  const log = console.log;
+  console.log = (...parts: unknown[]) => console.error(...parts);
+  try {
+    return await upSandbox({ dir: directory }, env);
+  } finally {
+    console.log = log;
+  }
+}
 
 const defaultDeps: RunDeps = {
   fetch,
@@ -44,6 +74,20 @@ const defaultDeps: RunDeps = {
   existsInSandbox: (sandbox, directory, env) =>
     defaultRunner([sbxBin(env), "exec", sandbox, "test", "-d", directory]).exitCode === 0,
 };
+
+/**
+ * The sandbox that `run` sends a run to, or null. Without `--url` and
+ * `OC_SUB_URL`, a run goes to the sandbox of the project of `--dir` when a
+ * sandbox state exists. Only then may `run` start a server that is down.
+ */
+export function sandboxTarget(
+  args: { url?: string; dir: string },
+  env: Env,
+  projectName: (directory: string) => string,
+): SandboxState | null {
+  if (args.url !== undefined || env.OC_SUB_URL !== undefined) return null;
+  return readSandboxState(sandboxStatePath(env, projectName(path.resolve(args.dir))));
+}
 
 /**
  * The refusal of a run whose folder is missing in the sandbox, or null.
@@ -58,9 +102,8 @@ export function missingSandboxFolder(
   env: Env,
   deps: Pick<RunDeps, "projectName" | "existsInSandbox">,
 ): string | null {
-  if (args.url !== undefined || env.OC_SUB_URL !== undefined) return null;
   const directory = path.resolve(args.dir);
-  const state = readSandboxState(sandboxStatePath(env, deps.projectName(directory)));
+  const state = sandboxTarget(args, env, deps.projectName);
   if (state === null || deps.existsInSandbox(state.name, directory, env)) return null;
   const step = path.basename(path.dirname(directory)) === ".worktrees" ? path.basename(directory) : "STEP";
   return [
@@ -104,19 +147,88 @@ export function splitModel(model: string): { providerID: string; modelID: string
   return { providerID: model.slice(0, index), modelID: model.slice(index + 1) };
 }
 
+/** The arguments of `oc-sub run`. */
+export type RunArgs = { url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string; model?: string };
+
 export async function run(
-  args: { url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string; model?: string },
+  args: RunArgs,
   env: Env = process.env,
   deps: RunDeps = defaultDeps,
 ): Promise<number> {
+  const baseUrl = resolveCommandUrl(args.url, env, args.dir, deps.projectName);
+  const port = resolvePort(undefined, baseUrl);
+  // The lock keeps the idle watchdog from stopping the server between the
+  // health check and the prompt, and keeps two runs from starting the same
+  // sandbox server twice.
+  const release = await takeRunLock(env, port, deps.acquireLock ?? acquireLock);
+  try {
+    return await runLocked(args, env, deps, baseUrl, release);
+  } finally {
+    await release();
+  }
+}
+
+/**
+ * Starts the sandbox server of the project of `--dir` when `run` would use
+ * it and it does not answer `GET /global/health`. In every other case (an
+ * explicit URL, no sandbox state, a server that answers) it does nothing.
+ * Returns 0, or the exit code of the failed start.
+ */
+export async function startSandboxIfDown(
+  args: { url?: string; dir: string },
+  env: Env,
+  deps: Pick<RunDeps, "projectName" | "probe" | "startSandbox">,
+  baseUrl: string,
+): Promise<number> {
+  if (sandboxTarget(args, env, deps.projectName) === null) return 0;
+  const probe = deps.probe ?? ((url: string, probeEnv: Env) => probeServer(url, probeEnv, 5000));
+  if ((await probe(baseUrl, env)).state !== "down") return 0;
+  const directory = path.resolve(args.dir);
+  const code = await (deps.startSandbox ?? defaultStartSandbox)(directory, env);
+  if (code === 0) console.error(`started the sandbox server of ${deps.projectName(directory)} (it was down)`);
+  return code;
+}
+
+/** Takes the lock of the server on `port`, or throws an error that names the lock. */
+async function takeRunLock(env: Env, port: number, acquire: AcquireLock): Promise<Release> {
+  let release: Release;
+  try {
+    release = await lockServer(env, port, RUN_LOCK_WAIT, acquire);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `cannot take the server lock ${serveLockPath(env, port)}: ${reason}. ` +
+        "Another oc-sub run or the idle watchdog holds it. Try again in a minute.",
+    );
+  }
+  // `run` releases after the prompt and again at its end, so only the first call counts.
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    await release();
+  };
+}
+
+/** The part of `run` that holds the server lock. It calls `release` once the prompt is sent. */
+async function runLocked(
+  args: RunArgs,
+  env: Env,
+  deps: RunDeps,
+  baseUrl: string,
+  release: Release,
+): Promise<number> {
+  const directory = path.resolve(args.dir);
+  // A sandbox server that is down starts here, before the folder check:
+  // that check runs `sbx exec` in the sandbox.
+  const started = await startSandboxIfDown(args, env, deps, baseUrl);
+  if (started !== 0) return started;
   const missing = missingSandboxFolder(args, env, deps);
   if (missing !== null) {
     console.error(missing);
     return 1;
   }
-  const baseUrl = resolveCommandUrl(args.url, env, args.dir);
   await requireServer(baseUrl, env);
-  const directory = path.resolve(args.dir);
   const client = makeClient(baseUrl, env);
 
   const text = args.briefFile !== undefined ? await readBrief(args.briefFile) : (args.text ?? "");
@@ -184,6 +296,8 @@ export async function run(
     }),
     "send brief",
   );
+  // The session works now, so the idle watchdog sees it as busy.
+  await release();
 
   const record = makeRunRecord({
     sessionId: created.id,

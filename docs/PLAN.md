@@ -8,7 +8,7 @@ New context: yes. The context is long and held five topics (two flaky tests, ste
 
 2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5).
 
-State: done and on `alpha`, see HISTORY: the flaky `restart` (8ae2dff, repeated SIGTERM, then SIGKILL), the flaky `watch-guards` (21c0db2, `watch` opens the event stream before its first check), the help under the called name (`idfix --help`), step 37 (wait reasons `input_required` and `auth_required` of protocol v0), step 38 (`SessionHandedOff` for Severin), and step 35 (pre-push hook with lefthook; `mise run hooks-install` ran in the main checkout). The suite has 1275 tests and passed twice in a row and once through the hook. Known risk: integration timeouts under heavy load (see Later). The watcher does not run yet: arch-helper must install `contrib/systemd/idfx-watch.service`.
+State: done and on `alpha`, see HISTORY: the flaky `restart` (8ae2dff, repeated SIGTERM, then SIGKILL), the flaky `watch-guards` (21c0db2, `watch` opens the event stream before its first check), the help under the called name (`idfix --help`), step 37 (wait reasons `input_required` and `auth_required` of protocol v0), step 38 (`SessionHandedOff` for Severin), and step 35 (pre-push hook with lefthook; `mise run hooks-install` ran in the main checkout). The suite has 1275 tests and passed twice in a row and once through the hook. Known risk: integration timeouts under heavy load (see Later). The watcher runs since 2026-10-06 10:38: arch-helper installed `contrib/systemd/idfx-watch.service` through a chezmoi link, and `idfx doctor` gives `pass watch-running`.
 
 The next step is step 36 below. Read its section, then the start paths of Claude workers (grep `claude` spawns in `src/`), and hand the work to a subagent in `.worktrees/36-worker-names`. A fresh worktree needs `bun install --frozen-lockfile` (or `mise run test` does it).
 
@@ -189,6 +189,10 @@ Research: [process-labels.md](research/process-labels.md), with the review of th
 ### 18. Step 36: stable names for workers
 
 User decision 2026-10-06 (meta plan, step 26). Each worker gets a stable name: its project folder, plus its step if a project runs more than one worker, for example `idfix-25g`. idfix starts every Claude worker with `-n <name>`. `idfx watch` (the watch slice of step 25g) reports a session without a name as an event. The user renamed the idfix main session to `idfix` on 2026-10-06, and each restart of it uses `-n idfix`.
+
+State on 2026-10-06: `SessionUnnamed` with reason `NoName` already exists (step 25g W1). idfix itself starts no Claude worker: `session-restart` of meta starts each restart with `-n <project>`, and a session starts a worker with `claude --bg -n` or `claude-glm --bg -n` by the rule. So the open part is the check of the naming rule. A live run of `idfx status --all` showed names that break it: `Step 7c` and `glm-3a-start-hook` in meta, and `pac-review` in a worktree of podcast-autocutter.
+
+Design: `SessionUnnamed` also turns True with reason `NameOffRule` for a live session whose name is neither its project (`projectNameOfRun` of its folder) nor `<project>-<step>`. The name `supervisor` is always valid (`~/dv/AGENTS.md`). The message names the expected form. Worktree `.worktrees/36-worker-names`, branch `feature/36-worker-names`.
 
 ### Later
 

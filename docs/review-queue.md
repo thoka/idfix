@@ -2,6 +2,12 @@
 
 Decisions that a session made from the canon of values. Newest entry first.
 
+## 2026-10-06: technical defaults of the design of `idfx watch --all`
+
+- Decision: the watcher polls every 15 seconds and watches Claude sessions only. `idfx watch SESSION` keeps its old meaning, and `--all` starts the watcher. The event file is the only state of the watcher. It wakes the supervisor at most once per 60 seconds. `status --json` and `doctor --json` change to the object form of the protocol, because no code outside idfix reads the old arrays. idfix ships the systemd unit file, and arch-helper installs it. A sixth condition `SessionUnnamed` reports a session without a name. The design is [idfx-watch.md](design/idfx-watch.md).
+- Values: one state in one place. Use the platform (systemd, CloudEvents). Deliver first. A rule needs a check (the user decision on worker names).
+- Conditions: the protocol version 0 of `~/dv/meta/docs/research/tool-protocol.md`. If the Gemini check changes it, the envelope changes.
+
 ## 2026-10-06: open points of step 25g.1
 
 - Decision: `waitingFor` keeps the full `needs` text, also a URL of a key management page. It holds no key, and it is the text that Claude Code shows the user. `claude-glm` sessions stay without a price until the GLM features come back, then an `openrouter/` prefix lookup in LiteLLM can price them. A blocked background job shows as `waiting` until `claude rm`, as in `claude agents`, because it is work that waits for a decision. A session with one unknown model gets no price, not a partial sum.

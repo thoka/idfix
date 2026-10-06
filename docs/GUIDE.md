@@ -394,7 +394,14 @@ The log is the record, and the notice is only a wake-up. If `notify-session` fai
 
 #### The systemd user service
 
-The watcher should run all the time. idfix ships the unit file `contrib/systemd/idfx-watch.service` for a systemd user service. It runs `%h/.local/bin/idfx watch --all`, restarts it 10 seconds after a failure, and starts it with the session of the user (`WantedBy=default.target`). A user service gets a short PATH, so the unit sets `PATH` to include `~/.local/bin`, the folder of `notify-session` and `handover`, and the mise shims. The unit names a fixed folder for them. If they live in another folder, copy the unit instead of linking it, and change `PATH` in the copy.
+The watcher should run all the time. idfix ships the unit file `contrib/systemd/idfx-watch.service` for a systemd user service. It runs `%h/.local/bin/idfx watch --all`, restarts it 10 seconds after a failure, and starts it with the session of the user (`WantedBy=default.target`). A user service gets a short PATH, so the unit sets `PATH` to generic folders only: `~/.local/bin`, the mise shims, `/usr/local/bin`, and `/usr/bin`. The watcher calls `handover` and `notify-session`. If these tools live in another folder, keep the link to the unit and add a drop-in that sets the full `PATH`, for example `~/.config/systemd/user/idfx-watch.service.d/path.conf`:
+
+```
+[Service]
+Environment=PATH=%h/.local/bin:%h/tools/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin
+```
+
+The drop-in replaces the `PATH` of the unit, so it names all folders again. Run `systemctl --user daemon-reload` after a change.
 
 To install and enable the unit by hand:
 

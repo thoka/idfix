@@ -36,10 +36,16 @@ describe("contrib/systemd/idfx-watch.service", () => {
     expect(unit.Install?.WantedBy).toEqual(["default.target"]);
   });
 
-  test("the PATH holds the folder of notify-session and handover", () => {
+  test("the PATH names only generic folders, so a drop-in adds the others", () => {
     const env = unit.Service?.Environment?.[0] ?? "";
     expect(env).toMatch(/^PATH=/);
-    expect(env.split("=")[1]?.split(":")).toContain("%h/dv/meta/dv/bin");
+    expect(env.split("=")[1]?.split(":")).toEqual([
+      "%h/.local/bin",
+      "%h/.local/share/mise/shims",
+      "/usr/local/bin",
+      "/usr/bin",
+    ]);
+    expect(env).not.toContain("dv");
   });
 
   const analyze = Bun.which("systemd-analyze");

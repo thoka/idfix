@@ -9,9 +9,11 @@ Description=idfx watch --all: watch the Claude Code sessions and wake the superv
 [Service]
 Type=simple
 # A user service gets a short PATH. The watcher needs bun (or mise) for idfx,
-# handover and notify-session, so the PATH names their folders. Change the
-# second folder when these tools live elsewhere.
-Environment=PATH=%h/.local/bin:%h/dv/meta/dv/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin
+# and it calls `handover` and `notify-session`. This PATH names only generic
+# folders. When these tools live elsewhere, add a drop-in, for example
+# ~/.config/systemd/user/idfx-watch.service.d/path.conf with its own
+# [Service] and Environment=PATH=... line.
+Environment=PATH=%h/.local/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin
 ExecStart=%h/.local/bin/idfx watch --all
 Restart=on-failure
 RestartSec=10

@@ -598,6 +598,11 @@ export function bunBinFromInstalls(installsDir: string): string | null {
  * starts again after one second, so a crash does not end the model calls of
  * the server (C7 in docs/research/cost-proxy.md). Every argument is quoted,
  * so no string from the user reaches the shell unquoted.
+ *
+ * The loop never ends by itself. To stop it, signal its whole process group
+ * (the negative PID of the `sh` that `spawnDetached` starts): a signal to the
+ * `bun` child alone only restarts it, and a signal to the `sh` alone leaves
+ * the child. `oc-sub down` and `stopStartedGroups` in `down.ts` do this.
  */
 export function proxyLoopScript(bunBin: string, bundlePath: string, port: number, hostname: string): string {
   return [
@@ -646,7 +651,12 @@ export type ServeProcess = {
   exitCode: () => number | null;
 };
 
-/** Spawn a detached process with its output in a log file and a PID file. */
+/**
+ * Spawn a detached process with its output in a log file and a PID file.
+ * `detached: true` makes bun call `setsid`, so the process leads a new
+ * session and process group, and its PID is the group ID. A caller stops it
+ * and all its children with `process.kill(-pid, signal)`.
+ */
 export function spawnDetached(cmd: readonly string[], logPath: string, pidPath: string): ServeProcess {
   // The process keeps running after this one exits, so its output goes to
   // a file: fd numbers are inherited by the child and closed here again.

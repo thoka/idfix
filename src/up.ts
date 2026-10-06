@@ -117,7 +117,21 @@ export type UpDeps = {
   projectName: (directory: string) => string;
   /** The content of a key file, or null when it is missing. The tests replace it. */
   readKeyFile: (file: string) => string | null;
+  /**
+   * Signals the process group of a detached process. `up` stops the proxy
+   * group with it when the server does not start. The default sends
+   * SIGTERM to the negative PID and ignores a group that is already gone.
+   */
+  killGroup?: (pid: number) => void;
 };
+
+function killGroupQuietly(pid: number): void {
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    // The group is already gone.
+  }
+}
 
 /** The default dependencies, with the real bun from PATH and real spawns. */
 export const defaultUpDeps: UpDeps = {
@@ -242,19 +256,29 @@ export async function up(
   // the server. Its log and pid live next to the ones of the server. Both
   // logs keep the lines of older starts, so each start writes one marker
   // line first: a reader sees where a new start begins.
+  let proxyPid: number | null = null;
   if (bunBin !== null) {
     try {
       await appendLogMarker(proxyLogPath(env, port), "up");
-      deps.spawnProxy(
+      proxyPid = deps.spawnProxy(
         ["sh", "-c", proxyLoopScript(bunBin, proxyBundleIn(pluginDir), proxyPort, "127.0.0.1")],
         proxyLogPath(env, port),
         proxyPidPath(env, port),
-      );
+      ).pid;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       console.error(`warning: cannot start the cost proxy: ${reason}. Model calls will fail until it runs.`);
     }
   }
+
+  // A failed start must not leave the proxy loop behind: nothing would stop
+  // it, and the next `up` would start a second loop on the same port. So
+  // each error path below stops the whole proxy group (loop and bun child).
+  const stopProxyGroup = async (): Promise<void> => {
+    if (proxyPid === null) return;
+    (deps.killGroup ?? killGroupQuietly)(proxyPid);
+    await removeFiles(proxyPidPath(env, port));
+  };
 
   let proc: ServeProcess;
   try {
@@ -268,6 +292,7 @@ export async function up(
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     console.error(`error: cannot start "opencode serve": ${reason} (is opencode on PATH?)`);
+    await stopProxyGroup();
     return 1;
   }
   writeFileSync(servePluginPath(env, port), `${digest}\n`);
@@ -285,11 +310,13 @@ export async function up(
     if (proc.exitCode() !== null) {
       console.error(`error: opencode serve exited with code ${proc.exitCode()}, see ${logPath}`);
       await printLogTail(logPath);
+      await stopProxyGroup();
       return 1;
     }
   }
   console.error(`error: opencode serve did not become healthy on ${serveUrl} within ${HEALTH_TIMEOUT_MS / 1000}s, see ${logPath}`);
   await printLogTail(logPath);
+  await stopProxyGroup();
   return 1;
 }
 

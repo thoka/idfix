@@ -1,4 +1,16 @@
-/** `oc-sub down`: stop the opencode server that `oc-sub up` started. */
+/**
+ * `oc-sub down`: stop the opencode server that `oc-sub up` started, and its
+ * cost proxy.
+ *
+ * `up` starts both processes detached (`spawnDetached` in `sandbox.ts`), so
+ * each one leads its own session and process group: the group ID is the PID
+ * in its PID file. The proxy group holds the `sh` restart loop and its `bun`
+ * child. A signal to the negative PID reaches the whole group, so `down`
+ * never signals a single PID: a loop without its child would start the
+ * proxy again, and a child without its loop would be an orphan.
+ * `stopStartedGroups` does the same for a caller that cannot wait for the
+ * normal `down`, for example the teardown of a test.
+ */
 import { resolveTarget, type Env } from "./config";
 import { assertUsable, makeClient, probeServer, unwrap } from "./client";
 import { readDirs, readPid, removeFiles, proxyPidPath, serveDirsPath, servePidPath, servePluginPath } from "./state";
@@ -20,6 +32,20 @@ export function isOpencodeServe(commandLine: string, port: number): boolean {
   const portIndex = words.indexOf("--port");
   const hasPort = words.includes(`--port=${port}`) || (portIndex !== -1 && words[portIndex + 1] === String(port));
   return isOpencode && words.includes("serve") && hasPort;
+}
+
+/**
+ * Whether a process command line is the cost proxy restart loop of the
+ * server whose proxy listens on `proxyPort` (`proxyLoopScript` in
+ * `sandbox.ts`), or the proxy itself. Like `isOpencodeServe`, this guards
+ * against a stale PID file. The loop script quotes the bundle path, so the
+ * name can end with a quote.
+ */
+export function isProxyLoop(commandLine: string, proxyPort: number): boolean {
+  const words = commandLine.trim().split(/\s+/);
+  const hasBundle = words.some((word) => /(^|\/)cost-proxy\.js'?$/.test(word));
+  const portIndex = words.indexOf("--port");
+  return hasBundle && portIndex !== -1 && words[portIndex + 1] === String(proxyPort);
 }
 
 export function formatBusyLine(session: BusySession): string {
@@ -83,13 +109,15 @@ export const defaultDownDeps: DownDeps = {
 
 /**
  * Stops the cost proxy of the server on `port` and removes its PID file.
- * Returns false when the proxy did not stop in time. A missing or stale PID
- * file is fine: the proxy of an older oc-sub version has none.
+ * Throws when the proxy did not stop in time. A missing or stale PID file is
+ * fine: the proxy of an older oc-sub version has none, and a PID that now
+ * belongs to another process is not signaled.
  */
 async function stopProxy(env: Env, port: number, deps: DownDeps): Promise<void> {
   const pidPath = proxyPidPath(env, port);
   const pid = await readPid(pidPath);
-  if (pid !== null && isAlive(pid)) {
+  const commandLine = pid === null ? null : deps.commandLineOf(pid);
+  if (pid !== null && commandLine !== null && isProxyLoop(commandLine, port + 1)) {
     deps.killGroup(pid);
     if (!(await waitUntilGone(pid))) {
       throw new Error(`the cost proxy (PID ${pid}) did not stop within ${STOP_TIMEOUT_MS / 1000}s`);
@@ -112,8 +140,15 @@ export async function down(
   const pid = await readPid(pidPath);
   const commandLine = pid === null ? null : deps.commandLineOf(pid);
   if (pid === null || commandLine === null || !isOpencodeServe(commandLine, port)) {
-    // No server of ours: the PID file is missing or stale.
-    await removeFiles(pidPath, dirsPath, proxyPidPath(env, port), servePluginPath(env, port));
+    // No server of ours: the PID file is missing or stale. The proxy of a
+    // server that died can still run, so stop it before its PID file goes.
+    try {
+      await stopProxy(env, port, deps);
+    } catch (error) {
+      console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    }
+    await removeFiles(pidPath, dirsPath, servePluginPath(env, port));
     if ((await probeServer(serveUrl, env, 2000)).state !== "down") {
       console.error(`error: a server answers on ${serveUrl}, but oc-sub up did not start it. Stop it yourself.`);
       return 1;
@@ -152,4 +187,36 @@ export async function down(
   await removeFiles(pidPath, dirsPath, servePluginPath(env, port));
   console.log(`stopped ${serveUrl} (PID ${pid})`);
   return 0;
+}
+
+/**
+ * Signals the process groups of the server on `port` and of its cost proxy,
+ * as their PID files name them, and returns the group IDs it signaled. It
+ * does not wait and does not remove the PID files. A PID that now belongs to
+ * another process is skipped. The teardown of the integration tests uses it
+ * with SIGKILL, so that no restart loop outlives a failed test.
+ */
+export async function stopStartedGroups(
+  env: Env,
+  port: number,
+  signal: NodeJS.Signals = "SIGTERM",
+  deps: DownDeps = defaultDownDeps,
+): Promise<number[]> {
+  const signaled: number[] = [];
+  const checks: Array<[string, (commandLine: string) => boolean]> = [
+    [servePidPath(env, port), (line) => isOpencodeServe(line, port)],
+    [proxyPidPath(env, port), (line) => isProxyLoop(line, port + 1)],
+  ];
+  for (const [file, isOurs] of checks) {
+    const pid = await readPid(file);
+    const commandLine = pid === null ? null : deps.commandLineOf(pid);
+    if (pid === null || commandLine === null || !isOurs(commandLine)) continue;
+    try {
+      process.kill(-pid, signal);
+      signaled.push(pid);
+    } catch {
+      // The group is already gone.
+    }
+  }
+  return signaled;
 }

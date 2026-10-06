@@ -8,7 +8,7 @@ import { proxyLoopScript } from "../src/sandbox";
 import { proxyLogPath, proxyPidPath, readPid, readServePlugin, servePidPath, servePluginPath } from "../src/state";
 import { pluginDigest } from "../src/plugin-sync";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
-import { down, type DownDeps } from "../src/down";
+import { down, isProxyLoop, stopStartedGroups, type DownDeps } from "../src/down";
 import { parseArgs } from "../src/args";
 
 function tempDir(): string {
@@ -142,6 +142,109 @@ describe("up starts the cost proxy on the host", () => {
   });
 });
 
+/**
+ * The `ps` command line of the proxy loop of the server on port 19790. The
+ * down tests use a port far from the 8790 of the integration tests, because
+ * `down` probes the real port: a server there would change its path.
+ */
+const PROXY_LINE = `sh -c ${proxyLoopScript("/opt/bun/bin/bun", "/data/oc-sub/opencode/cost-proxy/cost-proxy.js", 19791, "127.0.0.1")}`;
+
+/** Whether any process of the process group still exists. */
+function groupExists(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitGroupGone(pgid: number, timeoutMs = 5000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!groupExists(pgid)) return true;
+    await Bun.sleep(50);
+  }
+  return !groupExists(pgid);
+}
+
+describe("isProxyLoop", () => {
+  test("knows the loop of proxyLoopScript on its port", () => {
+    expect(isProxyLoop(PROXY_LINE, 19791)).toBe(true);
+    expect(isProxyLoop("/opt/bun/bin/bun /data/cost-proxy/cost-proxy.js --port 19791 --hostname 127.0.0.1", 19791)).toBe(true);
+  });
+
+  test("rejects another port and another process", () => {
+    expect(isProxyLoop(PROXY_LINE, 8769)).toBe(false);
+    expect(isProxyLoop("opencode serve --port 19791", 19791)).toBe(false);
+    expect(isProxyLoop("sleep 30", 19791)).toBe(false);
+  });
+});
+
+describe("up stops the proxy group when the server does not start", () => {
+  test("a failed server spawn signals the proxy group and removes its PID file", async () => {
+    const env = makeEnv();
+    const killed: number[] = [];
+    const original = console.error;
+    console.error = () => {};
+    let result: number;
+    try {
+      result = await up({ port: 19790 }, env, makeDeps({
+        spawnProxy: (_cmd, _logPath, pidPath) => {
+          writeFileSync(pidPath, "1002\n");
+          return { pid: 1002, exitCode: () => null };
+        },
+        spawnServe: () => {
+          throw new Error("no opencode");
+        },
+        killGroup: (pid) => killed.push(pid),
+      }));
+    } finally {
+      console.error = original;
+    }
+    expect(result).toBe(1);
+    expect(killed).toEqual([1002]);
+    expect(existsSync(proxyPidPath(env, 19790))).toBe(false);
+  });
+});
+
+describe("stopStartedGroups", () => {
+  test("kills the whole restart loop group, loop and child", async () => {
+    const env = makeEnv();
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    // A real restart loop like the proxy loop: `sh` runs a child, and
+    // starts it again when it exits. Detached, like spawnDetached.
+    const loop = Bun.spawn(["sh", "-c", "while :; do sleep 30; sleep 1; done"], { detached: true });
+    await Bun.write(proxyPidPath(env, 19790), `${loop.pid}\n`);
+    await Bun.write(servePidPath(env, 19790), "2147483000\n");
+    const signaled = await stopStartedGroups(env, 19790, "SIGKILL", {
+      commandLineOf: (pid) => (pid === loop.pid ? PROXY_LINE : null),
+      killGroup: () => {
+        throw new Error("stopStartedGroups signals the group itself");
+      },
+    });
+    expect(signaled).toEqual([loop.pid]);
+    expect(await waitGroupGone(loop.pid)).toBe(true);
+  });
+
+  test("skips a PID that belongs to another process", async () => {
+    const env = makeEnv();
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    const other = Bun.spawn(["sh", "-c", "sleep 30"], { detached: true });
+    await Bun.write(proxyPidPath(env, 19790), `${other.pid}\n`);
+    try {
+      const signaled = await stopStartedGroups(env, 19790, "SIGKILL", {
+        commandLineOf: () => "sh -c sleep 30",
+        killGroup: () => {},
+      });
+      expect(signaled).toEqual([]);
+      expect(groupExists(other.pid)).toBe(true);
+    } finally {
+      process.kill(-other.pid, "SIGKILL");
+    }
+  });
+});
+
 describe("down stops the cost proxy", () => {
   function downDeps(commandLine: string, killed: number[]): DownDeps {
     return {
@@ -157,12 +260,12 @@ describe("down stops the cost proxy", () => {
     // exit. The server PID points to a nonexistent process (the fake
     // commandLineOf still names an opencode serve).
     const proxy = Bun.spawn(["sh", "-c", "sleep 30"], { detached: true });
-    await Bun.write(proxyPidPath(env, 8790), `${proxy.pid}\n`);
-    await Bun.write(servePidPath(env, 8790), "2147483000\n");
-    await Bun.write(proxyLogPath(env, 8790), "log\n");
+    await Bun.write(proxyPidPath(env, 19790), `${proxy.pid}\n`);
+    await Bun.write(servePidPath(env, 19790), "2147483000\n");
+    await Bun.write(proxyLogPath(env, 19790), "log\n");
     const killed: number[] = [];
     const deps: DownDeps = {
-      commandLineOf: () => "opencode serve --port 8790 --hostname 127.0.0.1",
+      commandLineOf: (pid) => (pid === proxy.pid ? PROXY_LINE : "opencode serve --port 19790 --hostname 127.0.0.1"),
       // Records and really signals, so that the real wait sees the exit.
       killGroup: (pid) => {
         killed.push(pid);
@@ -173,10 +276,10 @@ describe("down stops the cost proxy", () => {
         }
       },
     };
-    const result = await down({ port: 8790, force: true }, env, deps);
+    const result = await down({ port: 19790, force: true }, env, deps);
     expect(result).toBe(0);
     expect(killed).toContain(proxy.pid);
-    expect(await readPid(proxyPidPath(env, 8790))).toBeNull();
+    expect(await readPid(proxyPidPath(env, 19790))).toBeNull();
     proxy.kill();
   });
 
@@ -184,23 +287,65 @@ describe("down stops the cost proxy", () => {
     const env = makeEnv();
     mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
     // PID 2147483000 does not exist (and never will; pid_max is lower).
-    await Bun.write(proxyPidPath(env, 8790), "2147483000\n");
+    await Bun.write(proxyPidPath(env, 19790), "2147483000\n");
     const killed: number[] = [];
-    const deps = downDeps("opencode serve --port 8790 --hostname 127.0.0.1", killed);
-    const result = await down({ port: 8790, force: true }, env, deps);
+    const deps = downDeps("opencode serve --port 19790 --hostname 127.0.0.1", killed);
+    const result = await down({ port: 19790, force: true }, env, deps);
     expect(result).toBe(0);
     expect(killed).toEqual([]);
-    expect(await readPid(proxyPidPath(env, 8790))).toBeNull();
+    expect(await readPid(proxyPidPath(env, 19790))).toBeNull();
+  });
+
+  test("a dead server: down still stops its proxy loop", async () => {
+    const env = makeEnv();
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    const loop = Bun.spawn(["sh", "-c", "while :; do sleep 30; sleep 1; done"], { detached: true });
+    await Bun.write(proxyPidPath(env, 19790), `${loop.pid}\n`);
+    // The server PID file names a process that is gone.
+    await Bun.write(servePidPath(env, 19790), "2147483000\n");
+    const killed: number[] = [];
+    const deps: DownDeps = {
+      commandLineOf: (pid) => (pid === loop.pid ? PROXY_LINE : null),
+      killGroup: (pid) => {
+        killed.push(pid);
+        process.kill(-pid, "SIGTERM");
+      },
+    };
+    const logs: string[] = [];
+    const original = console.log;
+    console.log = (line: string) => logs.push(line);
+    let result: number;
+    try {
+      result = await down({ port: 19790, force: true }, env, deps);
+    } finally {
+      console.log = original;
+    }
+    expect(result).toBe(0);
+    expect(killed).toEqual([loop.pid]);
+    expect(await waitGroupGone(loop.pid)).toBe(true);
+    expect(existsSync(proxyPidPath(env, 19790))).toBe(false);
+  });
+
+  test("a proxy PID that belongs to another process is not signaled", async () => {
+    const env = makeEnv();
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    await Bun.write(proxyPidPath(env, 19790), `${process.pid}\n`);
+    const killed: number[] = [];
+    const deps = downDeps("opencode serve --port 19790 --hostname 127.0.0.1", killed);
+    const result = await down({ port: 19790, force: true }, env, deps);
+    expect(result).toBe(0);
+    expect(killed).toEqual([]);
+    expect(existsSync(proxyPidPath(env, 19790))).toBe(false);
   });
 
   test("removes the plugin digest of the stopped server", async () => {
     const env = makeEnv();
     mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
-    await Bun.write(servePidPath(env, 8790), "2147483000\n");
-    await Bun.write(servePluginPath(env, 8790), "sha256:abc\n");
-    const result = await down({ port: 8790, force: true }, env, downDeps("opencode serve --port 8790", []));
+    await Bun.write(servePidPath(env, 19790), "2147483000\n");
+    await Bun.write(servePluginPath(env, 19790), "sha256:abc\n");
+    const result = await down({ port: 19790, force: true }, env, downDeps("opencode serve --port 19790", []));
     expect(result).toBe(0);
-    expect(existsSync(servePluginPath(env, 8790))).toBe(false);
+    expect(existsSync(servePluginPath(env, 19790))).toBe(false);
   });
 });
 

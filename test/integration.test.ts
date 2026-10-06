@@ -5,11 +5,18 @@
  * `status`, runs `watch` on an already finished session, runs `abort`, and
  * stops the server with `restart` and `down`. Skipped when the `opencode` command is not on the
  * PATH.
+ *
+ * `up` starts the server and the restart loop of the cost proxy detached,
+ * each in its own process group. The teardown of each test kills both
+ * groups (`stopStartedGroups`), also when the test failed before `down`.
+ * The last test checks that no group of these tests is left.
  */
 import { expect, test } from "bun:test";
 import { createOpencodeClient, type Event, type OpencodeClient } from "@opencode-ai/sdk";
 import { mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { stopStartedGroups } from "../src/down";
+import { proxyPidPath, servePidPath } from "../src/state";
 import net from "node:net";
 import path from "node:path";
 
@@ -37,6 +44,37 @@ async function findFreePort(): Promise<number> {
     if (await isPortFree(port)) return port;
   }
   throw new Error(`no free port between ${FIRST_PORT} and ${LAST_PORT}`);
+}
+
+/** The process groups (server and proxy loop) that the tests started. */
+const startedGroups = new Set<number>();
+
+/** Records the groups of the server on `port` and of its proxy, as their PID files name them. */
+function recordGroups(env: Record<string, string>, port: number): void {
+  for (const file of [servePidPath(env, port), proxyPidPath(env, port)]) {
+    if (!existsSync(file)) continue;
+    const pid = Number(readFileSync(file, "utf8").trim());
+    if (Number.isInteger(pid) && pid > 0) startedGroups.add(pid);
+  }
+}
+
+/**
+ * The teardown of a test: kills the whole process groups of the server and
+ * of the proxy restart loop. Killing only the server PID leaves the loop,
+ * and the loop then starts the proxy again forever.
+ */
+async function killStarted(env: Record<string, string>, port: number): Promise<void> {
+  recordGroups(env, port);
+  await stopStartedGroups(env, port, "SIGKILL");
+}
+
+function groupExists(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 type CliResult = { code: number; stdout: string; stderr: string };
@@ -156,6 +194,7 @@ test.skipIf(!hasOpencode)(
       expect(started.stdout).toMatch(/version \S+/);
       expect(existsSync(pidFile)).toBe(true);
       const pid = Number(readFileSync(pidFile, "utf8").trim());
+      recordGroups(env, port);
 
       // up again: the server is healthy, so nothing new is started.
       const again = runCli(workDir, ["up", "--url", url], env);
@@ -218,6 +257,7 @@ test.skipIf(!hasOpencode)(
       expect(await waitUntilGone(pid)).toBe(true);
       const newPid = Number(readFileSync(pidFile, "utf8").trim());
       expect(newPid).not.toBe(pid);
+      recordGroups(env, port);
 
       // down: stops the server and removes the PID file.
       const stopped = runCli(workDir, ["down", "--url", url], env);
@@ -243,15 +283,8 @@ test.skipIf(!hasOpencode)(
       expect(logDown.code).toBe(1);
       expect(logDown.stderr).toContain(`no server on ${url}. Start it with: oc-sub up`);
     } finally {
-      // Make sure no server survives the test.
-      if (existsSync(pidFile)) {
-        const pid = Number(readFileSync(pidFile, "utf8").trim());
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          // already gone
-        }
-      }
+      // Make sure no server and no proxy loop survives the test.
+      await killStarted(env, port);
       rmSync(workDir, { recursive: true, force: true });
     }
   },
@@ -282,6 +315,7 @@ test.skipIf(!hasOpencode)(
     try {
       const started = runCli(workDir, ["up", "--url", url], env);
       expect(started.code).toBe(0);
+      recordGroups(env, port);
 
       // The pending lists of a real 1.18.x server answer with an empty
       // array. This checks that the routes exist and that they accept the
@@ -310,15 +344,8 @@ test.skipIf(!hasOpencode)(
       const stopped = runCli(workDir, ["down", "--url", url], env);
       expect(stopped.code).toBe(0);
     } finally {
-      // Make sure no server survives the test.
-      if (existsSync(pidFile)) {
-        const pid = Number(readFileSync(pidFile, "utf8").trim());
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          // already gone
-        }
-      }
+      // Make sure no server and no proxy loop survives the test.
+      await killStarted(env, port);
       rmSync(workDir, { recursive: true, force: true });
     }
   },
@@ -346,6 +373,7 @@ test.skipIf(!hasOpencode)(
     try {
       const started = runCli(workDir, ["up", "--url", url], right);
       expect(started.code).toBe(0);
+      recordGroups(right, port);
 
       const wrongStatus = runCli(workDir, ["status", "--url", url], wrong);
       expect(wrongStatus.code).toBe(1);
@@ -365,15 +393,48 @@ test.skipIf(!hasOpencode)(
       expect(stopped.code).toBe(0);
       expect(existsSync(pidFile)).toBe(false);
     } finally {
-      if (existsSync(pidFile)) {
-        try {
-          process.kill(Number(readFileSync(pidFile, "utf8").trim()), "SIGKILL");
-        } catch {
-          // already gone
-        }
-      }
+      await killStarted(right, port);
       rmSync(workDir, { recursive: true, force: true });
     }
   },
   { timeout: 120_000 },
 );
+
+test.skipIf(!hasOpencode)(
+  "a test that ends without down: the teardown still stops the server and the proxy loop",
+  async () => {
+    // This is the path of a failed test: no `down` runs, only the teardown.
+    const port = await findFreePort();
+    const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-nodown-"));
+    const env = {
+      ...process.env,
+      XDG_DATA_HOME: path.join(workDir, "data"),
+      XDG_STATE_HOME: path.join(workDir, "state"),
+    } as Record<string, string>;
+    try {
+      const started = runCli(workDir, ["up", "--url", `http://127.0.0.1:${port}`], env);
+      expect(started.code).toBe(0);
+      recordGroups(env, port);
+      // With bun on the PATH, up also starts the proxy loop.
+      expect(existsSync(proxyPidPath(env, port))).toBe(Bun.which("bun") !== null);
+    } finally {
+      await killStarted(env, port);
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  },
+  { timeout: 120_000 },
+);
+
+// Runs last: bun runs the tests of a file in order.
+test.skipIf(!hasOpencode)("no process of the integration tests outlives its teardown", async () => {
+  // Each test starts a server and, with bun on the PATH, a proxy loop.
+  expect(startedGroups.size).toBeGreaterThan(0);
+  const deadline = Date.now() + 5_000;
+  let left = [...startedGroups].filter(groupExists);
+  while (left.length > 0 && Date.now() < deadline) {
+    await Bun.sleep(100);
+    left = left.filter(groupExists);
+  }
+  const lines = left.map((pgid) => Bun.spawnSync(["ps", "-o", "pid=,args=", "-g", String(pgid)]).stdout.toString().trim());
+  expect(lines).toEqual([]);
+}, { timeout: 15_000 });

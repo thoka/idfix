@@ -4,7 +4,7 @@ import { formatRequest } from "../requests";
 import { Chalk, type ForegroundColorName } from "chalk";
 import { DEFAULT_WIDTH, GAP, padTable } from "./columns";
 import type { SessionRow } from "./model";
-import { STATE_COLORS } from "./view-model";
+import { STATE_COLORS, waitingLine } from "./view-model";
 
 export { DEFAULT_WIDTH } from "./columns";
 
@@ -31,11 +31,17 @@ export type TopTableOptions = {
 
 /**
  * The snapshot: one header line, one line per session, and one indented line
- * per pending request. The columns come from `src/top/columns.ts`: the
+ * per pending request, or one indented `waiting for:` line for a waiting
+ * Claude session. The columns come from `src/top/columns.ts`: the
  * session CODE, the project (only with `showProject`), the worktree, and the
  * numbers. The fixed columns are padded to the widest value, and the title
  * is cut so that the line fits into `width`, but it keeps at least 24
  * characters.
+ *
+ * With `color`, the `id` cell has the color of the state, an ended row is
+ * gray as a whole, and the API price of a Claude session is gray. Without
+ * color, the table has a `state` column, and an API price has a `~` in
+ * front.
  */
 export function formatTopTable(
   rows: readonly TopTableRow[],
@@ -45,20 +51,32 @@ export function formatTopTable(
   const color = options.color ?? false;
   const table = padTable(rows, {
     stateColumn: !color,
+    costMarker: !color,
     showProject: options.showProject ?? false,
     projectName: options.projectName,
     width: options.width ?? DEFAULT_WIDTH,
   });
+  const costColumn = table.headers.indexOf("cost");
   const lines: string[] = [table.header.join(GAP).trimEnd()];
   rows.forEach((row, index) => {
     const cells = table.rows[index];
     if (cells === undefined) return;
-    const [id = "", ...rest] = cells;
-    const shownId = color ? ansi[STATE_COLORS[row.state] as ForegroundColorName](id) : id;
-    lines.push([shownId, ...rest].join(GAP).trimEnd());
+    if (!color) {
+      lines.push(cells.join(GAP).trimEnd());
+    } else if (row.state === "ended") {
+      lines.push(ansi.gray(cells.join(GAP).trimEnd()));
+    } else {
+      const shown = cells.map((cell, column) => {
+        if (column === 0) return ansi[STATE_COLORS[row.state] as ForegroundColorName](cell);
+        if (column === costColumn && row.costKind === "apiEquivalent") return ansi.gray(cell);
+        return cell;
+      });
+      lines.push(shown.join(GAP).trimEnd());
+    }
     for (const pending of row.pending) {
       lines.push(...formatRequest(pending).map((requestLine) => `  ${requestLine}`));
     }
+    if (row.waitingFor !== undefined) lines.push(`  ${waitingLine(row.waitingFor)}`);
   });
   return lines;
 }

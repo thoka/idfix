@@ -3,6 +3,11 @@
  * row, the visible part of the table, the lines of the detail pane, and the
  * footer. No Ink and no React here, so every rule has a unit test; the Ink
  * components of `src/top/view.tsx` only lay these lines out.
+ *
+ * A Claude Code session (step 25g.2) has its own detail: the kind and the
+ * model, what it waits for, and its subagents. It has no log lines yet.
+ * Its API price does not count in the cost total of the footer, because it
+ * is not a real charge. The footer names it on its own.
  */
 import { formatRequest } from "../requests";
 import { formatCost } from "../summary";
@@ -88,6 +93,16 @@ function sessionLine(detail: SessionRow): string {
   return `${sessionCode(detail.sessionId)}  ${agent}  ${detail.state}  ${detail.title}`;
 }
 
+/** The pending line of a waiting Claude session, on one line. */
+export function waitingLine(text: string): string {
+  return `waiting for: ${text.replace(/\s+/g, " ").trim()}`;
+}
+
+/** The second head line of a Claude session: the kind and the model. */
+function claudeInfoLine(detail: SessionRow): string {
+  return `claude ${detail.kind ?? "session"}  model ${detail.model ?? "-"}`;
+}
+
 /** The subagent sessions as a tree, one line per session. */
 function treeLines(children: readonly SessionDetail[], indent: string): DetailLine[] {
   const lines: DetailLine[] = [];
@@ -105,23 +120,29 @@ function treeLines(children: readonly SessionDetail[], indent: string): DetailLi
  * subagent sessions as a tree, and the last events as a short log. When the
  * space runs out, the log keeps its newest lines, and the other parts are
  * cut at the end.
+ *
+ * A Claude session has a second head line with its kind and its model, the
+ * `waitingFor` text as its pending line, and no log.
  */
 export function detailLines(detail: SessionDetail | undefined, maxLines: number): DetailLine[] {
   if (maxLines <= 0) return [];
   if (detail === undefined) return [{ text: "no session selected", tone: "dim" }];
+  const claude = detail.driver === "claude";
   const fixed: DetailLine[] = [{ text: sessionLine(detail), tone: "head" }];
+  if (claude) fixed.push({ text: claudeInfoLine(detail), tone: "dim" });
   const pending = treePending(detail);
-  if (pending.length > 0) {
+  if (pending.length > 0 || detail.waitingFor !== undefined) {
     fixed.push({ text: "pending:", tone: "section" });
     for (const request of pending) {
       for (const line of formatRequest(request)) fixed.push({ text: `  ${line}`, tone: "pending" });
     }
+    if (detail.waitingFor !== undefined) fixed.push({ text: `  ${waitingLine(detail.waitingFor)}`, tone: "pending" });
   }
   if (detail.children.length > 0) {
     fixed.push({ text: "subagents:", tone: "section" });
     fixed.push(...treeLines(detail.children, "  "));
   }
-  if (fixed.length >= maxLines) return fixed.slice(0, maxLines);
+  if (fixed.length >= maxLines || claude) return fixed.slice(0, maxLines);
   const room = maxLines - fixed.length - 1;
   if (room <= 0) return fixed;
   const log: DetailLine[] =
@@ -138,6 +159,9 @@ export function detailLines(detail: SessionDetail | undefined, maxLines: number)
 export function attachCommand(sessionId: string): string {
   return `oc-sub attach ${sessionCode(sessionId)}`;
 }
+
+/** The footer note of `o` on a Claude session, until step 25g.3 builds the key for it. */
+export const CLAUDE_OPEN_NOTE = "open: Claude sessions get the key o in step 25g.3";
 
 /** One server as the footer names it: the project (or `host`), the port, and the state. */
 export function serverLabel(server: LiveServer): string {
@@ -168,12 +192,17 @@ export type FooterInput = {
 
 /**
  * The three footer lines: the servers with their state, the totals of the
- * shown sessions with the scope, and the key help or a message.
+ * shown sessions with the scope, and the key help or a message. The cost
+ * total counts only real charges. The API price of the Claude sessions
+ * shows on its own as `api ~$x`, when one is known.
  */
 export function footerLines(input: FooterInput): [string, string, string] {
   const servers = input.servers.length === 0 ? "no known server" : input.servers.map(serverLabel).join("  |  ");
-  const cost = input.rows.reduce((sum, row) => sum + row.cost, 0);
+  const sumOf = (kind: SessionRow["costKind"]) =>
+    input.rows.reduce((sum, row) => sum + (row.costKind === kind ? row.cost : 0), 0);
+  const cost = sumOf("real");
+  const api = input.rows.some((row) => row.costKind === "apiEquivalent") ? `  api ~${formatCost(sumOf("apiEquivalent"))}` : "";
   const count = input.rows.length === 1 ? "1 session" : `${input.rows.length} sessions`;
   const scope = input.all ? "all projects" : input.scopeLabel;
-  return [`servers: ${servers}`, `${count}  cost ${formatCost(cost)}  scope: ${scope}`, input.message ?? KEY_HELP];
+  return [`servers: ${servers}`, `${count}  cost ${formatCost(cost)}${api}  scope: ${scope}`, input.message ?? KEY_HELP];
 }

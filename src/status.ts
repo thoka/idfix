@@ -9,9 +9,7 @@ import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "./c
 import { listPendingRequests } from "./requests";
 import { listServers } from "./servers";
 import { readDirs, serveDirsPath } from "./state";
-import { claudeRoot } from "./claude/files";
-import { loadPrices } from "./claude/prices";
-import { createClaudeSource, inScope, loadClaudeRows, type ClaudeRow } from "./claude/rows";
+import { claudeRowsLoader, inScope, type ClaudeRow, type ClaudeRowsLoader } from "./claude/rows";
 
 /**
  * One status line: `<id> <state> <title>`, plus ` (<folder>)` for a session
@@ -227,20 +225,14 @@ export type StatusRow = {
   apiEquivalentUsd?: number | null;
 };
 
-/** Loads the Claude rows that show at `nowMs`. The tests replace it. */
-export type ClaudeRowsLoader = (nowMs: number) => Promise<ClaudeRow[]>;
+export type { ClaudeRowsLoader };
 
 /**
  * The default loader: the files under `$CLAUDE_CONFIG_DIR` (else
  * `~/.claude`) and the LiteLLM prices under `$XDG_CACHE_HOME/idfix/`, both
  * from the environment of the process.
  */
-export const defaultClaudeRows: ClaudeRowsLoader = (nowMs) =>
-  loadClaudeRows({
-    source: createClaudeSource(claudeRoot(process.env)),
-    nowMs,
-    loadPrices: () => loadPrices(process.env),
-  });
+export const defaultClaudeRows: ClaudeRowsLoader = (nowMs) => claudeRowsLoader(process.env)(nowMs);
 
 const round = (value: number, digits: number): number => Number(value.toFixed(digits));
 
@@ -266,10 +258,13 @@ export function claudeStatusRow(row: ClaudeRow, project?: string): StatusRow {
   };
 }
 
-/** The Claude rows of status. A failure costs only the Claude rows, with a warning on stderr. */
-async function claudeRowsSafe(loader: ClaudeRowsLoader): Promise<ClaudeRow[]> {
+/**
+ * The Claude rows of `status` and `top`. A failure costs only the Claude
+ * rows, with a warning on stderr.
+ */
+export async function claudeRowsSafe(loader: ClaudeRowsLoader, nowMs: number = Date.now()): Promise<ClaudeRow[]> {
   try {
-    return await loader(Date.now());
+    return await loader(nowMs);
   } catch (error) {
     console.error(`warning: claude sessions: ${error instanceof Error ? error.message : errorMessage(error)}`);
     return [];

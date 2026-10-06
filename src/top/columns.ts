@@ -21,6 +21,11 @@
  *   text table without color gets a `state` column (`stateColumn`). Icons
  *   are two cells wide, so the padding measures the display width. The
  *   `id` header starts after the icon, so that it lines up with the codes.
+ * - A Claude Code session (step 25g.2) shows the icon `✳`. Its cost is the
+ *   API price of its tokens, not a real charge: the views show the cell in
+ *   gray, and a table without color marks it with `~`. A session without a
+ *   known price has an empty cost cell. The `ctx` cell adds the share of
+ *   the context window when the window of the model is known.
  */
 import path from "node:path";
 import cliTruncate from "cli-truncate";
@@ -60,6 +65,9 @@ export const AGENT_ICONS: Record<string, string> = {
   reader: "📖",
 };
 
+/** The icon of a Claude Code session. Its subagents show the icon of their agent type. */
+export const CLAUDE_ICON = "✳";
+
 /** Worktree name prefixes that the `where` column shows as an icon. */
 export const WORKTREE_PREFIX_ICONS: ReadonlyArray<readonly [prefix: string, icon: string]> = [["research-", "🔬"]];
 
@@ -67,6 +75,12 @@ export const WORKTREE_PREFIX_ICONS: ReadonlyArray<readonly [prefix: string, icon
 export function agentIcon(agent: string): string {
   if (agent.length === 0) return "--";
   return AGENT_ICONS[agent] ?? agent.slice(0, 2).padEnd(2);
+}
+
+/** The icon of a row: `✳` for a Claude session without an agent, else the icon of its agent. */
+export function rowIcon(row: Pick<SessionRow, "agent" | "driver">): string {
+  if (row.driver === "claude" && row.agent.length === 0) return CLAUDE_ICON.padEnd(ICON_WIDTH);
+  return agentIcon(row.agent);
 }
 
 /** A worktree name with a known prefix replaced by its icon. */
@@ -101,6 +115,29 @@ export function formatCents(cost: number): string {
 export function formatContext(tokens: number): string {
   const thousands = tokens / 1000;
   return thousands < 100 ? `${thousands.toFixed(1)}k` : `${Math.round(thousands)}k`;
+}
+
+/**
+ * The `ctx` cell: the size, plus the share of the context window when the
+ * window is known, for example "123k 62%" or "6.3k  3%".
+ */
+export function formatContextCell(tokens: number, contextWindow: number | undefined): string {
+  const size = formatContext(tokens);
+  if (contextWindow === undefined || contextWindow <= 0) return size;
+  // The share has a fixed width, so the sizes and the shares line up in the column.
+  const share = String(Math.round((tokens / contextWindow) * 100)).padStart(2);
+  return `${size} ${share}%`;
+}
+
+/**
+ * The `¢` cell: empty without a known price (`costKind` "none"), and with
+ * `marker` a `~` in front of an API price, so that a table without color
+ * still shows that the number is not a real charge.
+ */
+export function costCell(row: Pick<SessionRow, "cost" | "costKind">, marker: boolean): string {
+  if (row.costKind === "none") return "";
+  const cents = formatCents(row.cost);
+  return marker && row.costKind === "apiEquivalent" ? `~${cents}` : cents;
 }
 
 /** The key of every column, in order. The title comes last. */
@@ -153,6 +190,11 @@ export type ColumnOptions = {
    * the configured `shortName` of the project root when it has one.
    */
   projectName?: (directory: string) => string;
+  /**
+   * Mark an API price in the `¢` cell with `~`. A table without color sets
+   * it, because there the gray color cannot show the kind of the cost.
+   */
+  costMarker?: boolean;
 };
 
 /** The keys of the shown columns. */
@@ -177,15 +219,15 @@ export function rowCells(rows: readonly SessionRow[], options: ColumnOptions): s
   const nameOf = options.projectName ?? ((directory: string) => splitFolder(directory).project);
   return rows.map((row) => {
     const cells: Record<ColumnHeader, string> = {
-      session: agentIcon(row.agent) + sessionCode(row.sessionId),
+      session: rowIcon(row) + sessionCode(row.sessionId),
       state: row.state,
       where: whereCell(row.directory, options, nameOf),
-      cost: formatCents(row.cost),
+      cost: costCell(row, options.costMarker === true),
       elapsed: formatAge(row.elapsedMs),
       last: formatAge(row.msSinceEvent),
       steps: String(row.steps),
       tools: String(row.toolCalls),
-      ctx: formatContext(row.contextTokens),
+      ctx: formatContextCell(row.contextTokens, row.contextWindow),
       reason: `${Math.round(row.reasoningShare * 100)}%`,
       title: row.title,
     };

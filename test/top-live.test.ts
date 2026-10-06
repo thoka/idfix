@@ -11,7 +11,7 @@
  * timers are fake: `fire()` runs all pending timer handlers at once and
  * `sleep` resolves immediately, so no test waits for real seconds.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -29,6 +29,7 @@ import type { LiveHandle } from "../src/top/live";
 import { startLive } from "../src/top/live";
 import type { MessageEntry } from "../src/summary";
 import type { StatusDeps } from "../src/status";
+import { claudeRowOf } from "./top-rows";
 
 const HOST_DIR = "/hostproj";
 const OTHER_DIR = "/otherproj";
@@ -502,6 +503,106 @@ describe("top live", () => {
     } finally {
       live.stop();
       host.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("top live with Claude sessions (step 25g.2)", () => {
+  const DEAD_URL = "http://127.0.0.1:9";
+
+  test("the tick polls the Claude source and the rows follow it", async () => {
+    const clock = fakeClock();
+    const stateHome = emptyStateHome();
+    const asked: number[] = [];
+    let state: "busy" | "waiting" = "busy";
+    const loader = async (nowMs: number) => {
+      asked.push(nowMs);
+      return [
+        claudeRowOf("claude-in", { directory: HOST_DIR, state, waitingFor: state === "waiting" ? "approve Bash" : undefined }),
+        claudeRowOf("claude-out", { directory: OTHER_DIR }),
+      ];
+    };
+    const live = await startLive(
+      { all: false, dir: HOST_DIR },
+      { XDG_STATE_HOME: stateHome, OC_SUB_URL: DEAD_URL },
+      testDeps,
+      clock.deps,
+      loader,
+    );
+    let changes = 0;
+    live.onChange(() => changes++);
+    try {
+      // The first frame already has the Claude rows of the folder.
+      expect(asked).toEqual([clock.now()]);
+      expect(live.model.rows(clock.now()).map((row) => [row.sessionId, row.state])).toEqual([["claude-in", "busy"]]);
+
+      state = "waiting";
+      clock.bump(2000);
+      clock.fire();
+      await until(() => live.model.rows(clock.now())[0]?.state === "waiting");
+      expect(asked).toEqual([clock.now() - 2000, clock.now()]);
+      expect(changes).toBeGreaterThan(0);
+      expect(live.model.session("claude-in")?.waitingFor).toBe("approve Bash");
+    } finally {
+      live.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("with --all every Claude row shows", async () => {
+    const clock = fakeClock();
+    const stateHome = emptyStateHome();
+    const live = await startLive(
+      { all: true },
+      { XDG_STATE_HOME: stateHome, OC_SUB_URL: DEAD_URL },
+      testDeps,
+      clock.deps,
+      async () => [claudeRowOf("a", { directory: HOST_DIR }), claudeRowOf("b", { directory: OTHER_DIR })],
+    );
+    try {
+      expect(live.model.rows(clock.now()).map((row) => row.sessionId).sort()).toEqual(["a", "b"]);
+    } finally {
+      live.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("a slow poll is not started twice, and a failed poll keeps the last rows", async () => {
+    const clock = fakeClock();
+    const stateHome = emptyStateHome();
+    let calls = 0;
+    let release: (() => void) | undefined;
+    const loader = async () => {
+      calls++;
+      if (calls === 1) return [claudeRowOf("kept", { directory: HOST_DIR })];
+      if (calls === 2) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        throw new Error("broken file");
+      }
+      return [claudeRowOf("next", { directory: HOST_DIR })];
+    };
+    const errors: string[] = [];
+    const errorSpy = spyOn(console, "error").mockImplementation((message: unknown) => {
+      errors.push(String(message));
+    });
+    const live = await startLive({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: DEAD_URL }, testDeps, clock.deps, loader);
+    try {
+      clock.fire();
+      clock.fire();
+      await until(() => release !== undefined);
+      expect(calls).toBe(2);
+      release?.();
+      await until(() => errors.length > 0);
+      expect(errors).toEqual(["warning: claude sessions: broken file"]);
+      expect(live.model.rows(clock.now()).map((row) => row.sessionId)).toEqual(["kept"]);
+      clock.fire();
+      await until(() => live.model.rows(clock.now())[0]?.sessionId === "next");
+    } finally {
+      errorSpy.mockRestore();
+      live.stop();
       rmSync(stateHome, { recursive: true, force: true });
     }
   });

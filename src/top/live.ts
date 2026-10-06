@@ -32,13 +32,24 @@
  * again every 30 seconds together with a fresh `listServers` call, so that
  * a new sandbox appears; when it answers, it is seeded and its stream
  * opens.
+ *
+ * Claude Code sessions (step 25g.2). One Claude loader (`claudeRowsLoader`
+ * of `src/claude/rows.ts`) lives as long as the live view. It reads the
+ * Claude files once at the start and again on every tick. It keeps a byte
+ * offset per transcript, so a tick reads only the new lines, and it loads
+ * the prices once. A tick starts no second poll while one still runs. A
+ * failed poll keeps the last rows. The `model` of the handle merges the
+ * Claude rows in scope with the opencode rows (`withClaudeRows` of
+ * `src/top/claude.ts`).
  */
 import type { GlobalEvent } from "@opencode-ai/sdk";
 import { assertUsable, errorMessage, makeClient, probeServer } from "../client";
 import type { Env } from "../config";
 import { listServers, type KnownServer } from "../servers";
+import type { ClaudeRow, ClaudeRowsLoader } from "../claude/rows";
 import type { StatusDeps } from "../status";
-import { defaultDeps, scopeDirectories, seedServer } from "./load";
+import { scopeClaudeRows, withClaudeRows } from "./claude";
+import { claudeScope, defaultClaudeLoader, defaultDeps, scopeDirectories, seedServer } from "./load";
 import { createTopModel, type TopModel } from "./model";
 
 /** The tick of the stall check and the change notification. */
@@ -85,6 +96,7 @@ type ServerEntry = {
 };
 
 export type LiveHandle = {
+  /** The opencode model with the Claude rows merged in. */
   model: TopModel;
   /** The listener runs after each applied event and after each tick. */
   onChange(listener: () => void): void;
@@ -99,8 +111,12 @@ export async function startLive(
   env: Env = process.env,
   deps: StatusDeps = defaultDeps,
   live: LiveDeps = realDeps,
+  claude: ClaudeRowsLoader = defaultClaudeLoader(),
 ): Promise<LiveHandle> {
-  const model = createTopModel();
+  const opencode = createTopModel();
+  let claudeRows: ClaudeRow[] = [];
+  const model = withClaudeRows(opencode, () => claudeRows);
+  const scopeOfClaude = claudeScope(args, env, deps);
   const listeners: Array<() => void> = [];
   const notify = () => {
     for (const listener of listeners) listener();
@@ -109,6 +125,27 @@ export async function startLive(
   let stopped = false;
 
   const directoriesOf = scopeDirectories(args, env, deps);
+
+  /**
+   * Read the Claude files once. A failure keeps the last rows and warns
+   * only once, because the full-screen view would print the warning on
+   * every tick.
+   */
+  let polling = false;
+  let warned = false;
+  const pollClaude = async (): Promise<void> => {
+    if (polling || stopped) return;
+    polling = true;
+    try {
+      const rows = await claude(live.nowMs());
+      if (!stopped) claudeRows = scopeClaudeRows(rows, scopeOfClaude);
+    } catch (error) {
+      if (!warned) console.error(`warning: claude sessions: ${error instanceof Error ? error.message : errorMessage(error)}`);
+      warned = true;
+    } finally {
+      polling = false;
+    }
+  };
 
   /** Seed one server and open its event stream. */
   const openServer = async (entry: ServerEntry): Promise<void> => {
@@ -242,12 +279,18 @@ export async function startLive(
     }),
   );
 
-  // The tick: age the rows and re-run the stall detection. The timer
-  // repeats by itself, so the handler must not start another one.
+  // The Claude rows of the first frame.
+  await pollClaude();
+
+  // The tick: age the rows, re-run the stall detection, and read the new
+  // lines of the Claude files. The timer repeats by itself, so the handler
+  // must not start another one.
   const tickHandle = live.startTimer(() => {
     if (stopped) return;
     model.tick(live.nowMs());
-    notify();
+    void pollClaude().then(() => {
+      if (!stopped) notify();
+    });
   }, TICK_MS);
 
   // The probe: find down servers again and discover new sandboxes.

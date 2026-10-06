@@ -15,6 +15,7 @@
 import path from "node:path";
 import type { SessionRow, SessionRowState } from "../top/model";
 import {
+  claudeRoot,
   listSubagents,
   listTranscripts,
   nodeClaudeFs,
@@ -26,7 +27,7 @@ import {
   type SessionKind,
   type TranscriptFile,
 } from "./files";
-import { apiEquivalentUsd, contextWindowOf, type PriceTable } from "./prices";
+import { apiEquivalentUsd, contextWindowOf, loadPrices, type PriceTable } from "./prices";
 import {
   createTranscriptReader,
   mergeUsage,
@@ -409,4 +410,29 @@ export async function loadClaudeRows(options: {
   if (sessions.length === 0) return [];
   const prices = await options.loadPrices();
   return sortClaudeRows(sessions.map((session) => claudeRow(session, prices, options.nowMs)));
+}
+
+/** Loads the Claude rows that show at `nowMs`. The tests of `status` and `top` replace it. */
+export type ClaudeRowsLoader = (nowMs: number) => Promise<ClaudeRow[]>;
+
+/**
+ * A loader that keeps one source over all its calls, so a second call reads
+ * only the new bytes of each transcript. The files come from
+ * `$CLAUDE_CONFIG_DIR` (else `~/.claude`) and the prices from the LiteLLM
+ * cache under `$XDG_CACHE_HOME/idfix/`. The prices load at most once per
+ * loader, at the first call that finds a session. The live view of `top`
+ * calls one loader on each tick.
+ */
+export function claudeRowsLoader(env: Record<string, string | undefined>): ClaudeRowsLoader {
+  const source = createClaudeSource(claudeRoot(env));
+  let prices: Promise<PriceTable | undefined> | undefined;
+  return (nowMs) =>
+    loadClaudeRows({
+      source,
+      nowMs,
+      loadPrices: () => {
+        prices ??= loadPrices(env);
+        return prices;
+      },
+    });
 }

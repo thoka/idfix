@@ -12,6 +12,7 @@ import type { Message, Part, Session } from "@opencode-ai/sdk";
 import { NO_TERMINAL_HINT, scopeDirectories, top, type TopArgs, type TopUi } from "../src/top/load";
 import type { MessageEntry } from "../src/summary";
 import type { StatusDeps } from "../src/status";
+import { claudeRowOf } from "./top-rows";
 
 type FakeSession = { id: string; directory: string; title: string; updated: number; parentID?: string };
 
@@ -438,5 +439,89 @@ describe("top", () => {
     const args = { all: true, once: false, json: false };
     expect(await top(args, { OC_SUB_URL: "http://127.0.0.1:9" }, testDeps, ui)).toBe(0);
     expect(seen).toEqual([args]);
+  });
+});
+
+describe("top --once with Claude sessions (step 25g.2)", () => {
+  const claudeRows = () => [
+    claudeRowOf("sess-in-0001", { directory: HOST_DIR, title: "host claude", state: "waiting", waitingFor: "approve Bash", startTimeMs: Date.now() - MINUTE }),
+    claudeRowOf("sess-out-0002", { directory: "/elsewhere", title: "other claude", startTimeMs: Date.now() - MINUTE }),
+  ];
+
+  test("without a server, the Claude rows of the folder still show", async () => {
+    const stateHome = emptyStateHome();
+    const captured = captureLog();
+    const asked: number[] = [];
+    try {
+      const code = await top(
+        { all: false, dir: HOST_DIR, once: true, json: false },
+        { XDG_STATE_HOME: stateHome, OC_SUB_URL: "http://127.0.0.1:9" },
+        testDeps,
+        undefined,
+        async (nowMs) => {
+          asked.push(nowMs);
+          return claudeRows();
+        },
+      );
+      expect(code).toBe(0);
+      expect(asked).toHaveLength(1);
+      expect(captured.lines[0]).toBe("no server on http://127.0.0.1:9");
+      expect(captured.lines[1]).toMatch(/^  id +state +where/);
+      expect(captured.lines.slice(2)).toEqual([
+        expect.stringMatching(/^✳ n-0001 waiting -.* host claude$/),
+        "  waiting for: approve Bash",
+      ]);
+    } finally {
+      captured.restore();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("--all --json lists every Claude row and keeps stdout pure JSON", async () => {
+    const stateHome = emptyStateHome();
+    const captured = captureLog();
+    try {
+      const code = await top(
+        { all: true, once: true, json: true },
+        { XDG_STATE_HOME: stateHome, OC_SUB_URL: "http://127.0.0.1:9" },
+        testDeps,
+        undefined,
+        async () => claudeRows(),
+      );
+      expect(code).toBe(0);
+      expect(captured.lines).toHaveLength(1);
+      const rows = JSON.parse(captured.lines[0] as string) as Array<{ sessionId: string; driver: string; pending: unknown[] }>;
+      expect(rows.map((row) => [row.sessionId, row.driver])).toEqual([
+        ["sess-in-0001", "claude"],
+        ["sess-out-0002", "claude"],
+      ]);
+      expect(rows[0]?.pending).toEqual([]);
+      expect(captured.errors).toEqual(["no server on http://127.0.0.1:9"]);
+    } finally {
+      captured.restore();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("a failing Claude loader costs only the Claude rows", async () => {
+    const stateHome = emptyStateHome();
+    const captured = captureLog();
+    try {
+      const code = await top(
+        { all: true, once: true, json: false },
+        { XDG_STATE_HOME: stateHome, OC_SUB_URL: "http://127.0.0.1:9" },
+        testDeps,
+        undefined,
+        async () => {
+          throw new Error("broken file");
+        },
+      );
+      expect(code).toBe(0);
+      expect(captured.lines).toEqual(["no server on http://127.0.0.1:9"]);
+      expect(captured.errors).toEqual(["warning: claude sessions: broken file"]);
+    } finally {
+      captured.restore();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
   });
 });

@@ -142,3 +142,42 @@ describe("formatTopTable", () => {
     expect(lines[1]?.trimEnd().endsWith("short")).toBe(true);
   });
 });
+
+describe("Claude rows in the snapshot (step 25g.2)", () => {
+  const claude = (overrides: Partial<TopTableRow> & { sessionId: string }): TopTableRow =>
+    row({ agent: "", driver: "claude", costKind: "apiEquivalent", cost: 0.43, ...overrides });
+
+  test("an API price is gray with color and has a ~ without color", () => {
+    const rows = [claude({ sessionId: "abc-111111" }), row({ sessionId: "ses_222222", cost: 0.43 })];
+    const colored = formatTopTable(rows, NOW, { color: true });
+    expect(colored[1]).toContain("\u001b[90m43\u001b[39m");
+    expect(colored[2]).not.toContain("\u001b[90m");
+    const plain = formatTopTable(rows, NOW);
+    expect(plain[1]).toMatch(/^✳ 111111 busy +8d +~43 /);
+    expect(plain[2]).toMatch(/^🔧222222 busy +8d +43 /);
+  });
+
+  test("a row without a price has an empty cost cell", () => {
+    const plain = formatTopTable([claude({ sessionId: "abc-333333", costKind: "none", cost: 0 })], NOW);
+    expect(plain[1]).toMatch(/^✳ 333333 busy +8d +1m05s /);
+  });
+
+  test("an ended row is gray as a whole", () => {
+    const colored = formatTopTable([claude({ sessionId: "abc-444444", state: "ended" })], NOW, { color: true });
+    expect(colored[1]?.startsWith("\u001b[90m✳ 444444")).toBe(true);
+    expect(colored[1]?.endsWith("\u001b[39m")).toBe(true);
+  });
+
+  test("a waiting Claude row gets its waitingFor text as a pending line", () => {
+    const lines = formatTopTable(
+      [claude({ sessionId: "abc-555555", state: "waiting", waitingFor: "approve\n  Bash" })],
+      NOW,
+    );
+    expect(lines.slice(1)).toEqual([expect.stringMatching(/^✳ 555555 waiting /), "  waiting for: approve Bash"]);
+  });
+
+  test("the ctx cell shows the window share", () => {
+    const plain = formatTopTable([claude({ sessionId: "abc-666666", contextTokens: 123_000, contextWindow: 200_000 })], NOW);
+    expect(plain[1]).toContain(" 123k 62% ");
+  });
+});

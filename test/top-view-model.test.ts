@@ -2,8 +2,11 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionDetail, SessionRow } from "../src/top/model";
 import type { QuestionRequest } from "../src/requests";
+import { claudeDetail } from "../src/top/claude";
+import { claudeRowOf } from "./top-rows";
 import {
   attachCommand,
+  CLAUDE_OPEN_NOTE,
   detailLines,
   firstVisibleRow,
   footerLines,
@@ -201,5 +204,48 @@ describe("tmux pane", () => {
       "ses_2a3b4cABCDEF",
     ]);
     expect(tmuxAttachArgv(["bun", "src/cli.ts"], "ses_x", "/repo", { columns: 80, rows: 60 })[2]).toBe("-v");
+  });
+});
+
+describe("Claude sessions (step 25g.2)", () => {
+  test("the detail shows the kind, the model, the pending text, and the subagents, but no log", () => {
+    const child = claudeRowOf("agent-a1b2c3", { agent: "Explore", title: "find files", state: "idle" });
+    const parent = claudeRowOf("sess-000001", {
+      title: "fix the bug",
+      state: "waiting",
+      kind: "background",
+      waitingFor: "approve Bash",
+      children: [child],
+    });
+    expect(detailLines(claudeDetail(parent), 20)).toEqual([
+      { text: "000001  -  waiting  fix the bug", tone: "head" },
+      { text: "claude background  model claude-opus-5-5", tone: "dim" },
+      { text: "pending:", tone: "section" },
+      { text: "  waiting for: approve Bash", tone: "pending" },
+      { text: "subagents:", tone: "section" },
+      { text: "  └─ a1b2c3  Explore  idle  find files", tone: "tree" },
+    ]);
+  });
+
+  test("a Claude detail without a model names none", () => {
+    const lines = detailLines(claudeDetail(claudeRowOf("sess-000002", { model: undefined })), 5);
+    expect(lines[1]).toEqual({ text: "claude interactive  model -", tone: "dim" });
+    expect(lines).toHaveLength(2);
+  });
+
+  test("the cost total counts real charges only and names the API price on its own", () => {
+    const footer = footerLines({
+      servers: [],
+      rows: [row("ses_a", { cost: 0.5 }), claudeRowOf("c1", { cost: 2 }), claudeRowOf("c2", { cost: 0, costKind: "none" })],
+      all: true,
+      scopeLabel: "~/dv/p",
+    });
+    expect(footer[1]).toBe("3 sessions  cost $0.5000  api ~$2.0000  scope: all projects");
+    const opencodeOnly = footerLines({ servers: [], rows: [row("ses_a", { cost: 0.5 })], all: true, scopeLabel: "" });
+    expect(opencodeOnly[1]).toBe("1 session  cost $0.5000  scope: all projects");
+  });
+
+  test("the o note names step 25g.3", () => {
+    expect(CLAUDE_OPEN_NOTE).toContain("25g.3");
   });
 });

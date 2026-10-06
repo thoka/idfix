@@ -13,6 +13,11 @@
  * selected session in a new tmux pane (without tmux it shows the attach
  * command), `a` switches between the scope of `--dir`
  * and `--all`, and `q` or Ctrl-C quit.
+ *
+ * Claude Code sessions (step 25g.2) show in the same table. An ended row is
+ * gray, and the API price of a Claude session is gray, because it is not a
+ * real charge. The key `o` on a Claude row only shows a footer note until
+ * step 25g.3.
  */
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import React, { useEffect, useRef, useState } from "react";
@@ -23,6 +28,7 @@ import type { SessionRow } from "./model";
 import { defaultOpenPane, type PaneResult } from "./tmux";
 import {
   attachCommand,
+  CLAUDE_OPEN_NOTE,
   detailLines,
   firstVisibleRow,
   footerLines,
@@ -72,14 +78,29 @@ const TONE_COLORS: Record<DetailTone, string | undefined> = {
   dim: "gray",
 };
 
-/** One table row: the padded cells, with the `id` cell in the color of the state. */
-function TableRow(props: { cells: string[]; state: SessionRow["state"]; selected: boolean }) {
+/**
+ * One table row: the padded cells, with the `id` cell in the color of the
+ * state. An ended row is gray as a whole. The cell at `grayColumn` (the
+ * API price of a Claude session) is gray.
+ */
+function TableRow(props: { cells: string[]; state: SessionRow["state"]; selected: boolean; grayColumn?: number }) {
+  if (props.state === "ended") {
+    return (
+      <Text wrap="truncate" inverse={props.selected} color="gray">
+        {props.cells.join(GAP)}
+      </Text>
+    );
+  }
   const [id = "", ...rest] = props.cells;
   return (
     <Text wrap="truncate" inverse={props.selected}>
       <Text color={STATE_COLORS[props.state]}>{id}</Text>
-      {GAP}
-      {rest.join(GAP)}
+      {rest.map((cell, index) => (
+        <React.Fragment key={index}>
+          {GAP}
+          {index + 1 === props.grayColumn ? <Text color="gray">{cell}</Text> : cell}
+        </React.Fragment>
+      ))}
     </Text>
   );
 }
@@ -155,6 +176,10 @@ export function TopView(props: TopViewProps) {
         setMessage("no session selected");
         return;
       }
+      if (current.find((row) => row.sessionId === id)?.driver === "claude") {
+        setMessage(CLAUDE_OPEN_NOTE);
+        return;
+      }
       // The footer shows the result; the view stays usable while the pane
       // opens.
       void openPane(id, { columns, rows: height }).then((result) => {
@@ -175,6 +200,7 @@ export function TopView(props: TopViewProps) {
   const layout = screenLayout(height);
   const width = Math.max(20, columns);
   const table = padTable(rows, { showProject: all, projectName, width });
+  const costColumn = table.headers.indexOf("cost");
   const first = firstVisibleRow(rows.length, selected.index, layout.tableRows);
   const visible = rows.slice(first, first + layout.tableRows);
   const detail = selected.id === undefined || source === undefined ? undefined : source.model.session(selected.id);
@@ -204,6 +230,7 @@ export function TopView(props: TopViewProps) {
               cells={table.rows[first + offset] ?? []}
               state={row.state}
               selected={first + offset === selected.index}
+              grayColumn={row.costKind === "apiEquivalent" ? costColumn : undefined}
             />
           ))
         )}

@@ -189,6 +189,21 @@ Keys: `j`/`k` or the arrow keys select a run. `o` shows the attach command of th
 
 With `--all`, the `where` column shows the full project name. A project can set a short name for it in the file `.opencode/oc-sub.json` of the project root: `{ "shortName": "opsub" }`. Without the file, the full name shows. The column is as wide as its longest value, like the other columns.
 
+#### Claude Code sessions in `top`
+
+`top` also shows the Claude Code sessions, in the same table as the opencode runs. The same sessions show as in `status` (see below): the folder rule without `--all`, every session with `--all`, and an ended session for 60 minutes. They show also when no opencode server runs. `top --once` then prints `no server on ...` first, and the table after it.
+
+- The icon `✳` marks a Claude session. The CODE is the last 6 characters of its session ID.
+- The `¢` cell of a Claude session is the API price of its tokens and its subagents. On a plan, this is not a real charge, so the cell is gray. `top --once` without color puts `~` in front of it, for example `~43`. Without a known price, the cell is empty.
+- The `ctx` cell shows the context size and its share of the model window, for example `123k 62%`. Without a known window, it shows only the size. This rule applies to opencode runs too.
+- The rows sort in three groups: `waiting` first, then the working and idle rows, and `ended` last. Inside a group, the newest start comes first. This order applies to opencode runs too.
+- A waiting Claude session gets a pending line under its row: `waiting for:` and what it waits for.
+- The state `ended` is gray, and in the live view the whole row is gray.
+- The detail pane shows the kind (`interactive` or `background`), the model, the pending text, and the subagents as a tree. It shows no log lines for a Claude session yet.
+- The footer counts only real charges in the cost total. The API price of the Claude sessions shows on its own, as `api ~$x`.
+- The live view reads the Claude files again on each 2-second tick. It reads only the new lines of each transcript, and it loads the prices once at the start.
+- The key `o` on a Claude session does not open it yet. The footer shows a note. Step 25g.3 adds it.
+
 ### Check what runs: `oc-sub status`
 
 `oc-sub status` prints one line per running session of the current project and its worktrees: the session ID, the state (`busy`, `waiting`, `retry`, or `idle`), and the title. A session of another worktree gets its folder in brackets. `oc-sub status --all` lists the running sessions of all known servers, all projects, and their worktrees, each with its folder.

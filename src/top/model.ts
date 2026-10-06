@@ -81,6 +81,14 @@ export type SessionRow = {
   contextWindow?: number;
   /** What `cost` means. */
   costKind: CostKind;
+  /**
+   * What a waiting Claude session waits for: `waitingFor` of its session
+   * file, or `needs` of its blocked job. It shows as a pending line under
+   * the row. Opencode rows keep their pending requests in `SessionDetail`.
+   */
+  waitingFor?: string;
+  /** The kind of a Claude session: started in a terminal, or a background job. */
+  kind?: "interactive" | "background";
 };
 
 /** One session with its log, its pending requests, and its child sessions. */

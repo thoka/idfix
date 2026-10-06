@@ -2,6 +2,9 @@
 import { describe, expect, test } from "bun:test";
 import stringWidth from "string-width";
 import {
+  costCell,
+  formatContextCell,
+  rowIcon,
   agentIcon,
   columnHeaders,
   formatAge,
@@ -12,8 +15,10 @@ import {
   sessionCode,
   shortWorktree,
   splitFolder,
+  ICON_WIDTH,
 } from "../src/top/columns";
 import type { SessionRow } from "../src/top/model";
+import { claudeRowOf, openRow } from "./top-rows";
 
 function row(overrides: Partial<SessionRow> & { sessionId: string }): SessionRow {
   return {
@@ -164,5 +169,41 @@ describe("padTable", () => {
     );
     expect(table.rows[0]?.[2]).toBe("0.1");
     expect(table.rows[1]?.[2]).toBe("150");
+  });
+});
+
+describe("Claude cells (step 25g.2)", () => {
+  test("a Claude session shows the icon ✳, a subagent the icon of its agent", () => {
+    expect(rowIcon(claudeRowOf("s"))).toBe("✳ ");
+    expect(stringWidth(rowIcon(claudeRowOf("s")))).toBe(ICON_WIDTH);
+    expect(rowIcon(claudeRowOf("s", { agent: "researcher" }))).toBe("🔎");
+    expect(rowIcon(openRow("s", { agent: "" }))).toBe("--");
+  });
+
+  test("the cost cell is empty without a price and marks an API price only on request", () => {
+    expect(costCell({ cost: 0, costKind: "none" }, true)).toBe("");
+    expect(costCell({ cost: 0.043, costKind: "apiEquivalent" }, false)).toBe("4.3");
+    expect(costCell({ cost: 0.043, costKind: "apiEquivalent" }, true)).toBe("~4.3");
+    expect(costCell({ cost: 0.043, costKind: "real" }, true)).toBe("4.3");
+  });
+
+  test("the ctx cell adds the window share when the window is known", () => {
+    expect(formatContextCell(123_000, 200_000)).toBe("123k 62%");
+    expect(formatContextCell(6_300, undefined)).toBe("6.3k");
+    expect(formatContextCell(6_300, 200_000)).toBe("6.3k  3%");
+    expect(formatContextCell(200_000, 200_000)).toBe("200k 100%");
+    expect(formatContextCell(6_300, 0)).toBe("6.3k");
+    // An opencode row with a known window gets the share too.
+    const [cells] = rowCells([openRow("ses_x", { contextTokens: 50_000, contextWindow: 1_000_000 })], { showProject: false });
+    expect(cells?.[columnHeaders({ showProject: false }).indexOf("ctx")]).toBe("50.0k  5%");
+  });
+
+  test("rowCells of a Claude row without a price", () => {
+    const options = { showProject: false, costMarker: true };
+    const headers = columnHeaders(options);
+    const [cells] = rowCells([claudeRowOf("abcdef-123456", { costKind: "none", contextTokens: 2_000, contextWindow: undefined })], options);
+    expect(cells?.[headers.indexOf("session")]).toBe("✳ 123456");
+    expect(cells?.[headers.indexOf("cost")]).toBe("");
+    expect(cells?.[headers.indexOf("ctx")]).toBe("2.0k");
   });
 });

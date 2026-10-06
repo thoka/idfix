@@ -9,6 +9,11 @@
  * loads every directory of every known server, like `status --all`. A server
  * that is down is skipped. A server that rejects the password or fails
  * prints `warning: <url>: <message>` to stderr and is skipped.
+ *
+ * The Claude Code sessions (step 25g.2) come from `src/claude/rows.ts` and
+ * join the opencode rows through `withClaudeRows` of `src/top/claude.ts`.
+ * The same folder rule and `--all` apply. They show also when no opencode
+ * server answers.
  */
 import path from "node:path";
 import type { Session, SessionStatus } from "@opencode-ai/sdk";
@@ -16,12 +21,15 @@ import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "../
 import type { Env } from "../config";
 import { listPendingRequests, type PendingRequest } from "../requests";
 import { listServers } from "../servers";
+import { claudeRowsLoader, type ClaudeRowsLoader } from "../claude/rows";
 import {
+  claudeRowsSafe,
   defaultDeps as defaultStatusDeps,
   projectDirectories,
   serverDirectories,
   type StatusDeps,
 } from "../status";
+import { scopeClaudeRows, withClaudeRows } from "./claude";
 import { createTopModel, type SessionDetail, type TopModel } from "./model";
 import { DEFAULT_WIDTH, formatTopTable, type TopTableOptions, type TopTableRow } from "./format";
 import { makeProjectNameResolver } from "../project-config";
@@ -56,6 +64,24 @@ export function scopeDirectories(args: { dir?: string; all: boolean }, env: Env,
     return async () => dirs;
   }
   return (url) => serverDirectories(url, env, deps);
+}
+
+/**
+ * The folders of the Claude rows: undefined with `--all` (every session),
+ * else the folder of `--dir` and its worktrees, as for `status`.
+ */
+export function claudeScope(args: { dir?: string; all: boolean }, env: Env, deps: StatusDeps): string[] | undefined {
+  if (args.all) return undefined;
+  return projectDirectories(path.resolve(args.dir ?? process.cwd()), env, deps);
+}
+
+/**
+ * The default Claude loader of `top`. It reads the environment of the
+ * process, like `status`, so a test that passes its own `env` never reads
+ * the real `~/.claude`.
+ */
+export function defaultClaudeLoader(): ClaudeRowsLoader {
+  return claudeRowsLoader(process.env);
 }
 
 /** List the sessions, the status map, and the pending requests of one directory. */
@@ -154,6 +180,7 @@ export async function seedServer(model: TopModel, baseUrl: string, directories: 
 }
 
 export type TopResult = {
+  /** The opencode sessions and the Claude sessions in scope. */
   model: TopModel;
   /** Whether at least one known server answered. */
   answered: boolean;
@@ -161,11 +188,12 @@ export type TopResult = {
   hostUrl: string;
 };
 
-/** Load the start data of `top` from every known server into one model. */
+/** Load the start data of `top` from every known server and the Claude sessions into one model. */
 export async function loadTopAll(
   args: { url?: string; dir?: string; all: boolean },
   env: Env,
   deps: StatusDeps = defaultDeps,
+  claude: ClaudeRowsLoader = defaultClaudeLoader(),
 ): Promise<TopResult> {
   const model = createTopModel();
   const servers = listServers(env, args.url);
@@ -192,7 +220,8 @@ export async function loadTopAll(
       console.error(`warning: ${server.url}: ${message}`);
     }
   }
-  return { model, answered, hostUrl };
+  const claudeRows = scopeClaudeRows(await claudeRowsSafe(claude, nowMs), claudeScope(args, env, deps));
+  return { model: withClaudeRows(model, () => claudeRows), answered, hostUrl };
 }
 
 /** The plain model loader, as the later live view will use it. */
@@ -200,8 +229,9 @@ export async function loadTop(
   args: { url?: string; dir?: string; all: boolean },
   env: Env = process.env,
   deps: StatusDeps = defaultDeps,
+  claude: ClaudeRowsLoader = defaultClaudeLoader(),
 ): Promise<TopModel> {
-  return (await loadTopAll(args, env, deps)).model;
+  return (await loadTopAll(args, env, deps, claude)).model;
 }
 
 /**
@@ -236,32 +266,42 @@ export const NO_TERMINAL_HINT = "oc-sub top: no terminal, printed one snapshot i
  * `oc-sub top [--once] [--dir DIR | --all] [--json]`. With `--once`, one text
  * snapshot. Without it, the full-screen live view of `src/top/view.tsx`. When
  * stdin or stdout is not a terminal, it prints the snapshot and a one-line
- * hint to stderr instead of the view.
+ * hint to stderr instead of the view. `claude` loads the Claude rows of the
+ * snapshot. The tests replace it.
  */
 export async function top(
   args: TopArgs,
   env: Env = process.env,
   deps: StatusDeps = defaultDeps,
   ui: TopUi = defaultUi,
+  claude: ClaudeRowsLoader = defaultClaudeLoader(),
 ): Promise<number> {
   if (!args.once) {
     if (ui.interactive()) return ui.runView(args, env, deps);
-    const code = await snapshot(args, env, deps);
+    const code = await snapshot(args, env, deps, claude);
     console.error(NO_TERMINAL_HINT);
     return code;
   }
-  return snapshot(args, env, deps);
+  return snapshot(args, env, deps, claude);
 }
 
-/** Print one text snapshot, or the rows as JSON with `--json`. */
-async function snapshot(args: TopArgs, env: Env, deps: StatusDeps): Promise<number> {
-  const { model, answered, hostUrl } = await loadTopAll(args, env, deps);
-  if (!answered) {
-    // No server means no sessions. That is a normal state, not an error.
-    console.log(`no server on ${hostUrl}`);
-    return 0;
-  }
+/**
+ * Print one text snapshot, or the rows as JSON with `--json`. Without an
+ * answering server, the Claude rows still show. Then the `no server` line
+ * comes first, on stdout, or on stderr in JSON mode.
+ */
+async function snapshot(args: TopArgs, env: Env, deps: StatusDeps, claude: ClaudeRowsLoader): Promise<number> {
+  const { model, answered, hostUrl } = await loadTopAll(args, env, deps, claude);
   const nowMs = Date.now();
+  if (!answered) {
+    // No server means no opencode sessions. That is a normal state, not an error.
+    const noServer = `no server on ${hostUrl}`;
+    if (model.rows(nowMs).length === 0) {
+      console.log(noServer);
+      return 0;
+    }
+    (args.json ? console.error : console.log)(noServer);
+  }
   const rows: TopTableRow[] = model.rows(nowMs).map((row) => {
     const detail = model.session(row.sessionId);
     return { ...row, pending: detail === undefined ? [] : treePending(detail) };

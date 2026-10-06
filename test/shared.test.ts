@@ -7,19 +7,24 @@ describe("sharedAgentsDir", () => {
   });
 
   test("an empty OC_SUB_SHARED_DIR counts as unset", () => {
-    expect(sharedAgentsDir({ OC_SUB_SHARED_DIR: "  ", HOME: "/home/user" })).toBe("/home/user/dv/meta/agents");
+    expect(sharedAgentsDir({ OC_SUB_SHARED_DIR: "  ", HOME: "/home/user" })).toBeUndefined();
+    expect(sharedAgentsDir({ OC_SUB_SHARED_DIR: "", HOME: "/home/user" })).toBeUndefined();
   });
 
-  test("falls back to $HOME/dv/meta/agents", () => {
-    expect(sharedAgentsDir({ HOME: "/home/user" })).toBe("/home/user/dv/meta/agents");
-    expect(sharedAgentsDir({})).toBe("~/dv/meta/agents");
+  test("without OC_SUB_SHARED_DIR there is no shared folder, not even under HOME", () => {
+    expect(sharedAgentsDir({ HOME: "/home/user" })).toBeUndefined();
+    expect(sharedAgentsDir({})).toBeUndefined();
   });
 });
 
 describe("sharedAgentsFile", () => {
   test("is AGENTS.md inside the shared folder", () => {
     expect(sharedAgentsFile({ OC_SUB_SHARED_DIR: "/srv/agents" })).toBe("/srv/agents/AGENTS.md");
-    expect(sharedAgentsFile({ HOME: "/home/user" })).toBe("/home/user/dv/meta/agents/AGENTS.md");
+  });
+
+  test("is undefined without OC_SUB_SHARED_DIR", () => {
+    expect(sharedAgentsFile({ HOME: "/home/user" })).toBeUndefined();
+    expect(sharedAgentsFile({ OC_SUB_SHARED_DIR: " " })).toBeUndefined();
   });
 });
 

@@ -41,7 +41,7 @@ const ENV = { OC_SUB_SHARED_DIR: SHARED };
 beforeAll(() => {
   rmSync(BASE, { recursive: true, force: true });
   mkdirSync(path.join(SHARED, "skills", "critical-research"), { recursive: true });
-  writeFileSync(criticalFooterFile(ENV), SKILL);
+  writeFileSync(path.join(SHARED, "skills", "critical-research", "SKILL.md"), SKILL);
 });
 
 afterAll(() => rmSync(BASE, { recursive: true, force: true }));
@@ -67,7 +67,15 @@ describe("readCriticalFooter", () => {
 
   test("a missing file names the file", () => {
     const env = { OC_SUB_SHARED_DIR: path.join(BASE, "missing") };
-    expect(() => readCriticalFooter(env)).toThrow(criticalFooterFile(env));
+    expect(() => readCriticalFooter(env)).toThrow(path.join(BASE, "missing", "skills", "critical-research", "SKILL.md"));
+  });
+
+  test("without OC_SUB_SHARED_DIR there is no file, and the error names the variable", () => {
+    expect(criticalFooterFile({ HOME: "/home/user" })).toBeUndefined();
+    expect(criticalFooterFile({ OC_SUB_SHARED_DIR: " " })).toBeUndefined();
+    expect(() => readCriticalFooter({ HOME: "/home/user" })).toThrow(
+      "cannot read the critical-research footer: OC_SUB_SHARED_DIR is not set.",
+    );
   });
 
   test("a missing block names the file", () => {
@@ -76,16 +84,17 @@ describe("readCriticalFooter", () => {
     );
   });
 
-  test("the real skill file in the default shared folder has the footer", () => {
-    const env = { HOME: process.env.HOME };
-    if (!existsSync(criticalFooterFile(env))) {
-      console.log(`skip: ${criticalFooterFile(env)} does not exist`);
+  test("the real skill file in the shared folder of this machine has the footer", () => {
+    const env = { OC_SUB_SHARED_DIR: process.env.OC_SUB_SHARED_DIR };
+    const file = criticalFooterFile(env);
+    if (file === undefined || !existsSync(file)) {
+      console.log(`skip: ${file ?? "OC_SUB_SHARED_DIR is not set, so the skill file"} does not exist`);
       return;
     }
     const footer = readCriticalFooter(env);
     expect(footer.startsWith("---")).toBe(true);
     expect(footer).toContain("Critical analysis.");
-    expect(readFileSync(criticalFooterFile(env), "utf8")).toContain(footer);
+    expect(readFileSync(file, "utf8")).toContain(footer);
   });
 });
 
@@ -172,7 +181,7 @@ describe("oc-sub run and the critical-research footer", () => {
     try {
       await expect(
         run({ agent: "researcher", dir: "/x", text: "Q", url: `http://127.0.0.1:${server.port}` }, env, deps),
-      ).rejects.toThrow(criticalFooterFile(env));
+      ).rejects.toThrow(path.join(BASE, "missing", "skills", "critical-research", "SKILL.md"));
     } finally {
       server.stop(true);
     }

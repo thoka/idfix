@@ -84,7 +84,7 @@ function makeEnv(): Record<string, string> {
   const bunBin = path.join(home, ".local/share/mise/installs/bun/1.4.2/bin/bun");
   mkdirSync(path.dirname(bunBin), { recursive: true });
   writeFileSync(bunBin, "");
-  return { XDG_STATE_HOME: tempDir(), XDG_CONFIG_HOME: tempDir(), HOME: home };
+  return { XDG_STATE_HOME: tempDir(), XDG_CONFIG_HOME: tempDir(), HOME: home, OC_SUB_SHARED_DIR: path.join(home, "agents") };
 }
 
 /** The absolute bun path that the tests hand to the holder command. */
@@ -99,8 +99,15 @@ function pluginMount(env: Record<string, string>): string {
   return `${pluginDataDir(env)}:ro`;
 }
 
+/** The shared folder of a test env; the tests always set it. */
+function sharedDirOf(env: Record<string, string | undefined>): string {
+  const dir = sharedAgentsDir(env);
+  if (dir === undefined) throw new Error("the test env sets no OC_SUB_SHARED_DIR");
+  return dir;
+}
+
 function sharedMount(env: Record<string, string>): string {
-  return `${sharedAgentsDir(env)}:ro`;
+  return `${sharedDirOf(env)}:ro`;
 }
 
 function installsMount(env: Record<string, string>): string {
@@ -655,7 +662,7 @@ describe("sandboxConfigContent", () => {
     const cmd = holderCommands[0] ?? [];
     const nameIndex = cmd.indexOf("oc-sub-test");
     const contentFlag = cmd.indexOf(
-      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedAgentsDir(env), proxyBaseUrl(SANDBOX_PROXY_PORT))}`,
+      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedDirOf(env), proxyBaseUrl(SANDBOX_PROXY_PORT))}`,
     );
     const sshFlag = cmd.indexOf("SSH_AUTH_SOCK=");
     expect(sshFlag).toBe(contentFlag + 2);
@@ -812,7 +819,7 @@ describe("cost proxy wiring (sandbox mode)", () => {
 
   test("without any bun in the installs folder, up stops and names --no-cost-proxy", async () => {
     // A plain env without the fake bun of makeEnv.
-    const env = { XDG_STATE_HOME: tempDir(), XDG_CONFIG_HOME: tempDir(), HOME: tempDir() };
+    const env = { XDG_STATE_HOME: tempDir(), XDG_CONFIG_HOME: tempDir(), HOME: tempDir(), OC_SUB_SHARED_DIR: tempDir() };
     const { calls, runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
@@ -838,6 +845,30 @@ describe("cost proxy wiring (sandbox mode)", () => {
 
 describe("upSandbox", () => {
   const PORTS_HEADER = "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n";
+
+  for (const [label, shared] of [["unset", undefined], ["blank", ""]] as const) {
+    test(`stops before any call when OC_SUB_SHARED_DIR is ${label}`, async () => {
+      const { calls, runner } = fakeRunner(() => ({ stdout: "" }));
+      const env: Record<string, string> = { ...makeEnv() };
+      delete env.OC_SUB_SHARED_DIR;
+      if (shared !== undefined) env.OC_SUB_SHARED_DIR = shared;
+      const errors: string[] = [];
+      const err = console.error;
+      console.error = (line: string) => errors.push(line);
+      let result: number;
+      try {
+        result = await upSandbox({}, env, makeDeps({ runner, fileExists: () => true }));
+      } finally {
+        console.error = err;
+      }
+      expect(result).toBe(1);
+      expect(calls).toHaveLength(0);
+      expect(errors).toEqual([
+        "error: OC_SUB_SHARED_DIR is not set.",
+        "Set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills).",
+      ]);
+    });
+  }
 
   test("a missing shared AGENTS.md stops up before any call", async () => {
     const { calls, runner } = fakeRunner(() => ({ stdout: "" }));
@@ -1042,7 +1073,7 @@ describe("upSandbox", () => {
       "/repo",
       `${relativeMount("/", pluginDataDir(env))}:ro`,
       `${relativeMount("/", miseInstallsDir(env))}:ro`,
-      `${relativeMount("/", sharedAgentsDir(env))}:ro`,
+      `${relativeMount("/", sharedDirOf(env))}:ro`,
     ]);
     expect(calls[6]?.cwd).toBe("/");
     expect(calls[7]?.cmd).toEqual([
@@ -1074,14 +1105,14 @@ describe("upSandbox", () => {
     expect(calls[17]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "host.docker.internal:8767"]);
     expect(calls[18]?.cmd).toEqual(["sbx", "policy", "check", "network", "--sandbox", "oc-sub-test", "localhost:8767"]);
     // The readability check of the shared rules, before the server starts.
-    expect(calls[19]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "test", "-r", `${sharedAgentsDir(env)}/AGENTS.md`]);
+    expect(calls[19]?.cmd).toEqual(["sbx", "exec", "oc-sub-test", "test", "-r", `${sharedDirOf(env)}/AGENTS.md`]);
     expect(execCommands).toEqual([[
       "sbx",
       "exec",
       "-e",
       `OPENCODE_CONFIG_DIR=${pluginDataDir(env)}`,
       "-e",
-      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedAgentsDir(env), proxyBaseUrl(SANDBOX_PROXY_PORT))}`,
+      `OPENCODE_CONFIG_CONTENT=${sandboxConfigContent(sharedDirOf(env), proxyBaseUrl(SANDBOX_PROXY_PORT))}`,
       "-e",
       "SSH_AUTH_SOCK=",
       "-e",
@@ -1479,7 +1510,7 @@ describe("upSandbox", () => {
       root,
       `${relativeMount("/", pluginDataDir(env))}:ro`,
       `${relativeMount("/", miseInstallsDir(env))}:ro`,
-      `${relativeMount("/", sharedAgentsDir(env))}:ro`,
+      `${relativeMount("/", sharedDirOf(env))}:ro`,
     ]);
     expect(output.join("\n")).not.toContain("lies inside the project root");
     // The mount source exists before the create.

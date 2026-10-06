@@ -289,6 +289,16 @@ describe("global-rules", () => {
     expect(byName(results(deps), "global-rules")?.status).toBe("warn");
   });
 
+  test("warns and names the variable without OC_SUB_SHARED_DIR", () => {
+    const deps = makeDeps({ files: map({ ...links, [sharedFile]: { content: "# rules" } }) }, { sharedDir: undefined });
+    const check = byName(results(deps), "global-rules");
+    expect(check?.status).toBe("warn");
+    expect(check?.message).toBe("OC_SUB_SHARED_DIR is not set. There is no shared rules file.");
+    expect(check?.fix).toBe(
+      "set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills)",
+    );
+  });
+
   test("fails for a regular file copy", () => {
     const deps = makeDeps({
       files: map({ ...links, [sharedFile]: { content: "# rules" }, "/home/user/.codex/AGENTS.md": { content: "# copy" } }),
@@ -791,6 +801,13 @@ describe("the global-rules fix", () => {
   const opencodeMd = "/home/user/.config/opencode/AGENTS.md";
   const codexMd = "/home/user/.codex/AGENTS.md";
   const base = map({ [sharedFile]: { content: "# rules" } });
+
+  test("changes nothing without OC_SUB_SHARED_DIR", () => {
+    const deps = makeDeps({ files: map({ ...Object.fromEntries(base), [codexMd]: { content: "# rules" } }) }, { sharedDir: undefined });
+    const outcome = globalRulesFix(deps, {} as CheckResult, { force: false });
+    expect(outcome).toEqual({ ok: false, note: "OC_SUB_SHARED_DIR is not set. Nothing changed" });
+    expect(deps.lstat(codexMd)?.isSymbolicLink).toBe(false);
+  });
 
   test("replaces an equal copy with a symlink", () => {
     const deps = makeDeps({ files: map({ ...Object.fromEntries(base), [codexMd]: { content: "# rules" } }) });

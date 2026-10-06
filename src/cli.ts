@@ -93,7 +93,7 @@ Sandbox mode:
 Environment:
   OC_SUB_URL                 default server URL
   OC_SUB_SHARED_DIR          the folder with the shared AGENTS.md and skills
-                             (default: $HOME/dv/meta/agents)
+                             (no default; up and ping --rules need it)
   OPENCODE_SERVER_PASSWORD   enables basic auth (never printed)
   OPENCODE_SERVER_USERNAME   basic-auth user (default: opencode)
   SBX_BIN                    the sbx binary (default: sbx on PATH)

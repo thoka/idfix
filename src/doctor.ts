@@ -15,7 +15,7 @@ import { defaultKvmDeps, execFailedMessage, hostRefsKeepingCommit, KVM_CHMOD_COM
 import { deepinfraKeyPath, projectRootOfRun } from "./keys";
 import { PLAN_CONFIG, readPlanDir } from "./plan-dir";
 import { parseResearchHead, recheckState, todayString } from "./research-head";
-import { sharedAgentsDir } from "./shared";
+import { SHARED_DIR_UNSET, sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
 import { LOCK_FILE, lockHolder, watchStateDir, type LockHolder } from "./watch/log";
 import { pluginDataDir, pluginDigest, syncPluginDir } from "./plugin-sync";
@@ -56,7 +56,7 @@ export type DoctorDeps = {
   /** The project folder that the checks examine. */
   root: string;
   /** The shared agents folder (the source of the global rules). */
-  sharedDir: string;
+  sharedDir: string | undefined;
   /** The mise installs folder, for the sandbox mount check. */
   installsDir: string;
   /** The plugin folder of this oc-sub, the source of the sync. */
@@ -494,6 +494,14 @@ export function globalRulePaths(deps: DoctorDeps): string[] {
 
 function globalRulesCheck(deps: DoctorDeps): CheckResult {
   const paths = globalRulePaths(deps);
+  if (deps.sharedDir === undefined) {
+    return result(
+      "global-rules",
+      "warn",
+      `${SHARED_DIR_UNSET} There is no shared rules file.`,
+      "set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills)",
+    );
+  }
   const sharedFile = path.join(deps.sharedDir, "AGENTS.md");
   const sharedReal = deps.realpath(sharedFile);
   if (sharedReal === null) {
@@ -745,6 +753,7 @@ export function pluginFreshFix(deps: DoctorDeps, res: CheckResult, _ctx: { force
  * destroys unmerged edits. A missing path is not created.
  */
 export function globalRulesFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): FixOutcome {
+  if (deps.sharedDir === undefined) return { ok: false, note: `${SHARED_DIR_UNSET} Nothing changed` };
   const sharedFile = path.join(deps.sharedDir, "AGENTS.md");
   const sharedReal = deps.realpath(sharedFile);
   const sharedContent = sharedReal === null ? null : deps.readText(sharedFile);

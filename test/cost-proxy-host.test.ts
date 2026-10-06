@@ -58,6 +58,59 @@ describe("serveEnv with the cost proxy (host mode)", () => {
   });
 });
 
+const UNSET_LINES = [
+  "error: OC_SUB_SHARED_DIR is not set.",
+  "Set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills).",
+];
+
+/** Runs up on the host and returns its exit code, its errors, and whether it started a process. */
+async function upWithErrors(env: Record<string, string>): Promise<{ result: number; errors: string[]; started: boolean }> {
+  const errors: string[] = [];
+  let started = false;
+  const deps = makeDeps({
+    spawnServe: () => {
+      started = true;
+      return { pid: 1001, exitCode: () => null };
+    },
+    spawnProxy: () => {
+      started = true;
+      return { pid: 1002, exitCode: () => null };
+    },
+  });
+  const err = console.error;
+  console.error = (line: string) => errors.push(line);
+  try {
+    return { result: await up({ port: 8790 }, env, deps), errors, started };
+  } finally {
+    console.error = err;
+  }
+}
+
+describe("up on the host needs the shared folder", () => {
+  for (const [label, shared] of [["unset", undefined], ["blank", "  "]] as const) {
+    test(`stops before it starts anything when OC_SUB_SHARED_DIR is ${label}`, async () => {
+      const env: Record<string, string> = { XDG_STATE_HOME: tempDir(), XDG_DATA_HOME: tempDir() };
+      if (shared !== undefined) env.OC_SUB_SHARED_DIR = shared;
+      const { result, errors, started } = await upWithErrors(env);
+      expect(result).toBe(1);
+      expect(started).toBe(false);
+      expect(errors).toEqual(UNSET_LINES);
+    });
+  }
+
+  test("stops with the path when the folder has no AGENTS.md", async () => {
+    const shared = tempDir();
+    const { result, errors, started } = await upWithErrors({
+      XDG_STATE_HOME: tempDir(),
+      XDG_DATA_HOME: tempDir(),
+      OC_SUB_SHARED_DIR: shared,
+    });
+    expect(result).toBe(1);
+    expect(started).toBe(false);
+    expect(errors[0]).toBe(`error: the shared agents file ${path.join(shared, "AGENTS.md")} does not exist.`);
+  });
+});
+
 describe("up starts the cost proxy on the host", () => {
   test("starts the proxy as sh -c with a restart loop on port + 1, before the server", async () => {
     const env = makeEnv();

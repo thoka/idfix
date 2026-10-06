@@ -5,7 +5,7 @@ import { assertOk, makeClient, requireServer, unwrap } from "./client";
 import { type Env } from "./config";
 import { readTextFile } from "./keys";
 import { resolveCommandUrl } from "./sandbox";
-import { firstHeading, sharedAgentsDir } from "./shared";
+import { SHARED_DIR_HINT, SHARED_DIR_UNSET, firstHeading, sharedAgentsFile } from "./shared";
 import { formatCost, summarizeMessages, finalAssistantText, type MessageEntry } from "./summary";
 
 /**
@@ -98,7 +98,12 @@ export async function pingRules(
   env: Env = process.env,
   deps: RulesDeps = defaultDeps,
 ): Promise<number> {
-  const sharedFile = path.join(sharedAgentsDir(env), "AGENTS.md");
+  const sharedFile = sharedAgentsFile(env);
+  if (sharedFile === undefined) {
+    console.error(`error: ${SHARED_DIR_UNSET}`);
+    console.error(SHARED_DIR_HINT);
+    return 1;
+  }
   const content = await deps.readText(sharedFile);
   if (content === null) {
     console.error(`error: cannot read the shared agents file ${sharedFile}`);

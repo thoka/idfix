@@ -4,7 +4,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { resolveTarget, type Env } from "./config";
 import { assertUsable, probeServer, type ServerState } from "./client";
-import { sharedAgentsFile, sharedConfigEntries, sharedAgentsDir } from "./shared";
+import { SHARED_DIR_HINT, SHARED_DIR_UNSET, sharedAgentsFile, sharedConfigEntries, sharedAgentsDir } from "./shared";
 import { deepinfraKeyPath, hostDeepInfraKey, projectNameOf } from "./keys";
 import {
   miseInstallsDir,
@@ -67,7 +67,7 @@ export const PLUGIN_CONFIG_DIR = path.resolve(import.meta.dir, "..", "opencode")
 export function serveEnv(
   env: Env,
   pluginConfigDir: string = PLUGIN_CONFIG_DIR,
-  sharedDir: string = sharedAgentsDir(env),
+  sharedDir: string | undefined = sharedAgentsDir(env),
   opts: { proxyUrl?: string; deepinfraProxyUrl?: string; deepinfraKey?: string } = {},
 ): { env: Env; warnings: string[] } {
   const exa = { OPENCODE_ENABLE_EXA: env.OPENCODE_ENABLE_EXA ?? "1" };
@@ -91,7 +91,9 @@ export function serveEnv(
       "OPENCODE_CONFIG_CONTENT is already set on the host. The shared rules and skills are not added to it.",
     );
   } else {
-    const content = sharedConfigEntries(sharedDir);
+    // Without a shared folder there are no shared entries. `up` stops
+    // before that case, so it only happens in a direct call.
+    const content = sharedDir === undefined ? {} : sharedConfigEntries(sharedDir);
     withConfigDir.OPENCODE_CONFIG_CONTENT = JSON.stringify({
       ...content,
       ...providerEntries(opts.proxyUrl, opts.deepinfraProxyUrl),
@@ -190,6 +192,11 @@ export async function up(
   // The shared rules and skills are the only source of the global agent
   // files. Without them, every session would silently lose the global rules.
   const sharedFile = sharedAgentsFile(env);
+  if (sharedFile === undefined) {
+    console.error(`error: ${SHARED_DIR_UNSET}`);
+    console.error(SHARED_DIR_HINT);
+    return 1;
+  }
   if (!existsSync(sharedFile)) {
     console.error(`error: the shared agents file ${sharedFile} does not exist.`);
     console.error("Create it, or set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md.");

@@ -17,7 +17,7 @@ import { assertUsable, probeServer } from "./client";
 import { resolveServerUrl } from "./config";
 import { DEEPINFRA_HOST, DEEPINFRA_PLACEHOLDER, deepinfraKeyPath, gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOfRun } from "./keys";
 import { stateDir, serveDirsPath, serveLogPath, servePidPath, servePluginPath, readPid, readDirs, removeFiles, appendLogMarker, readLogTail } from "./state";
-import { sharedAgentsDir, sharedConfigEntries } from "./shared";
+import { SHARED_DIR_HINT, SHARED_DIR_UNSET, sharedAgentsDir, sharedConfigEntries } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
 import { pluginDataDir, proxyBundleIn, syncPluginDir } from "./plugin-sync";
 
@@ -912,7 +912,7 @@ export type SandboxRecreateCase =
  */
 export function sandboxRecreateCase(
   runner: Runner,
-  args: { bin: string; name: string; root: string; pluginDir: string; installsDir: string; sharedDir: string },
+  args: { bin: string; name: string; root: string; pluginDir: string; installsDir: string; sharedDir: string | undefined },
 ): SandboxRecreateCase | null {
   const ls = runner([args.bin, "ls"]).stdout;
   if (!listsName(ls, args.name)) return { reason: "not-listed" };
@@ -1092,11 +1092,13 @@ export function sandboxMountPlan(
   root: string,
   pluginDir: string,
   installsDir: string,
-  sharedDir: string,
+  sharedDir: string | undefined,
 ): { mounted: string[]; inClone: string[] } {
   const mounted: string[] = [];
   const inClone: string[] = [];
-  for (const dir of [pluginDir, installsDir, sharedDir]) {
+  // Without OC_SUB_SHARED_DIR there is no shared folder to mount.
+  const dirs = sharedDir === undefined ? [pluginDir, installsDir] : [pluginDir, installsDir, sharedDir];
+  for (const dir of dirs) {
     (isInsideRoot(dir, root) ? inClone : mounted).push(dir);
   }
   return { mounted, inClone };
@@ -1108,7 +1110,7 @@ export function sandboxMountPlan(
  * `upSandbox` and the health check use the same list, so the two
  * never differ.
  */
-export function requiredSandboxMounts(root: string, pluginDir: string, installsDir: string, sharedDir: string): string[] {
+export function requiredSandboxMounts(root: string, pluginDir: string, installsDir: string, sharedDir: string | undefined): string[] {
   return sandboxMountPlan(root, pluginDir, installsDir, sharedDir).mounted.map((dir) => `${dir}:ro`);
 }
 
@@ -1151,6 +1153,11 @@ export async function upSandbox(
   // files. Without them, every session in the sandbox would silently lose
   // the global rules, so up stops before anything changes state.
   const sharedDir = sharedAgentsDir(env);
+  if (sharedDir === undefined) {
+    console.error(`error: ${SHARED_DIR_UNSET}`);
+    console.error(SHARED_DIR_HINT);
+    return 1;
+  }
   const sharedFile = path.join(sharedDir, "AGENTS.md");
   if (!deps.fileExists(sharedFile)) {
     console.error(`error: the shared agents file ${sharedFile} does not exist.`);

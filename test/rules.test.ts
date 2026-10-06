@@ -3,7 +3,9 @@ import { pingRules, RULES_AGENT, RULES_PROMPT, RULES_VARIANT, type RulesClient, 
 import type { MessageEntry } from "../src/summary";
 
 const HEADING = "# ZEPHYR-8817 scratch rules";
-const SHARED_FILE = "/home/user/dv/meta/agents/AGENTS.md";
+const SHARED_DIR = "/home/user/agents";
+const SHARED_FILE = `${SHARED_DIR}/AGENTS.md`;
+const ENV = { HOME: "/home/user", OC_SUB_SHARED_DIR: SHARED_DIR };
 const DIR = "/repo";
 
 /** A message entry with one text part, in the shape of the SDK. */
@@ -78,7 +80,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n\nbody\n` }, client));
+      code = await pingRules({ dir: DIR }, ENV, makeDeps({ [SHARED_FILE]: `${HEADING}\n\nbody\n` }, client));
     } finally {
       printed.restore();
     }
@@ -93,7 +95,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
+      code = await pingRules({ dir: DIR }, ENV, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
     } finally {
       printed.restore();
     }
@@ -105,7 +107,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
+      code = await pingRules({ dir: DIR }, ENV, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
     } finally {
       printed.restore();
     }
@@ -120,7 +122,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
+      code = await pingRules({ dir: DIR }, ENV, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
     } finally {
       printed.restore();
     }
@@ -132,7 +134,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
+      code = await pingRules({ dir: DIR }, ENV, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
     } finally {
       printed.restore();
     }
@@ -145,7 +147,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({}, client));
+      code = await pingRules({ dir: DIR }, ENV, makeDeps({}, client));
     } finally {
       printed.restore();
     }
@@ -161,7 +163,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: "no heading here\n" }, client));
+      code = await pingRules({ dir: DIR }, ENV, makeDeps({ [SHARED_FILE]: "no heading here\n" }, client));
     } finally {
       printed.restore();
     }
@@ -170,7 +172,7 @@ describe("pingRules", () => {
     expect(printed.err[0]).toContain('starts with "# "');
   });
 
-  test("resolves OC_SUB_SHARED_DIR over the default folder", async () => {
+  test("reads the shared file from OC_SUB_SHARED_DIR", async () => {
     const { client } = fakeClient(HEADING);
     const printed = capturePrint();
     let code: number;
@@ -185,4 +187,27 @@ describe("pingRules", () => {
     }
     expect(code).toBe(0);
   });
+
+  for (const [label, env] of [
+    ["unset", { HOME: "/home/user" }],
+    ["blank", { HOME: "/home/user", OC_SUB_SHARED_DIR: "  " }],
+  ] as const) {
+    test(`stops with an error that names the variable when OC_SUB_SHARED_DIR is ${label}`, async () => {
+      const { client, calls } = fakeClient(HEADING);
+      const printed = capturePrint();
+      let code: number;
+      try {
+        code = await pingRules({ dir: DIR }, env, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
+      } finally {
+        printed.restore();
+      }
+      expect(code).toBe(1);
+      expect(calls.prompt).toHaveLength(0);
+      expect(printed.err).toEqual([
+        "error: OC_SUB_SHARED_DIR is not set.",
+        "Set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills).",
+      ]);
+    });
+  }
+
 });

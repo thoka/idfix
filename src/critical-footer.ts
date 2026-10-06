@@ -7,11 +7,12 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Env } from "./config";
-import { sharedAgentsDir } from "./shared";
+import { SHARED_DIR_UNSET, sharedAgentsDir } from "./shared";
 
-/** The skill file that holds the footer, inside the shared folder. */
-export function criticalFooterFile(env: Env): string {
-  return path.join(sharedAgentsDir(env), "skills", "critical-research", "SKILL.md");
+/** The skill file that holds the footer, inside the shared folder, or undefined without a folder. */
+export function criticalFooterFile(env: Env): string | undefined {
+  const dir = sharedAgentsDir(env);
+  return dir === undefined ? undefined : path.join(dir, "skills", "critical-research", "SKILL.md");
 }
 
 /**
@@ -38,6 +39,7 @@ export function extractCriticalFooter(skill: string): string | null {
 /** Read the footer from the skill file. Throws an error that names the file. */
 export function readCriticalFooter(env: Env, read: (file: string) => string = (file) => readFileSync(file, "utf8")): string {
   const file = criticalFooterFile(env);
+  if (file === undefined) throw new Error(`cannot read the critical-research footer: ${SHARED_DIR_UNSET}`);
   let text: string;
   try {
     text = read(file);

@@ -560,12 +560,27 @@ In clone mode, the worktree of a run lives only inside the sandbox clone, at `<r
 
 ## Cost proxy
 
-The module `src/proxy/` holds a small pass-through HTTP proxy between opencode and its model providers (research in `.plan/research/cost-proxy.md`). It appends the request path to the upstream URL (default `https://openrouter.ai/api`), so `/v1/chat/completions` goes to `https://openrouter.ai/api/v1/chat/completions`. A path that starts with `/deepinfra/` goes to DeepInfra instead (see [DeepInfra as a direct provider](#deepinfra-as-a-direct-provider)). It streams the response back without buffering, and writes one JSON log line per request to stdout:
+The module `src/proxy/` holds a small pass-through HTTP proxy between a coding agent and its model providers (research in `.plan/research/cost-proxy.md`). opencode calls the OpenAI shape (`/v1/chat/completions`). Claude Code calls the Anthropic shape (`/v1/messages`). The proxy appends the request path to the upstream URL (default `https://openrouter.ai/api`), so `/v1/chat/completions` goes to `https://openrouter.ai/api/v1/chat/completions`, and `/v1/messages` goes to `https://openrouter.ai/api/v1/messages`. A path that starts with `/deepinfra/` goes to DeepInfra instead (see [DeepInfra as a direct provider](#deepinfra-as-a-direct-provider)). It streams the response back without buffering, and writes one JSON log line per request to stdout:
 
-- A `start` line when the request opens: the upstream (`openrouter` or `deepinfra`), the opencode session (`X-Session-Id` header), the parent session, the method, and the path.
-- An `end` line when the response ends: the upstream, the status, the latency, the generation id, the provider, the model, the real cost from the last stream chunk (`usage.cost` of OpenRouter, or `usage.estimated_cost` of DeepInfra), the token counts, and the finish reason.
+- A `start` line when the request opens: the upstream (`openrouter` or `deepinfra`), the session, the parent session (`x-parent-session-id`), the agent, the idfx run, the idfx project, the method, and the path.
+- An `end` line when the response ends: the same fields as the `start` line, then the status, the latency, the generation id, the provider, the model, the real cost from the last stream event, the token counts, and the finish reason.
 
-The log lines carry the tag `"source":"idfx-cost-proxy"`. Older bundles wrote `"source":"oc-sub-cost-proxy"`, and the readers accept both, because a running sandbox proxy keeps its old bundle until its restart. The proxy never logs the `Authorization` header or any request body, so the key stays out of the log in host mode. For a manual test run: `bun src/proxy/main.ts --port 4097`.
+The fields of a Claude Code request:
+
+- `session`: the `X-Session-Id` header of opencode. Without it, the proxy takes the `x-claude-code-session-id` header of Claude Code. Without both, it reads the body of a `POST` to a path that ends in `/messages`, and takes `session_id` from the JSON string `metadata.user_id`. It logs only that value. The same bytes then go to the upstream. If no source gives a session, the field is `null`.
+- `agent`: the `x-claude-code-agent-id` header. Claude Code sends it on each request of a subagent. The request of a subagent carries the session of its parent, so `session` and `agent` together name the transcript of the subagent.
+- `idfxRun` and `idfxProject`: the headers `x-idfx-run` and `x-idfx-project`. The driver sets them with `ANTHROPIC_CUSTOM_HEADERS`.
+- Each of these fields is `null` when its header is missing.
+
+The cost and the tokens come from the stream:
+
+- OpenAI shape: the `usage` of the last chunk. The cost is `usage.cost` of OpenRouter, or `usage.estimated_cost` of DeepInfra.
+- Anthropic shape: `message_start` gives the generation id, the model, and the first token counts. `message_delta` gives the stop reason and the final counts. OpenRouter adds `usage.cost` to the last event. A count that `message_delta` does not repeat keeps its value from `message_start`. An `error` event gives the error text.
+- `tokens.input` is the whole prompt on both shapes. Anthropic counts the cache tokens apart, so the proxy adds `input_tokens`, `cache_read_input_tokens`, and `cache_creation_input_tokens`. `tokens.cached` is the cache read, a part of the input. `tokens.reasoning` is `null` for the Anthropic shape.
+
+Claude Code sends `HEAD /api/hello` before its first request. The proxy answers it with 200 and an empty body. It does not call the upstream and writes no log line, because the probe is no model call.
+
+The log lines carry the tag `"source":"idfx-cost-proxy"`. Older bundles wrote `"source":"oc-sub-cost-proxy"`, and the readers accept both, because a running sandbox proxy keeps its old bundle until its restart. The proxy logs the value of no header outside an allowlist: `X-Session-Id`, `x-parent-session-id`, `x-claude-code-session-id`, `x-claude-code-agent-id`, `x-idfx-run`, and `x-idfx-project`. So it never logs `Authorization` or `x-api-key`, and the key stays out of the log in host mode. It never logs a body. The session fallback reads `metadata.user_id` in memory, and the log never gets `device_id` or `account_uuid`. A test sends the requests of Claude Code with a token, a key, and a full `metadata.user_id` through the proxy, and fails if a log line holds one of them. For a manual test run: `bun src/proxy/main.ts --port 4097`.
 
 `idfx up` starts the proxy by default, next to the server, and points opencode at it:
 

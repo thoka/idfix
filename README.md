@@ -24,7 +24,7 @@ claude plugin marketplace update idfix
 claude plugin update idfix@idfix
 ```
 
-To update at every start instead, open `/plugin`, select the marketplace, and enable auto-update. On the machine where you develop the plugin, add the marketplace from the local folder (`claude plugin marketplace add ~/dv/idfix`). Claude Code then reads the files live, and `/reload-plugins` loads a change. [.plan/research/plugin-updates.md](.plan/research/plugin-updates.md) has the sources.
+To update at every start instead, open `/plugin`, select the marketplace, and enable auto-update. On the machine where you develop the plugin, add the marketplace from the local folder (`claude plugin marketplace add /path/to/idfix`). Claude Code then reads the files live, and `/reload-plugins` loads a change. [.plan/research/plugin-updates.md](.plan/research/plugin-updates.md) has the sources.
 
 ## Plugin layout
 
@@ -48,7 +48,7 @@ bun install
 mise run hooks-install   # once after clone: the pre-push hook runs the tests
 ```
 
-The project gives only its start scripts `bin/oc-sub` and `bin/idfx`. Both run the same CLI. It does not link them into a folder on your PATH. On the machines of the user, arch-helper owns the links `~/.local/bin/oc-sub`, `~/.local/bin/idfx`, and `~/.local/bin/idfix` through chezmoi. The link `idfix` points to `bin/idfx`. The launcher follows a symlink back to this repository, so updates to the repository take effect at once. The help and the usage hints show the name that you called, for example `idfix` for a link `~/.local/bin/idfix` to `bin/idfx`. Each launcher passes the base name of its `$0` in the variable `IDFX_PROG`. Without it, the CLI uses `oc-sub`.
+The project gives only its start scripts `bin/oc-sub` and `bin/idfx`. Both run the same CLI. It does not link them into a folder on your PATH. To use them from any folder, link them yourself, for example `~/.local/bin/oc-sub`, `~/.local/bin/idfx`, and `~/.local/bin/idfix`, or let your dotfiles manager make the links. The link `idfix` points to `bin/idfx`. The launcher follows a symlink back to this repository, so updates to the repository take effect at once. The help and the usage hints show the name that you called, for example `idfix` for a link `~/.local/bin/idfix` to `bin/idfx`. Each launcher passes the base name of its `$0` in the variable `IDFX_PROG`. Without it, the CLI uses `oc-sub`.
 
 `mise.toml` pins `bun`, `opencode`, and `lefthook`. Check the setup with:
 
@@ -188,10 +188,10 @@ bun run src/cli.ts ping [--dir DIR]
 Shows which OpenRouter key the opencode server uses for DIR, where the key comes from, and whether OpenRouter accepts it:
 
 ```
-directory: /home/u/dv/proj
+directory: /home/user/src/proj
 project: proj
 key: sha256 87ea509a
-source: global auth.json /home/u/.local/share/opencode/auth.json
+source: global auth.json /home/user/.local/share/opencode/auth.json
 openrouter: ok, limit $1.00, used $0.00, remaining $1.00
 ```
 

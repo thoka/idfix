@@ -93,7 +93,7 @@ claude plugin install idfix@idfix
 
    Every finding names its fix. The first lines should read `pass` for `env-files`, `claude-md`, and `agent-copies`.
 
-   `oc-sub doctor --json` prints one JSON object as the whole stdout, in the form of the tool protocol, version 0 (meta report `docs/research/tool-protocol.md`, section 6):
+   `oc-sub doctor --json` prints one JSON object as the whole stdout, in the form of the tool protocol, version 0:
 
    ```json
    {
@@ -123,11 +123,11 @@ claude plugin install idfix@idfix
 
    On Linux, the check `kvm-access` tests that you can read and write `/dev/kvm`. The sandbox needs this access. Without it, `sbx create` and the start of a sandbox fail with an error that does not name the cause, and `oc-sub up` stops before its first `sbx` call. To repair it, run `oc-sub doctor --fix-as-root`. It does the same as `--fix`, and it also runs `sudo chmod 0666 /dev/kvm`. sudo may ask for your password, so run it in a terminal. The repair lasts until the next WSL restart, because WSL then creates `/dev/kvm` again. A permanent repair is a task of the machine setup.
 
-   The check `research-due` reminds you when the facts of a research report went stale. It reads the reports in `<plan_dir>/research/` of the project. `plan_dir` is the plan folder from the optional file `.handover.toml` in the project root (default `docs`; a public repository sets `plan_dir = ".plan"`). The rules for the key are the ones of `handover` in meta: a bad TOML, a value that is not a non-empty string, an absolute path, a path with `..` or a backslash, or `.` makes the check read `docs/research/` and warn with the problem. It never fails. Reports without a recheck head do not count, and without any head in the project it passes with a note that names the folder, for example "no report in .plan/research has a recheck head". See "Recheck heads of research reports" below for the head and the recheck process.
+   The check `research-due` reminds you when the facts of a research report went stale. It reads the reports in `<plan_dir>/research/` of the project. `plan_dir` is the plan folder from the optional file `.handover.toml` in the project root (default `docs`; a public repository sets `plan_dir = ".plan"`). The rules for the key are the ones of the `handover` tool: a bad TOML, a value that is not a non-empty string, an absolute path, a path with `..` or a backslash, or `.` makes the check read `docs/research/` and warn with the problem. It never fails. Reports without a recheck head do not count, and without any head in the project it passes with a note that names the folder, for example "no report in .plan/research has a recheck head". See "Recheck heads of research reports" below for the head and the recheck process.
 
-   The check `watch-running` tells whether `idfx watch --all` runs. It reads the lock file `$XDG_STATE_HOME/idfx/events.lock` (default `~/.local/state/idfx/events.lock`) and does not take it. It passes when the process in the lock lives: its PID exists, and its start time matches. Else it warns, because then the supervisor gets no wake-up. The fix text names `systemctl --user enable --now idfx-watch.service`. `--fix` does nothing here, because arch-helper owns the install of the unit (see "The systemd user service" below).
+   The check `watch-running` tells whether `idfx watch --all` runs. It reads the lock file `$XDG_STATE_HOME/idfx/events.lock` (default `~/.local/state/idfx/events.lock`) and does not take it. It passes when the process in the lock lives: its PID exists, and its start time matches. Else it warns, because then the supervisor gets no wake-up. The fix text names `systemctl --user enable --now idfx-watch.service`. `--fix` does nothing here, because you install the unit yourself (see "The systemd user service" below).
 
-   Two checks look for leaked processes. `top-memory` warns when a process of your user runs the `top` command of oc-sub with more than 1 GiB of memory. A `top` that leaked keeps its whole table in memory, and one process can hold gigabytes. Since step 29d, the start script sets `NODE_ENV=production` when you did not set it. The development build of React keeps data of every render and caused this leak. The fix sends SIGTERM to each such process, and it needs `--force`, because it ends a view of you: `oc-sub doctor --fix --force`. It never stops doctor itself. `orphan-processes` warns when a process of your user whose parent is PID 1 or `/init` (the WSL init) works in a folder that no longer exists, for example a deleted worktree. It lists at most 10 entries with PID, command, and folder, and the total count. The fix needs `--force` too. It sends SIGTERM to each listed process and to all descendants of your user, waits up to 5 seconds, and sends SIGKILL to each one that still runs. Both checks read `/proc`, so they skip on a platform without `/proc`, and they never touch a process of another user. Known gap: an orphan whose folder still exists is not found.
+   Two checks look for leaked processes. `top-memory` warns when a process of your user runs the `top` command of oc-sub with more than 1 GiB of memory. A `top` that leaked keeps its whole table in memory, and one process can hold gigabytes. The start script sets `NODE_ENV=production` when you did not set it. The development build of React keeps data of every render and caused this leak. The fix sends SIGTERM to each such process, and it needs `--force`, because it ends a view of you: `oc-sub doctor --fix --force`. It never stops doctor itself. `orphan-processes` warns when a process of your user whose parent is PID 1 or `/init` (the WSL init) works in a folder that no longer exists, for example a deleted worktree. It lists at most 10 entries with PID, command, and folder, and the total count. The fix needs `--force` too. It sends SIGTERM to each listed process and to all descendants of your user, waits up to 5 seconds, and sends SIGKILL to each one that still runs. Both checks read `/proc`, so they skip on a platform without `/proc`, and they never touch a process of another user. Known gap: an orphan whose folder still exists is not found.
 
 ### Recheck heads of research reports
 
@@ -138,11 +138,11 @@ A research report records facts with a date, but nothing told you when a fact go
 checked: 2026-10-01
 recheck: 1m
 decisions:
-  - "PLAN step 16: DeepInfra as a direct provider"
+  - "Use DeepInfra as a direct provider"
 ---
 ```
 
-`checked` is the date of the last check of the facts (YYYY-MM-DD) and is required when `recheck` is set. `recheck` is an interval in days, weeks, or months (`30d`, `2w`, `3m`, counted from `checked`), a date (YYYY-MM-DD), or any other text as a trigger (for example `on new opencode release`). A trigger is never due by date. The `research-due` check lists it as information only. The format is the one of the meta research index (`~/dv/meta/README.md`), so `oc-sub doctor` and `mise run due` in meta compute the same due dates. The first format used names such as `monthly` and `biweekly`. The meta index reads such a name as a trigger, so the check marks it as invalid and names the replacement. `decisions` is a list of short texts that name the plan items that rest on the facts.
+`checked` is the date of the last check of the facts (YYYY-MM-DD) and is required when `recheck` is set. `recheck` is an interval in days, weeks, or months (`30d`, `2w`, `3m`, counted from `checked`), a date (YYYY-MM-DD), or any other text as a trigger (for example `on new opencode release`). A trigger is never due by date. The `research-due` check lists it as information only. The format follows a shared research index format, so `oc-sub doctor` and the index compute the same due dates. The first format used names such as `monthly` and `biweekly`. The index reads such a name as a trigger, so the check marks it as invalid and names the replacement. `decisions` is a list of short texts that name the plan items that rest on the facts.
 
 When the `research-due` check warns that a report is due, recheck the facts with a researcher run. A recheck that finds no change sets `checked` to the date of the recheck. A recheck that finds a change also appends a section `## Recheck YYYY-MM-DD` with only the changes.
 
@@ -232,7 +232,7 @@ With `--all`, the `where` column shows the full project name. A project can set 
 
 `oc-sub status` prints one line per running session of the current project and its worktrees: the session ID, the state (`busy`, `waiting`, `retry`, or `idle`), and the title. A session of another worktree gets its folder in brackets. `oc-sub status --all` lists the running sessions of all known servers, all projects, and their worktrees, each with its folder.
 
-With `--json`, the command prints one JSON object as the whole stdout. It is the snapshot form of the tool protocol, version 0 (meta report `docs/research/tool-protocol.md`, section 6):
+With `--json`, the command prints one JSON object as the whole stdout. It is the snapshot form of the tool protocol, version 0:
 
 ```json
 {
@@ -248,7 +248,7 @@ With `--json`, the command prints one JSON object as the whole stdout. It is the
   ],
   "items": [
     {"id": "11111111-0000-4000-8000-000000000001", "state": "waiting", "title": "fixture-title",
-     "folder": "/home/u/dv/proj", "driver": "claude"}
+     "folder": "/home/user/src/proj", "driver": "claude"}
   ]
 }
 ```
@@ -377,19 +377,19 @@ The watcher wakes the supervisor session with a short notice, so that the superv
 - A condition that stays True gives no second notice, also not after a restart of the watcher.
 - On the first run with an empty or missing log, the first poll writes its events but sends no notice.
 
-The watcher runs `notify-session --name supervisor` (from `~/dv/meta/dv/bin`, which must be on the PATH). A notice reads for example:
+The watcher runs `notify-session --name supervisor` (`notify-session` must be on the PATH). A notice reads for example:
 
 ```
-idfx watch: 2 events: meta waits for user (permission dialog: Bash permission), grata API error (UsageLimit). Log: /home/u/.local/state/idfx/events.jsonl
+idfx watch: 2 events: proj-a waits for user (permission dialog: Bash permission), proj-b API error (UsageLimit). Log: /home/user/.local/state/idfx/events.jsonl
 ```
 
 The log is the record, and the notice is only a wake-up. If `notify-session` fails, the watcher writes a warning to stderr and goes on. If `notify-session` is not on the PATH, the watcher warns once. `--once` also sends a notice.
 
 #### The systemd user service
 
-The watcher should run all the time. idfix ships the unit file `contrib/systemd/idfx-watch.service` for a systemd user service. It runs `%h/.local/bin/idfx watch --all`, restarts it 10 seconds after a failure, and starts it with the session of the user (`WantedBy=default.target`). A user service gets a short PATH, so the unit sets `PATH` to include `~/.local/bin`, `~/dv/meta/dv/bin` (for `notify-session` and `handover`), and the mise shims.
+The watcher should run all the time. idfix ships the unit file `contrib/systemd/idfx-watch.service` for a systemd user service. It runs `%h/.local/bin/idfx watch --all`, restarts it 10 seconds after a failure, and starts it with the session of the user (`WantedBy=default.target`). A user service gets a short PATH, so the unit sets `PATH` to include `~/.local/bin`, the folder of `notify-session` and `handover`, and the mise shims. The unit names a fixed folder for them. If they live in another folder, copy the unit instead of linking it, and change `PATH` in the copy.
 
-arch-helper installs the unit through chezmoi from the stable clone of idfix and enables it. By hand, the same is:
+To install and enable the unit by hand:
 
 ```
 ln -s <idfix clone>/contrib/systemd/idfx-watch.service ~/.config/systemd/user/idfx-watch.service
@@ -467,7 +467,7 @@ Details:
 - The tools of the project come from the mise of the host. `up` runs `mise install` in the project root first, so that every tool of `mise.toml` exists. If it fails, `up` stops.
 - `mise` itself works inside the sandbox. `up` reads the version of the host mise and installs that exact version as the tool `aqua:jdx/mise` (a plain `mise install mise@<version>` fails; mise is not in the registry under that name) in the mise installs folder, which the sandbox mounts read-only. It takes the bin folder from `mise bin-paths` and uses it only when it lies inside the installs folder. The server gets `MISE_SHARED_INSTALL_DIRS`, so its mise sees the host versions (`mise ls bun` shows them as `(shared)`) and installs new tools only into the sandbox home, never into the mount. It also gets `MISE_TRUSTED_CONFIG_PATHS` with the project root, so the `mise.toml` of the project and of its worktrees is trusted without `mise trust`. `MISE_DISABLE_UPDATE_WARNING=true` turns off the "mise version ... available" warning and its hint to run `mise self-update`, which cannot work on the read-only mount. If the version cannot be read, the install fails, or the bin folder lies outside the installs folder, `up` prints a warning and starts the server without mise in the sandbox.
 - The sandbox mounts up to three host folders read-only: the synced plugin folder `~/.local/share/oc-sub/opencode/`, the mise installs folder `~/.local/share/mise/installs`, and the shared agents folder. The shared agents folder comes from `OC_SUB_SHARED_DIR`, else `$HOME/dv/meta/agents`. It holds your global rules in `AGENTS.md` and your skills in `skills/<name>/SKILL.md`. It is the only source, and `up` never copies it. Each mount keeps its host absolute path inside the sandbox, so the paths in the configuration reach the same files. The sync writes the `.gitignore` that opencode expects into the folder, so that a read-only mount does not fail the server.
-- A folder inside the project root (or equal to it) gets no mount, because `sbx create --clone` then exits 0 but makes no clone. The clone holds the tracked files of that folder at the same absolute path, so the paths in the configuration still work. This applies to the project `meta` (the shared agents folder `~/dv/meta/agents`). The synced plugin folder lies outside every project root, so every sandbox mounts it, also the sandbox of the plugin repository itself. A sandbox created before step 15c lacks this mount. `up` and the `sandbox-mounts` check then name the missing mount, and the sandbox needs a recreate. `up` prints a note for each such folder. Known gap: the sandbox then uses the committed copy in the clone, not the live host folder. A change on the host reaches the sandbox only after a commit and a new clone, and untracked files of that folder are missing.
+- A folder inside the project root (or equal to it) gets no mount, because `sbx create --clone` then exits 0 but makes no clone. The clone holds the tracked files of that folder at the same absolute path, so the paths in the configuration still work. This applies to the repository that holds the shared agents folder. The synced plugin folder lies outside every project root, so every sandbox mounts it, also the sandbox of the plugin repository itself. An older sandbox can lack this mount. `up` and the `sandbox-mounts` check then name the missing mount, and the sandbox needs a recreate. `up` prints a note for each such folder. Known gap: the sandbox then uses the committed copy in the clone, not the live host folder. A change on the host reaches the sandbox only after a commit and a new clone, and untracked files of that folder are missing.
 - After the create, and on every `up` of an existing sandbox, `up` checks that the clone exists: `sbx exec NAME git -C <root> rev-parse --git-dir` must succeed. If not, `up` stops with the error `the sandbox NAME has no git clone at <root> (git -C <root> rev-parse --git-dir fails inside it)` and names the fix `sbx rm --force NAME`, then `oc-sub up`.
 - If the sandbox exists but lacks one of the required mounts (for example after an update of this plugin), or it is an old sandbox without clone mode (no `sandbox-<name>` git remote), `up` stops with an error. It names the fix: remove the sandbox with `sbx rm --force NAME`, then run `oc-sub up` again, which creates it in clone mode with all required mounts. `sbx rm` without a terminal needs `--force`. Clone mode and the mounts are create-time flags and cannot be changed on an existing sandbox. `up` does not remove the sandbox itself, because it holds the sessions. Note that `sbx rm` ends the sessions of the sandbox.
 - The server inside the sandbox starts with the tool folders of the project at the front of `PATH`, read from `mise env`, in front of the PATH of the sandbox. So `bun`, `node`, and `python` inside the sandbox are the versions of `mise.toml`. The holder process is a `sh -c` script: it starts the cost proxy (see above) in a restart loop in the background and `exec`s `opencode serve` in the front. With `--no-cost-proxy`, it runs `opencode serve` directly.
@@ -503,7 +503,7 @@ In clone mode, the worktree of a run lives only inside the sandbox clone, at `<r
 
 ## Cost proxy
 
-The module `src/proxy/` holds a small pass-through HTTP proxy between opencode and its model providers (plan step 11b, research in `.plan/research/cost-proxy.md`). It appends the request path to the upstream URL (default `https://openrouter.ai/api`), so `/v1/chat/completions` goes to `https://openrouter.ai/api/v1/chat/completions`. A path that starts with `/deepinfra/` goes to DeepInfra instead (see [DeepInfra as a direct provider](#deepinfra-as-a-direct-provider)). It streams the response back without buffering, and writes one JSON log line per request to stdout:
+The module `src/proxy/` holds a small pass-through HTTP proxy between opencode and its model providers (research in `.plan/research/cost-proxy.md`). It appends the request path to the upstream URL (default `https://openrouter.ai/api`), so `/v1/chat/completions` goes to `https://openrouter.ai/api/v1/chat/completions`. A path that starts with `/deepinfra/` goes to DeepInfra instead (see [DeepInfra as a direct provider](#deepinfra-as-a-direct-provider)). It streams the response back without buffering, and writes one JSON log line per request to stdout:
 
 - A `start` line when the request opens: the upstream (`openrouter` or `deepinfra`), the opencode session (`X-Session-Id` header), the parent session, the method, and the path.
 - An `end` line when the response ends: the upstream, the status, the latency, the generation id, the provider, the model, the real cost from the last stream chunk (`usage.cost` of OpenRouter, or `usage.estimated_cost` of DeepInfra), the token counts, and the finish reason.

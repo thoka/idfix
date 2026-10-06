@@ -21,37 +21,52 @@ import { say } from "./say";
 import { doctor, gateForCommand } from "./doctor";
 import { fetch, worktree, worktreeRm } from "./clone";
 
-const HELP = `oc-sub - drive an opencode server for subagent runs
+/** The command name when the launcher does not pass one. */
+export const DEFAULT_PROG = "oc-sub";
+
+/**
+ * The name the user called: oc-sub, idfx, or idfix. The launchers in bin/
+ * pass the base name of their $0 in IDFX_PROG, so a symlink name survives.
+ * Without it, the name is DEFAULT_PROG.
+ */
+export function progName(env: Record<string, string | undefined>): string {
+  const name = env.IDFX_PROG?.trim().split("/").pop();
+  return name ? name : DEFAULT_PROG;
+}
+
+/** The help text, with the command name `prog` in each usage line. */
+export function helpText(prog: string = DEFAULT_PROG): string {
+  return `${prog} - drive an opencode server for subagent runs
 
 Usage:
-  oc-sub up [--dir DIR] [--no-cost-proxy]
-  oc-sub up --no-sandbox [--port N] [--no-cost-proxy]
-  oc-sub down [--dir DIR] [--force]
-  oc-sub down --no-sandbox [--port N] [--force]
-  oc-sub down --all [--force]
-  oc-sub restart [--dir DIR] [--force] [--no-cost-proxy]
-  oc-sub restart --no-sandbox [--port N] [--force] [--no-cost-proxy]
-  oc-sub run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T] [--model PROVIDER/MODEL]
-  oc-sub attach CODE [--url URL]
-  oc-sub status [--dir DIR | --all] [--json]
-  oc-sub top [--dir DIR | --all]
-  oc-sub top --once [--dir DIR | --all] [--json]
-  oc-sub ping [--dir DIR]
-  oc-sub ping --rules [--dir DIR]
-  oc-sub watch SESSION [--dir DIR] [--json]
-  oc-sub watch --all [--json] [--once]
-  oc-sub log SESSION [--dir DIR]
-  oc-sub trace SESSION [--dir DIR] [--out FILE] [--tag] [--max-steps N]
-  oc-sub abort SESSION [--dir DIR]
-  oc-sub answer REQUEST_ID [--dir DIR] (--reply once|always|reject | --reject | ANSWER...)
-  oc-sub say SESSION [--dir DIR] [--agent NAME] [--model PROVIDER/MODEL] TEXT
-  oc-sub worktree STEP [--dir ROOT] [--base BRANCH] [--no-setup]
-  oc-sub worktree rm STEP [--dir ROOT]
-  oc-sub fetch [--dir ROOT]
-  oc-sub doctor [--dir DIR] [--json]
-  oc-sub doctor --fix [--force] [--dir DIR] [--json]
-  oc-sub doctor --renovate [--dir DIR] [--json]
-  oc-sub doctor --fix-as-root [--force] [--dir DIR] [--json]
+  ${prog} up [--dir DIR] [--no-cost-proxy]
+  ${prog} up --no-sandbox [--port N] [--no-cost-proxy]
+  ${prog} down [--dir DIR] [--force]
+  ${prog} down --no-sandbox [--port N] [--force]
+  ${prog} down --all [--force]
+  ${prog} restart [--dir DIR] [--force] [--no-cost-proxy]
+  ${prog} restart --no-sandbox [--port N] [--force] [--no-cost-proxy]
+  ${prog} run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T] [--model PROVIDER/MODEL]
+  ${prog} attach CODE [--url URL]
+  ${prog} status [--dir DIR | --all] [--json]
+  ${prog} top [--dir DIR | --all]
+  ${prog} top --once [--dir DIR | --all] [--json]
+  ${prog} ping [--dir DIR]
+  ${prog} ping --rules [--dir DIR]
+  ${prog} watch SESSION [--dir DIR] [--json]
+  ${prog} watch --all [--json] [--once]
+  ${prog} log SESSION [--dir DIR]
+  ${prog} trace SESSION [--dir DIR] [--out FILE] [--tag] [--max-steps N]
+  ${prog} abort SESSION [--dir DIR]
+  ${prog} answer REQUEST_ID [--dir DIR] (--reply once|always|reject | --reject | ANSWER...)
+  ${prog} say SESSION [--dir DIR] [--agent NAME] [--model PROVIDER/MODEL] TEXT
+  ${prog} worktree STEP [--dir ROOT] [--base BRANCH] [--no-setup]
+  ${prog} worktree rm STEP [--dir ROOT]
+  ${prog} fetch [--dir ROOT]
+  ${prog} doctor [--dir DIR] [--json]
+  ${prog} doctor --fix [--force] [--dir DIR] [--json]
+  ${prog} doctor --renovate [--dir DIR] [--json]
+  ${prog} doctor --fix-as-root [--force] [--dir DIR] [--json]
 
 Every command accepts:
   --url URL   opencode server URL (default: $OC_SUB_URL or http://127.0.0.1:8767)
@@ -125,13 +140,22 @@ Doctor fixes:
   --fix-as-root   implies --fix, and also runs the fixes that need root
                   through sudo (for example chmod 0666 /dev/kvm). sudo may
                   ask for the password; without a terminal it runs sudo -n.`;
+}
 
-const HELP_EXIT_HINT = "run `oc-sub --help` for usage";
+/** The hint after a usage error. */
+export function helpExitHint(prog: string = DEFAULT_PROG): string {
+  return `run \`${prog} --help\` for usage`;
+}
+
+// Read the name once and drop it from the environment, so that a child
+// process (for example a nested launcher call) does not inherit it.
+const PROG = progName(process.env);
+delete process.env.IDFX_PROG;
 
 export async function main(argv: readonly string[]): Promise<number> {
   const [head] = argv;
   if (argv.length === 0 || head === "--help" || head === "-h" || head === "help") {
-    console.log(HELP);
+    console.log(helpText(PROG));
     return 0;
   }
   const args = parseArgs(argv);
@@ -194,7 +218,7 @@ if (import.meta.main) {
   } catch (error) {
     if (error instanceof UsageError) {
       console.error(`usage error: ${error.message}`);
-      console.error(HELP_EXIT_HINT);
+      console.error(helpExitHint(PROG));
       process.exit(2);
     }
     console.error(`error: ${error instanceof Error ? error.message : String(error)}`);

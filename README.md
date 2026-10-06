@@ -47,7 +47,7 @@ mise install
 bun install
 ```
 
-The project gives only its start scripts `bin/oc-sub` and `bin/idfx`. Both run the same CLI. It does not link them into a folder on your PATH. On the machines of the user, arch-helper owns the links `~/.local/bin/oc-sub` and `~/.local/bin/idfx` through chezmoi. The launcher follows a symlink back to this repository, so updates to the repository take effect at once.
+The project gives only its start scripts `bin/oc-sub` and `bin/idfx`. Both run the same CLI. It does not link them into a folder on your PATH. On the machines of the user, arch-helper owns the links `~/.local/bin/oc-sub` and `~/.local/bin/idfx` through chezmoi. The launcher follows a symlink back to this repository, so updates to the repository take effect at once. The help and the usage hints show the name that you called, for example `idfix` for a link `~/.local/bin/idfix` to `bin/idfx`. Each launcher passes the base name of its `$0` in the variable `IDFX_PROG`. Without it, the CLI uses `oc-sub`.
 
 `mise.toml` pins `bun` and `opencode`. Check the setup with:
 

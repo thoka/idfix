@@ -3,4 +3,6 @@
 # CLI as bin/oc-sub. It also works as a symlink, for example from
 # ~/.local/bin/idfx.
 set -euo pipefail
+# Pass the name the user called (idfx, or idfix through a symlink) to the CLI.
+export IDFX_PROG="${IDFX_PROG:-$(basename "$0")}"
 exec "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/oc-sub" "$@"

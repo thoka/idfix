@@ -186,14 +186,6 @@ Research: [process-labels.md](research/process-labels.md), with the review of th
 3. 31c: the integration tests use the same path with a test owner, and the teardown stops their units (this also closes the follow-up of step 30).
 4. 31d: `doctor` lists the `ocsub-*` units with owner and reason, and warns for a unit whose owner is gone. `--fix --force` stops it.
 
-### 18. Step 36: stable names for workers
-
-User decision 2026-10-06 (meta plan, step 26). Each worker gets a stable name: its project folder, plus its step if a project runs more than one worker, for example `idfix-25g`. idfix starts every Claude worker with `-n <name>`. `idfx watch` (the watch slice of step 25g) reports a session without a name as an event. The user renamed the idfix main session to `idfix` on 2026-10-06, and each restart of it uses `-n idfix`.
-
-State on 2026-10-06: `SessionUnnamed` with reason `NoName` already exists (step 25g W1). idfix itself starts no Claude worker: `session-restart` of meta starts each restart with `-n <project>`, and a session starts a worker with `claude --bg -n` or `claude-glm --bg -n` by the rule. So the open part is the check of the naming rule. A live run of `idfx status --all` showed names that break it: `Step 7c` and `glm-3a-start-hook` in meta, and `pac-review` in a worktree of podcast-autocutter.
-
-Design: `SessionUnnamed` also turns True with reason `NameOffRule` for a live session whose name is neither its project (`projectNameOfRun` of its folder) nor `<project>-<step>`. The name `supervisor` is always valid (`~/dv/AGENTS.md`). The message names the expected form. Worktree `.worktrees/36-worker-names`, branch `feature/36-worker-names`.
-
 ### Later
 
 - Integration timeouts under load: at a load average of about 20, one full run failed three tests of `test/integration.test.ts` on timeouts ("up, create session ... stop the server", "pending question and permission lists", "a server with a password"). The rerun passed. A push through the pre-push hook can fail on them under load. Each test server also downloads the plugin dependencies from npm.

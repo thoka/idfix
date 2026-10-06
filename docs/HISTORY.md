@@ -5,6 +5,18 @@ This file holds the plan as it stood on 2026-10-01, with every finished step and
 
 ## Steps after 2026-10-01
 
+## Step 36: stable names for workers
+
+Done on 2026-10-06 (ed0af5c, 5d20604). `SessionUnnamed` also turns True with reason `NameOffRule` for a live session whose name is neither its project nor `<project>-<step>`. Details: `docs/design/idfx-watch.md` and `docs/review-queue.md`.
+
+#### Step 36: stable names for workers
+
+User decision 2026-10-06 (meta plan, step 26). Each worker gets a stable name: its project folder, plus its step if a project runs more than one worker, for example `idfix-25g`. idfix starts every Claude worker with `-n <name>`. `idfx watch` (the watch slice of step 25g) reports a session without a name as an event. The user renamed the idfix main session to `idfix` on 2026-10-06, and each restart of it uses `-n idfix`.
+
+State on 2026-10-06: `SessionUnnamed` with reason `NoName` already exists (step 25g W1). idfix itself starts no Claude worker: `session-restart` of meta starts each restart with `-n <project>`, and a session starts a worker with `claude --bg -n` or `claude-glm --bg -n` by the rule. So the open part is the check of the naming rule. A live run of `idfx status --all` showed names that break it: `Step 7c` and `glm-3a-start-hook` in meta, and `pac-review` in a worktree of podcast-autocutter.
+
+Design: `SessionUnnamed` also turns True with reason `NameOffRule` for a live session whose name is neither its project (`projectNameOfRun` of its folder) nor `<project>-<step>`. The name `supervisor` is always valid (`~/dv/AGENTS.md`). The message names the expected form. Worktree `.worktrees/36-worker-names`, branch `feature/36-worker-names`.
+
 ## Step 38: the condition SessionHandedOff
 
 Done on 2026-10-06 (01d7b11). Details: `docs/design/idfx-watch.md` and `docs/review-queue.md`.

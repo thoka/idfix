@@ -2,6 +2,12 @@
 
 Decisions that a session made from the canon of values. Newest entry first.
 
+## 2026-10-06: step 36, the check of the naming rule
+
+- Decision: idfix starts no Claude worker itself, so step 36 checks the rule instead of a start path. `SessionUnnamed` turns True with reason `NameOffRule` for a live session whose name is neither its project (`projectNameOfRun` of its folder) nor `<project>-<step>`. The name `supervisor` is valid in every folder. The message names the expected form. A True condition that changes its reason from `NoName` to `NameOffRule` gives no new event, the same as every condition that stays True. The event stays in the log and gives no notice. The fixture session `bg-worker` in folder `w2` now shows the condition in `status --json`.
+- Values: a rule needs a check (meta plan step 26 names this report as its check). Deliver first (one pure function, no new condition type).
+- Conditions: the naming rule of meta plan step 26 and the session name `supervisor` of `~/dv/AGENTS.md`. If the rule allows other forms, for example a `glm-` prefix, this is open again.
+
 ## 2026-10-06: step 38, the condition `SessionHandedOff`
 
 - Decision: `SessionHandedOff` is a one-shot condition. Each new commit of `docs/PLAN.md` after a clean `handover check` at an edge from `busy` or `waiting` to `idle` or `ended` gives one True event (INFO 9, `dv.idfx.session.handed-off`, reason `HandoverCheckPassed`, `data.planCommit`). It never gives a False event, also not when the session leaves the source, because the fact "this commit was handed off" does not end; a False event at the next turn would only add noise for Severin. The record stays in the state as the memory of the last commit, also for a gone session, and the restore reads `data.planCommit` from the log. It is not an open condition: the heartbeat `open` count and `status --json` leave it out. Exit code 1 at an `idle` edge writes no `HandoverFailed`, because a session at its prompt in the middle of a step is normal; `HandoverFailed` keeps its edge to `ended`. One `handover check` per session and poll serves both conditions. A session seen first after a start has the edge when it rests and was active after the watermark, the same rule as `HandoverFailed`. The `git log` call runs without the variables of `git rev-parse --local-env-vars`.

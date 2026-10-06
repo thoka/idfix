@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   apiErrorReason,
+  conditionKey,
   emptyState,
+  openCount,
   evaluate,
   restoreState,
   STALL_THRESHOLD_MS,
@@ -314,6 +316,190 @@ describe("SessionUnnamed", () => {
   });
 });
 
+describe("SessionHandedOff", () => {
+  const HASH_A = "1111111111111111111111111111111111111111";
+  const HASH_B = "2222222222222222222222222222222222222222";
+  const clean: HandoverCheck = () => ({ code: 0, firstLine: undefined });
+  const busy = (atMs: number) => row({ state: "busy", transcriptGrowthMs: atMs, lastActivityMs: atMs });
+  const idle = (atMs: number) => row({ state: "idle", lastActivityMs: atMs });
+  const ended = (atMs: number) => row({ state: "ended", live: false, lastActivityMs: atMs });
+
+  /** Polls with a counted check and a counted plan commit reader. */
+  function run(
+    steps: Array<{ atMs: number; rows: WatchRow[] }>,
+    options: { check?: HandoverCheck; hash?: () => string | undefined; state?: WatchState } = {},
+  ) {
+    const checks: string[] = [];
+    const reads: string[] = [];
+    let state = options.state ?? emptyState(T0);
+    const edges: Edge[][] = [];
+    for (const step of steps) {
+      const result = evaluate(
+        state,
+        step.rows,
+        step.atMs,
+        (cwd) => {
+          checks.push(cwd);
+          return (options.check ?? clean)(cwd);
+        },
+        (cwd) => {
+          reads.push(cwd);
+          return (options.hash ?? (() => HASH_A))();
+        },
+      );
+      state = result.state;
+      edges.push(result.edges);
+    }
+    return { edges, checks, reads, state };
+  }
+
+  test("the edge from busy to idle with exit code 0 gives one True event with severity INFO and the plan commit", () => {
+    const { edges, checks, reads } = run([
+      { atMs: T0 + MIN, rows: [busy(T0 + MIN)] },
+      { atMs: T0 + 2 * MIN, rows: [idle(T0 + 2 * MIN)] },
+      { atMs: T0 + 3 * MIN, rows: [idle(T0 + 2 * MIN)] },
+    ]);
+    expect(checks).toEqual(["/home/u/dv/meta"]);
+    expect(reads).toEqual(["/home/u/dv/meta"]);
+    expect(summary(edges[1] ?? [])).toEqual([["SessionHandedOff", "True", "HandoverCheckPassed"]]);
+    expect(edges[1]?.[0]).toMatchObject({
+      severity: { text: "INFO", number: 9 },
+      planCommit: HASH_A,
+      message: "handover check passed, plan commit 111111111111",
+      subject: "meta",
+    });
+    expect(edges[2]).toEqual([]);
+  });
+
+  test("the edges from waiting to idle and from busy to ended count too; idle to ended does not", () => {
+    const waiting = row({ state: "waiting", waitingFor: "input needed", stateSinceMs: T0 + MIN });
+    const fromWaiting = run([
+      { atMs: T0 + MIN, rows: [waiting] },
+      { atMs: T0 + 2 * MIN, rows: [idle(T0 + 2 * MIN)] },
+    ]);
+    expect(summary(fromWaiting.edges[1] ?? [])).toEqual([["SessionHandedOff", "True", "HandoverCheckPassed"]]);
+    const toEnded = run([
+      { atMs: T0 + MIN, rows: [busy(T0 + MIN)] },
+      { atMs: T0 + 2 * MIN, rows: [ended(T0 + 2 * MIN)] },
+    ]);
+    expect(summary(toEnded.edges[1] ?? [])).toEqual([["SessionHandedOff", "True", "HandoverCheckPassed"]]);
+    // One check for both HandoverFailed and SessionHandedOff.
+    expect(toEnded.checks).toHaveLength(1);
+    const idleToEnded = run(
+      [
+        { atMs: T0 + MIN, rows: [idle(T0 - MIN)] },
+        { atMs: T0 + 2 * MIN, rows: [ended(T0 - MIN)] },
+      ],
+      { check: () => ({ code: 1, firstLine: "handover: not pushed" }) },
+    );
+    // The edge to ended runs the check for HandoverFailed, but it is no SessionHandedOff edge.
+    expect(idleToEnded.checks).toHaveLength(1);
+    expect(summary(idleToEnded.edges[1] ?? [])).toEqual([["HandoverFailed", "True", "HandoverCheckFailed"]]);
+    const idleToEndedClean = run([
+      { atMs: T0 + MIN, rows: [idle(T0 - MIN)] },
+      { atMs: T0 + 2 * MIN, rows: [ended(T0 - MIN)] },
+    ]);
+    expect(idleToEndedClean.edges[1]).toEqual([]);
+    expect(idleToEndedClean.reads).toEqual([]);
+  });
+
+  test("exit code 1 gives no SessionHandedOff and no HandoverFailed at an idle edge; exit code 2 gives nothing", () => {
+    for (const code of [1, 2]) {
+      const { edges, reads } = run(
+        [
+          { atMs: T0 + MIN, rows: [busy(T0 + MIN)] },
+          { atMs: T0 + 2 * MIN, rows: [idle(T0 + 2 * MIN)] },
+        ],
+        { check: () => ({ code, firstLine: "handover: not pushed" }) },
+      );
+      expect(edges[1]).toEqual([]);
+      expect(reads).toEqual([]);
+    }
+  });
+
+  test("exit code 1 at the edge to ended keeps HandoverFailed and gives no SessionHandedOff", () => {
+    const { edges } = run(
+      [
+        { atMs: T0 + MIN, rows: [busy(T0 + MIN)] },
+        { atMs: T0 + 2 * MIN, rows: [ended(T0 + 2 * MIN)] },
+      ],
+      { check: () => ({ code: 1, firstLine: "handover: not pushed" }) },
+    );
+    expect(summary(edges[1] ?? [])).toEqual([["HandoverFailed", "True", "HandoverCheckFailed"]]);
+  });
+
+  test("the same plan commit gives no second event; a new commit gives one, without a False event in between", () => {
+    let count = 0;
+    const { edges, state } = run(
+      [
+        { atMs: T0 + MIN, rows: [busy(T0 + MIN)] },
+        { atMs: T0 + 2 * MIN, rows: [idle(T0 + 2 * MIN)] },
+        { atMs: T0 + 3 * MIN, rows: [busy(T0 + 3 * MIN)] },
+        { atMs: T0 + 4 * MIN, rows: [idle(T0 + 4 * MIN)] },
+        { atMs: T0 + 5 * MIN, rows: [busy(T0 + 5 * MIN)] },
+        { atMs: T0 + 6 * MIN, rows: [idle(T0 + 6 * MIN)] },
+      ],
+      // The plan gets a new commit before the third turn ends.
+      { hash: () => (++count <= 2 ? HASH_A : HASH_B) },
+    );
+    expect(only(edges.flat(), "SessionHandedOff").map((edge) => [edge.status, edge.planCommit])).toEqual([
+      ["True", HASH_A],
+      ["True", HASH_B],
+    ]);
+    expect(edges[3]).toEqual([]);
+    // A one-shot condition is never open.
+    expect(openCount(state)).toBe(0);
+  });
+
+  test("no plan commit (git fails, or no commit changed the plan) gives no event", () => {
+    const { edges } = run(
+      [
+        { atMs: T0 + MIN, rows: [busy(T0 + MIN)] },
+        { atMs: T0 + 2 * MIN, rows: [idle(T0 + 2 * MIN)] },
+      ],
+      { hash: () => undefined },
+    );
+    expect(edges[1]).toEqual([]);
+  });
+
+  test("a session seen first after a restart: only activity after the watermark is an edge", () => {
+    const before = run([{ atMs: T0 + 5 * MIN, rows: [idle(T0 - MIN)] }]);
+    expect(before.checks).toEqual([]);
+    const after = run([{ atMs: T0 + 5 * MIN, rows: [idle(T0 + MIN)] }]);
+    expect(summary(after.edges[0] ?? [])).toEqual([["SessionHandedOff", "True", "HandoverCheckPassed"]]);
+  });
+
+  test("a restored record keeps its plan commit, so the same commit gives no event after a restart", () => {
+    const record = {
+      condition: "SessionHandedOff" as const,
+      status: "True" as const,
+      reason: "HandoverCheckPassed",
+      message: "handover check passed, plan commit 111111111111",
+      lastTransitionMs: T0 - 10 * MIN,
+      session: ID,
+      subject: "meta",
+      cwd: "/home/u/dv/meta",
+      kind: "interactive",
+      planCommit: HASH_A,
+    };
+    const same = run([{ atMs: T0 + 5 * MIN, rows: [idle(T0 + MIN)] }], { state: restoreState([record], T0) });
+    expect(same.checks).toHaveLength(1);
+    expect(same.edges[0]).toEqual([]);
+    const fresh = run([{ atMs: T0 + 5 * MIN, rows: [idle(T0 + MIN)] }], { state: restoreState([record], T0), hash: () => HASH_B });
+    expect(fresh.edges[0]?.map((edge) => edge.planCommit)).toEqual([HASH_B]);
+  });
+
+  test("no False event when the session leaves the source, and the record stays as memory", () => {
+    const { edges, state } = run([
+      { atMs: T0 + MIN, rows: [busy(T0 + MIN)] },
+      { atMs: T0 + 2 * MIN, rows: [idle(T0 + 2 * MIN)] },
+      { atMs: T0 + 70 * MIN, rows: [] },
+    ]);
+    expect(edges[2]).toEqual([]);
+    expect(state.conditions.get(conditionKey("SessionHandedOff", ID))?.planCommit).toBe(HASH_A);
+  });
+});
+
 describe("restart and disappearance", () => {
   test("a restored True condition that is still true gives no second event", () => {
     const state = restoreState(
@@ -332,7 +518,8 @@ describe("restart and disappearance", () => {
       ],
       T0 - MIN,
     );
-    const { edges } = polls([{ atMs: T0, rows: [row({ contextTokens: 150_000 })] }], { state });
+    // The row is new to the watcher and active after the watermark, so the hand-off check runs; it finds no plan commit.
+    const { edges } = polls([{ atMs: T0, rows: [row({ contextTokens: 150_000 })] }], { state, check: () => ({ code: 0, firstLine: undefined }) });
     expect(edges[0]).toEqual([]);
   });
 

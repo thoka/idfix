@@ -94,6 +94,7 @@ describe("the envelope", () => {
       conditionEvent(edge({ condition: "ContextHigh" }), 5, SOURCE),
       conditionEvent(edge({ condition: "HandoverFailed" }), 6, SOURCE),
       heartbeatEvent(7, SOURCE, T0, { sessions: 3, open: 1 }),
+      conditionEvent(edge({ condition: "SessionHandedOff", reason: "HandoverCheckPassed", severity: INFO, planCommit: "c".repeat(40) }), 8, SOURCE),
     ];
     for (const event of events) {
       const ok = validate(event);
@@ -103,6 +104,44 @@ describe("the envelope", () => {
     const { sequence: _sequence, ...withoutSequence } = conditionEvent(edge(), 8, SOURCE);
     expect(validate(withoutSequence)).toBe(false);
     expect(validate({ ...conditionEvent(edge(), 9, SOURCE), severitynumber: undefined })).toBe(false);
+  });
+
+  test("a SessionHandedOff event has its own type, severity INFO 9, and data.planCommit, and the restore keeps it", () => {
+    const hash = "0123456789abcdef0123456789abcdef01234567";
+    const handed = edge({
+      condition: "SessionHandedOff",
+      reason: "HandoverCheckPassed",
+      message: "handover check passed, plan commit 0123456789ab",
+      severity: INFO,
+      planCommit: hash,
+    });
+    const event = conditionEvent(handed, 5, SOURCE);
+    expect(event).toMatchObject({
+      type: "dv.idfx.session.handed-off",
+      severitytext: "INFO",
+      severitynumber: 9,
+      data: { condition: "SessionHandedOff", status: "True", planCommit: hash },
+    });
+    // Other conditions carry no planCommit.
+    expect("planCommit" in conditionEvent(edge(), 6, SOURCE).data).toBe(false);
+    const dir = tempDir();
+    const writer = openEventWriter(dir, 0);
+    writer.append((seq) => conditionEvent(handed, seq, SOURCE));
+    writer.close();
+    expect(readLogState(dir).records).toEqual([
+      {
+        condition: "SessionHandedOff",
+        status: "True",
+        reason: "HandoverCheckPassed",
+        message: "handover check passed, plan commit 0123456789ab",
+        lastTransitionMs: T0,
+        session: handed.session,
+        subject: handed.subject,
+        cwd: handed.cwd,
+        kind: handed.kind,
+        planCommit: hash,
+      },
+    ]);
   });
 
   test("the sequence has 20 digits", () => {

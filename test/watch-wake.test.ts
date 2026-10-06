@@ -34,7 +34,7 @@ describe("which edges notify", () => {
     expect(notifies(edge("a"))).toBe(true);
     expect(notifies(edge("a", "ApiError", "True", "UsageLimit"))).toBe(true);
     expect(notifies(edge("a", "SessionWaitsForUser", "False", "Cleared"))).toBe(false);
-    for (const other of ["SessionStalled", "ContextHigh", "HandoverFailed", "SessionUnnamed"] as const) {
+    for (const other of ["SessionStalled", "ContextHigh", "HandoverFailed", "SessionUnnamed", "SessionHandedOff"] as const) {
       expect(notifies(edge("a", other))).toBe(false);
     }
   });

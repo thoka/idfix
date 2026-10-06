@@ -302,8 +302,10 @@ export type StatusCondition = {
  * The conditions that `status` leaves out. `HandoverFailed` needs a run of
  * `handover check` for each ended session, which is too slow for a
  * snapshot, so only the event log of `idfx watch --all` carries it.
+ * `SessionHandedOff` is a one-shot event, not a current state, so only the
+ * event log carries it too.
  */
-export const STATUS_SKIPPED_CONDITIONS: ReadonlySet<ConditionType> = new Set(["HandoverFailed"]);
+export const STATUS_SKIPPED_CONDITIONS: ReadonlySet<ConditionType> = new Set(["HandoverFailed", "SessionHandedOff"]);
 
 /**
  * The current True conditions of the Claude rows, as the watcher computes

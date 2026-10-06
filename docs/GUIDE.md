@@ -257,7 +257,7 @@ With `--json`, the command prints one JSON object as the whole stdout. It is the
 - `version` is the `version` field of `package.json` of the idfix checkout. idfix has none yet, so it is the short git SHA of the checkout. Without git, it is `0.0.0`.
 - `time` is the time of the snapshot, and `source` is `//<host name>/idfx`, the same `source` as the events of `idfx watch --all`.
 - `sequence` is the last sequence number of the event log of `idfx watch --all`. A consumer can read the log from there on without a gap. Without an event in the log, the field is absent.
-- `conditions` holds the conditions of the listed Claude Code sessions that are True now, as the watcher computes them (see [Watch all Claude Code sessions](#watch-all-claude-code-sessions-idfx-watch---all)). Each has `type`, `status` (always `True`), `reason`, `message`, `lastTransitionTime`, `subject` (the session name, else the first 8 characters of the session ID), and `session` (the full ID). When the event log already holds the condition as True, `lastTransitionTime` and `message` come from the log; else `lastTransitionTime` is the time of the snapshot. `HandoverFailed` never shows here: it needs a run of `handover check` for each ended session, which is too slow for `status`. Only the event log carries it. `ApiError` shows only for an error line after the last event of the log.
+- `conditions` holds the conditions of the listed Claude Code sessions that are True now, as the watcher computes them (see [Watch all Claude Code sessions](#watch-all-claude-code-sessions-idfx-watch---all)). Each has `type`, `status` (always `True`), `reason`, `message`, `lastTransitionTime`, `subject` (the session name, else the first 8 characters of the session ID), and `session` (the full ID). When the event log already holds the condition as True, `lastTransitionTime` and `message` come from the log; else `lastTransitionTime` is the time of the snapshot. `HandoverFailed` never shows here: it needs a run of `handover check` for each ended session, which is too slow for `status`. Only the event log carries it. `SessionHandedOff` never shows here either, because it is a one-shot event and not a current state. `ApiError` shows only for an error line after the last event of the log.
 - `items` is the list of sessions, one object per session:
   - `id`, `state`, and `title` are the fields of the text line.
   - `folder` is the absolute directory whose listing produced the session (the project root, a worktree, or a run folder).
@@ -335,14 +335,21 @@ type: SessionUnnamed
 true: a live session has no name
 sev: INFO
 reason: NoName
+--
+type: SessionHandedOff
+true: the session ended a turn, `handover check <folder>` exits with code 0, and `docs/PLAN.md` has a new commit since the last event of this session
+sev: INFO
+reason: HandoverCheckPassed
 ```
 
 - An event reports a change, not each poll. A condition that stays True gives no second event. A condition that turns False gives an INFO event. Its reason is `Cleared`. If the session left the list, the reason is `SessionGone`.
 - The reason of a wait has two values, the same words as MCP tasks and A2A. `auth_required` means that the session waits for a login or a new key: its waiting text holds for example `401`, `/login`, `not logged in`, `authentication failed`, or an invalid or expired key or token. Claude Code has no fixed waiting text for a login, so idfx matches these words. Every other wait is `input_required`: a permission dialog, a question, an open dialog, a sandbox or worker request, a blocked background job, or a wait without a text.
 - The kind of the wait is in `message`, for example `permission dialog: Bash permission, waits for the user since 12 min`, `input needed, waits for the user since 11 min`, `blocked job: approve the push, waits for the user since 40 min`, or `login needed: Please run /login, waits for the user since 15 min`.
 - At the end of a session, `handover check` runs one time. Exit code 2 (for example a folder outside git) gives no event.
+- `SessionHandedOff` tells that a session ended a step with a clean hand-off. When a session goes from `busy` or `waiting` to `idle` or `ended`, `handover check` runs one time. If it exits with 0, the watcher reads `git log -1 --format=%H -- docs/PLAN.md` in the folder of the session. If that commit differs from `data.planCommit` of the last `SessionHandedOff` event of this session, the watcher writes a True event with the new `data.planCommit`. A session goes `idle` after each turn, also after a question, so the same plan commit never gives a second event, also not after a restart of the watcher. Exit code 1 at an `idle` edge gives no event: a session in the middle of a step is not a failure. `HandoverFailed` still comes only at the end of a session.
+- `SessionHandedOff` is a one-shot event: it has no False event, also not when the session leaves the list. It does not count as an open condition, and `status --json` does not show it.
 - An API error turns False at the next poll without a new error line, so each new error gives one True event.
-- `message` holds only the waiting text, the error text (at most 200 characters), the first line of `handover check`, or numbers. It never holds a prompt.
+- `message` holds only the waiting text, the error text (at most 200 characters), the first line of `handover check`, a commit hash, or numbers. It never holds a prompt.
 
 The log is `$XDG_STATE_HOME/idfx/events.jsonl` (default `~/.local/state/idfx/events.jsonl`). Each line is one CloudEvents 1.0 event in JSON. Its fields:
 
@@ -351,7 +358,7 @@ The log is `$XDG_STATE_HOME/idfx/events.jsonl` (default `~/.local/state/idfx/eve
 - `subject`: the session name, else the first 8 characters of the session ID.
 - `sequence`: a number with 20 digits. `id` is the same number without the leading zeros.
 - `severitytext` and `severitynumber`: INFO 9, WARN 13, or ERROR 17.
-- `data`: `condition`, `status`, `reason`, `message`, `lastTransitionTime`, `session`, `cwd`, and `kind`.
+- `data`: `condition`, `status`, `reason`, `message`, `lastTransitionTime`, `session`, `cwd`, and `kind`. A `SessionHandedOff` event also has `planCommit`, the full hash of the last commit of `docs/PLAN.md`.
  Every 5 minutes a heartbeat event `dv.idfx.watch.heartbeat` shows that the watcher lives.
 
 - Only one watcher runs. The lock file `events.lock` holds its PID. A second watcher exits with code 1. A lock of a process that is gone does not block.
@@ -363,7 +370,7 @@ The log is `$XDG_STATE_HOME/idfx/events.jsonl` (default `~/.local/state/idfx/eve
 
 The watcher wakes the supervisor session with a short notice, so that the supervisor does not poll the log. Each notice costs context in the supervisor, so the watcher sends few:
 
-- Only a new True event of `SessionWaitsForUser` or `ApiError` gives a notice. All other conditions, and all False events, go only to the log.
+- Only a new True event of `SessionWaitsForUser` or `ApiError` gives a notice. All other conditions (also `SessionHandedOff`), and all False events, go only to the log.
 - One poll gives at most one notice, with all its new events.
 - At most one notice goes out per 60 seconds. The events of the pause go out with the next notice.
 - A condition that stays True gives no second notice, also not after a restart of the watcher.

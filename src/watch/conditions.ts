@@ -11,20 +11,27 @@
  * the same name stay apart. The `subject` of an event is the session name, or
  * the first 8 characters of the session ID.
  *
+ * `SessionHandedOff` is a one-shot condition (`ONE_SHOT_CONDITIONS`): each
+ * new commit of `docs/PLAN.md` after a clean `handover check` gives one True
+ * event, and the condition never gives a False event. Its record keeps the
+ * plan commit, so the same commit gives no second event, also after a
+ * restart.
+ *
  * Privacy: `message` holds only the waiting reason text, the cut error text,
- * the first problem line of `handover check`, or numbers. It never holds a
- * prompt.
+ * the first problem line of `handover check`, a commit hash, or numbers. It
+ * never holds a prompt.
  */
 import type { SessionRowState } from "../top/model";
 
-/** The six condition types. */
+/** The seven condition types. */
 export type ConditionType =
   | "SessionWaitsForUser"
   | "SessionStalled"
   | "ContextHigh"
   | "HandoverFailed"
   | "ApiError"
-  | "SessionUnnamed";
+  | "SessionUnnamed"
+  | "SessionHandedOff";
 
 export const CONDITION_TYPES: readonly ConditionType[] = [
   "SessionWaitsForUser",
@@ -33,7 +40,17 @@ export const CONDITION_TYPES: readonly ConditionType[] = [
   "HandoverFailed",
   "ApiError",
   "SessionUnnamed",
+  "SessionHandedOff",
 ];
+
+/**
+ * The one-shot conditions. Each True event reports one new fact (for
+ * `SessionHandedOff`: one new plan commit after a clean hand-off). Such a
+ * condition gives no False event: not when it stops being true, and not
+ * when its session leaves the source. Its record stays in the state as the
+ * memory of the last fact. It does not count as an open condition.
+ */
+export const ONE_SHOT_CONDITIONS: ReadonlySet<ConditionType> = new Set<ConditionType>(["SessionHandedOff"]);
 
 export type SeverityText = "INFO" | "WARN" | "ERROR";
 
@@ -52,6 +69,7 @@ export const TRUE_SEVERITY: Record<ConditionType, Severity> = {
   HandoverFailed: WARN,
   ApiError: ERROR,
   SessionUnnamed: INFO,
+  SessionHandedOff: INFO,
 };
 
 /** A waiting session gives an event after this time. */
@@ -67,6 +85,10 @@ export const MESSAGE_LENGTH = 200;
 export const REASON_CLEARED = "Cleared";
 /** The reason of a False event when the session left the source. */
 export const REASON_GONE = "SessionGone";
+/** The reason of a True event of `SessionHandedOff`. */
+export const REASON_HANDED_OFF = "HandoverCheckPassed";
+/** The file whose last commit marks a new hand-off. */
+export const PLAN_FILE = "docs/PLAN.md";
 
 /** The fields of one Claude row that the conditions read. `ClaudeRow` of `src/claude/rows.ts` has them all. */
 export type WatchRow = {
@@ -101,6 +123,8 @@ export type ConditionRecord = {
   subject: string;
   cwd: string;
   kind: string;
+  /** `SessionHandedOff` only: the hash of the last commit of `docs/PLAN.md` at the True event. */
+  planCommit?: string;
 };
 
 /** One change of a condition. The watcher writes one event for it. */
@@ -126,6 +150,16 @@ export type WatchState = {
 export type HandoverResult = { code: number; firstLine: string | undefined };
 
 export type HandoverCheck = (cwd: string) => HandoverResult;
+
+/**
+ * The hash of the last commit that changed `docs/PLAN.md` in a folder
+ * (`git log -1 --format=%H -- docs/PLAN.md`), or undefined when git fails or
+ * no commit changed the file.
+ */
+export type PlanCommitReader = (cwd: string) => string | undefined;
+
+/** A reader that never finds a plan commit, so `SessionHandedOff` stays silent. */
+export const noPlanCommit: PlanCommitReader = () => undefined;
 
 export const conditionKey = (condition: ConditionType, session: string): string => `${condition}\u0000${session}`;
 
@@ -222,7 +256,7 @@ export function apiErrorReason(text: string): string {
 }
 
 /** A wanted value of a condition: True with a reason and a message, or False. */
-type Wanted = { status: "True"; reason: string; message: string } | { status: "False" };
+type Wanted = { status: "True"; reason: string; message: string; planCommit?: string } | { status: "False" };
 
 const FALSE: Wanted = { status: "False" };
 
@@ -288,7 +322,7 @@ function handoverFailed(
   seen: SeenSession | undefined,
   old: ConditionRecord | undefined,
   watermarkMs: number,
-  check: HandoverCheck,
+  check: () => HandoverResult,
 ): Wanted | undefined {
   if (row.state !== "ended") return FALSE;
   const edge =
@@ -296,7 +330,7 @@ function handoverFailed(
       ? row.lastActivityMs !== undefined && row.lastActivityMs > watermarkMs
       : seen.state !== "ended";
   if (!edge) return undefined;
-  const result = check(row.directory);
+  const result = check();
   if (result.code === 1) {
     return { status: "True", reason: "HandoverCheckFailed", message: cut(result.firstLine ?? "handover check failed") };
   }
@@ -304,16 +338,61 @@ function handoverFailed(
   return undefined;
 }
 
+/** The states in which a session works on a turn. */
+const WORKING: ReadonlySet<SessionRowState> = new Set<SessionRowState>(["busy", "waiting"]);
+/** The states in which a session has no turn: at its prompt, or without a process. */
+const RESTING: ReadonlySet<SessionRowState> = new Set<SessionRowState>(["idle", "ended"]);
+
+/**
+ * `SessionHandedOff`: at the edge of a session from `busy` or `waiting` to
+ * `idle` or `ended`, `handover check` must exit with 0. Then the last commit
+ * of `docs/PLAN.md` must differ from `planCommit` of the old record. A
+ * session that the watcher sees for the first time has the edge when it
+ * rests and its last activity is after the watermark (it ended a turn while
+ * the watcher was down). Exit code 1 here gives no event: a session that
+ * waits at its prompt in the middle of a step is not a failure, and
+ * `HandoverFailed` keeps its edge to `ended`. Without the edge, or without
+ * a new commit, nothing changes (undefined).
+ */
+function handedOff(
+  row: WatchRow,
+  seen: SeenSession | undefined,
+  old: ConditionRecord | undefined,
+  watermarkMs: number,
+  check: () => HandoverResult,
+  planCommit: PlanCommitReader,
+): Wanted | undefined {
+  if (!RESTING.has(row.state)) return undefined;
+  const edge =
+    seen === undefined
+      ? row.lastActivityMs !== undefined && row.lastActivityMs > watermarkMs
+      : WORKING.has(seen.state);
+  if (!edge) return undefined;
+  if (check().code !== 0) return undefined;
+  const hash = planCommit(row.directory);
+  if (hash === undefined || hash.length === 0 || hash === old?.planCommit) return undefined;
+  return {
+    status: "True",
+    reason: REASON_HANDED_OFF,
+    message: `handover check passed, plan commit ${hash.slice(0, 12)}`,
+    planCommit: hash,
+  };
+}
+
 /**
  * One poll: the new state and the edges, in the order of the rows and then
- * of `CONDITION_TYPES`. `check` runs `handover check` and is only called at
- * the edge of a session to `ended`. The old state is not changed.
+ * of `CONDITION_TYPES`. `check` runs `handover check`. It runs at most once
+ * per session and poll, and only at the edge to `ended` (`HandoverFailed`)
+ * or from `busy` or `waiting` to `idle` or `ended` (`SessionHandedOff`).
+ * `planCommit` reads the last commit of `docs/PLAN.md`, only after a clean
+ * check at such an edge. The old state is not changed.
  */
 export function evaluate(
   old: WatchState,
   rows: readonly WatchRow[],
   nowMs: number,
   check: HandoverCheck,
+  planCommit: PlanCommitReader = noPlanCommit,
 ): { state: WatchState; edges: Edge[] } {
   const conditions = new Map(old.conditions);
   const sessions = new Map<string, SeenSession>();
@@ -327,7 +406,8 @@ export function evaluate(
     const subject = subjectOf(row);
     if (wanted.status === "True") {
       // A True condition that stays True gives no event. It keeps its old message.
-      if (before?.status === "True") {
+      // A one-shot condition gives an event for each new fact; its function returns True only then.
+      if (before?.status === "True" && !ONE_SHOT_CONDITIONS.has(condition)) {
         conditions.set(key, { ...before, subject, cwd: row.directory, kind: row.kind });
         return;
       }
@@ -341,6 +421,7 @@ export function evaluate(
         subject,
         cwd: row.directory,
         kind: row.kind,
+        ...(wanted.planCommit === undefined ? {} : { planCommit: wanted.planCommit }),
       };
       conditions.set(key, record);
       edges.push({ ...record, severity: TRUE_SEVERITY[condition] });
@@ -366,18 +447,25 @@ export function evaluate(
     present.add(row.sessionId);
     const seen = old.sessions.get(row.sessionId);
     const oldHandover = conditions.get(conditionKey("HandoverFailed", row.sessionId));
+    const oldHandedOff = conditions.get(conditionKey("SessionHandedOff", row.sessionId));
+    // One `handover check` per session and poll, shared by both conditions.
+    let result: HandoverResult | undefined;
+    const checkOnce = (): HandoverResult => (result ??= check(row.directory));
     apply(row, "SessionWaitsForUser", waitsForUser(row, nowMs));
     apply(row, "SessionStalled", stalled(row, nowMs));
     apply(row, "ContextHigh", contextHigh(row));
-    apply(row, "HandoverFailed", handoverFailed(row, seen, oldHandover, old.watermarkMs, check));
+    apply(row, "HandoverFailed", handoverFailed(row, seen, oldHandover, old.watermarkMs, checkOnce));
     apply(row, "ApiError", apiError(row, seen, old.watermarkMs));
     apply(row, "SessionUnnamed", unnamed(row));
+    apply(row, "SessionHandedOff", handedOff(row, seen, oldHandedOff, old.watermarkMs, checkOnce, planCommit));
     sessions.set(row.sessionId, { state: row.state, apiErrors: row.apiErrors });
   }
 
   // A session that left the source sets its open conditions to False and is forgotten.
+  // A one-shot record stays without an event: it is the memory of the last plan commit.
   for (const [key, record] of [...conditions]) {
     if (present.has(record.session)) continue;
+    if (ONE_SHOT_CONDITIONS.has(record.condition)) continue;
     conditions.delete(key);
     if (record.status !== "True") continue;
     edges.push({
@@ -393,9 +481,11 @@ export function evaluate(
   return { state: { conditions, sessions, watermarkMs: nowMs }, edges };
 }
 
-/** The count of True conditions in a state. */
+/** The count of True conditions in a state. A one-shot condition is never open. */
 export function openCount(state: WatchState): number {
   let count = 0;
-  for (const record of state.conditions.values()) if (record.status === "True") count += 1;
+  for (const record of state.conditions.values()) {
+    if (record.status === "True" && !ONE_SHOT_CONDITIONS.has(record.condition)) count += 1;
+  }
   return count;
 }

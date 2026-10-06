@@ -25,8 +25,10 @@ import {
   evaluate,
   openCount,
   restoreState,
+  PLAN_FILE,
   type HandoverCheck,
   type HandoverResult,
+  type PlanCommitReader,
   type WatchRow,
 } from "./conditions";
 import { createWaker, nodeNotifier, type Notifier } from "./wake";
@@ -51,6 +53,8 @@ export const POLL_MS = 15_000;
 export const HEARTBEAT_MS = 5 * 60 * 1000;
 /** The longest time that `handover check` may run. */
 export const HANDOVER_TIMEOUT_MS = 60_000;
+/** The longest time that `git log` for the plan commit may run. */
+export const GIT_TIMEOUT_MS = 10_000;
 
 export type WatchAllDeps = {
   /** The folder of the event log and the lock. */
@@ -60,6 +64,8 @@ export type WatchAllDeps = {
   /** The Claude rows at a time, see `claudeRowsLoader`. */
   loadRows: ClaudeRowsLoader;
   handoverCheck: HandoverCheck;
+  /** The last commit of `docs/PLAN.md` in a folder, for `SessionHandedOff`. */
+  planCommit: PlanCommitReader;
   /** Waits for `ms`, or less when the signal aborts. */
   sleep(ms: number, signal: AbortSignal | undefined): Promise<void>;
   stdout(line: string): void;
@@ -135,7 +141,7 @@ export async function runWatchAll(options: { json: boolean; once: boolean }, dep
         const nowMs = deps.now();
         try {
           const rows = (await deps.loadRows(nowMs)).map(toWatchRow);
-          const result = evaluate(state, rows, nowMs, deps.handoverCheck);
+          const result = evaluate(state, rows, nowMs, deps.handoverCheck, deps.planCommit);
           state = result.state;
           for (const edge of result.edges) emit(writer.append((sequence) => conditionEvent(edge, sequence, source)));
           waker.afterPoll(result.edges, nowMs, baseline);
@@ -178,6 +184,41 @@ export function nodeHandoverCheck(cwd: string): HandoverResult {
   return { code: result.status, firstLine };
 }
 
+/**
+ * The git variables that point git at one repository (`git rev-parse
+ * --local-env-vars`, for example `GIT_DIR`). They are removed from the
+ * environment of `git log`, so a watcher that a git hook started still
+ * reads the folder of the session (lesson `git-hook-env-leaks-into-other-repos`).
+ */
+export function gitLocalEnvVars(): string[] {
+  const result = spawnSync("git", ["rev-parse", "--local-env-vars"], { encoding: "utf8", timeout: GIT_TIMEOUT_MS });
+  if (result.status !== 0) return [];
+  return (result.stdout ?? "").split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+}
+
+/**
+ * The real plan commit reader: `git -C <cwd> log -1 --format=%H --
+ * docs/PLAN.md`. A failure, a timeout, or an empty output gives undefined,
+ * which writes no event.
+ */
+export function nodePlanCommit(env: Record<string, string | undefined> = process.env): PlanCommitReader {
+  let clean: NodeJS.ProcessEnv | undefined;
+  return (cwd) => {
+    if (clean === undefined) {
+      clean = { ...env } as NodeJS.ProcessEnv;
+      for (const name of gitLocalEnvVars()) delete clean[name];
+    }
+    const result = spawnSync("git", ["-C", cwd, "log", "-1", "--format=%H", "--", PLAN_FILE], {
+      encoding: "utf8",
+      timeout: GIT_TIMEOUT_MS,
+      env: clean,
+    });
+    if (result.error !== undefined || result.status !== 0) return undefined;
+    const hash = (result.stdout ?? "").trim();
+    return /^[0-9a-f]{7,64}$/.test(hash) ? hash : undefined;
+  };
+}
+
 /** A sleep that ends early when the signal aborts. */
 export function abortableSleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
   return new Promise((resolve) => {
@@ -208,6 +249,7 @@ export async function watchAll(
       hostname: () => hostname(),
       loadRows: claudeRowsLoader(env),
       handoverCheck: nodeHandoverCheck,
+      planCommit: nodePlanCommit(env),
       sleep: abortableSleep,
       stdout: (line) => console.log(line),
       stderr: (line) => console.error(line),

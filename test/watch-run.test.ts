@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parsePriceFile } from "../src/claude/prices";
 import { createClaudeSource, loadClaudeRows, type ClaudeRow } from "../src/claude/rows";
-import type { HandoverCheck } from "../src/watch/conditions";
+import type { HandoverCheck, PlanCommitReader } from "../src/watch/conditions";
 import { acquireLock, EVENTS_FILE, type LockProcess } from "../src/watch/log";
 import type { Notifier } from "../src/watch/wake";
-import { HEARTBEAT_MS, humanLine, POLL_MS, runWatchAll, type WatchAllDeps } from "../src/watch/run";
+import { HEARTBEAT_MS, humanLine, nodePlanCommit, POLL_MS, runWatchAll, type WatchAllDeps } from "../src/watch/run";
 import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, MINUTE, NOW, S1, S2, S5, statLine } from "./claude-fixture";
 import { claudeRowOf } from "./top-rows";
 
@@ -21,13 +21,22 @@ const proc = (pid: number, live: Record<number, string> = { [pid]: "1" }): LockP
   procStat: (p) => (live[p] === undefined ? undefined : statLine(p, live[p] as string)),
 });
 
-type Harness = { deps: WatchAllDeps; out: string[]; err: string[]; sleeps: number[]; checks: string[]; notices: string[] };
+type Harness = {
+  deps: WatchAllDeps;
+  out: string[];
+  err: string[];
+  sleeps: number[];
+  checks: string[];
+  planReads: string[];
+  notices: string[];
+};
 
 function harness(options: {
   stateDir?: string;
   clock?: () => number;
   loadRows?: WatchAllDeps["loadRows"];
   check?: HandoverCheck;
+  planCommit?: PlanCommitReader;
   signal?: AbortSignal;
   onSleep?: () => void;
   lockProcess?: LockProcess;
@@ -38,6 +47,7 @@ function harness(options: {
   const err: string[] = [];
   const sleeps: number[] = [];
   const checks: string[] = [];
+  const planReads: string[] = [];
   const source = createClaudeSource(FIXTURE_ROOT, fixtureFs());
   const deps: WatchAllDeps = {
     stateDir: options.stateDir ?? mkdtempSync(path.join(tmpdir(), "idfx-watch-run-")),
@@ -47,6 +57,10 @@ function harness(options: {
     handoverCheck: (cwd) => {
       checks.push(cwd);
       return options.check?.(cwd) ?? { code: 0, firstLine: undefined };
+    },
+    planCommit: (cwd) => {
+      planReads.push(cwd);
+      return options.planCommit?.(cwd);
     },
     sleep: async (ms) => {
       sleeps.push(ms);
@@ -62,7 +76,7 @@ function harness(options: {
     },
     signal: options.signal,
   };
-  return { deps, out, err, sleeps, checks, notices };
+  return { deps, out, err, sleeps, checks, planReads, notices };
 }
 
 const fileEvents = (dir: string) =>
@@ -186,7 +200,7 @@ describe("the lock and the loop", () => {
     expect(failing.err).toEqual(["idfx watch: the poll failed: disk gone"]);
   });
 
-  test("handover check runs at the edge to ended only", async () => {
+  test("handover check runs once at the edge from busy to ended, and exit code 1 gives HandoverFailed only", async () => {
     let state: ClaudeRow["state"] = "busy";
     const controller = new AbortController();
     let now = NOW;
@@ -211,6 +225,77 @@ describe("the lock and the loop", () => {
     expect(failed.map((event) => [event.data.status, event.data.message, event.severitytext])).toEqual([
       ["True", "handover: not pushed", "WARN"],
     ]);
+    expect(h.planReads).toEqual([]);
+    expect(h.out.some((line) => line.includes("SessionHandedOff"))).toBe(false);
+  });
+});
+
+describe("SessionHandedOff in the loop", () => {
+  const HASH_A = "a".repeat(40);
+  const HASH_B = "b".repeat(40);
+
+  /** Runs one loop over the given row states, one state per poll, and returns the harness. */
+  async function loop(
+    dir: string,
+    startMs: number,
+    states: Array<ClaudeRow["state"]>,
+    planCommit: () => string | undefined,
+  ): Promise<Harness> {
+    const controller = new AbortController();
+    let now = startMs;
+    let polls = 0;
+    const h = harness({
+      stateDir: dir,
+      clock: () => now,
+      loadRows: async () => {
+        const state = states[polls] ?? "idle";
+        polls += 1;
+        return [claudeRowOf(S1, { name: "proj", directory: "/home/u/dv/proj", state, pid: 1, transcriptGrowthMs: now, lastActivityMs: now })];
+      },
+      planCommit,
+      signal: controller.signal,
+      onSleep: () => {
+        now += POLL_MS;
+        if (polls >= states.length) controller.abort();
+      },
+    });
+    await runWatchAll({ json: true, once: false }, h.deps);
+    return h;
+  }
+
+  const handedOff = (h: Harness) =>
+    h.out.map((line) => JSON.parse(line)).filter((event) => event.data.condition === "SessionHandedOff");
+
+  test("an idle edge with a clean check writes one INFO event with the plan commit, and sends no notice", async () => {
+    const dir = await (async () => {
+      const d = mkdtempSync(path.join(tmpdir(), "idfx-watch-run-"));
+      await runWatchAll({ json: false, once: true }, harness({ stateDir: d, clock: () => NOW, loadRows: async () => [] }).deps);
+      return d;
+    })();
+    const h = await loop(dir, NOW + MINUTE, ["busy", "idle", "idle", "busy", "idle"], () => HASH_A);
+    expect(h.checks).toEqual(["/home/u/dv/proj", "/home/u/dv/proj"]);
+    const events = handedOff(h);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "dv.idfx.session.handed-off",
+      subject: "proj",
+      severitytext: "INFO",
+      severitynumber: 9,
+      data: { condition: "SessionHandedOff", status: "True", reason: "HandoverCheckPassed", planCommit: HASH_A, session: S1 },
+    });
+    expect(h.notices).toEqual([]);
+  });
+
+  test("a restart remembers the plan commit from the log", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "idfx-watch-run-"));
+    const first = await loop(dir, NOW, ["busy", "idle"], () => HASH_A);
+    expect(handedOff(first)).toHaveLength(1);
+    // A new watcher: the same commit gives no second event, a new commit gives one.
+    const same = await loop(dir, NOW + 10 * MINUTE, ["busy", "idle"], () => HASH_A);
+    expect(same.checks).toHaveLength(1);
+    expect(handedOff(same)).toEqual([]);
+    const next = await loop(dir, NOW + 20 * MINUTE, ["busy", "idle"], () => HASH_B);
+    expect(handedOff(next).map((event) => event.data.planCommit)).toEqual([HASH_B]);
   });
 });
 
@@ -337,5 +422,42 @@ describe("the command line", () => {
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({ type: "dv.idfx.watch.heartbeat", data: { sessions: 0, open: 0 } });
     expect(fileEvents(path.join(state, "idfx"))).toHaveLength(1);
+  });
+});
+
+describe("nodePlanCommit", () => {
+  /** git with a clean environment: no variable of `git rev-parse --local-env-vars` from a hook leaks in. */
+  function git(cwd: string, ...args: string[]): string {
+    const env: Record<string, string | undefined> = { ...process.env };
+    const local = Bun.spawnSync(["git", "rev-parse", "--local-env-vars"], { env: env as Record<string, string> });
+    for (const name of local.stdout.toString().split("\n")) if (name.trim().length > 0) delete env[name.trim()];
+    const result = Bun.spawnSync(["git", "-C", cwd, ...args], {
+      env: {
+        ...env,
+        GIT_AUTHOR_NAME: "t",
+        GIT_AUTHOR_EMAIL: "t@example.invalid",
+        GIT_COMMITTER_NAME: "t",
+        GIT_COMMITTER_EMAIL: "t@example.invalid",
+      } as Record<string, string>,
+    });
+    if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
+    return result.stdout.toString().trim();
+  }
+
+  test("reads the last commit of docs/PLAN.md, not of another file; no plan or no repository gives undefined", () => {
+    const repo = mkdtempSync(path.join(tmpdir(), "idfx-plan-commit-"));
+    git(repo, "init", "-q");
+    const read = nodePlanCommit();
+    expect(read(repo)).toBeUndefined();
+    mkdirSync(path.join(repo, "docs"));
+    writeFileSync(path.join(repo, "docs", "PLAN.md"), "# Plan\n");
+    git(repo, "add", ".");
+    git(repo, "commit", "-q", "-m", "plan");
+    const planHash = git(repo, "rev-parse", "HEAD");
+    writeFileSync(path.join(repo, "other.txt"), "x\n");
+    git(repo, "add", ".");
+    git(repo, "commit", "-q", "-m", "other");
+    expect(read(repo)).toBe(planHash);
+    expect(read(mkdtempSync(path.join(tmpdir(), "idfx-no-repo-")))).toBeUndefined();
   });
 });

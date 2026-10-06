@@ -54,6 +54,11 @@ type: SessionUnnamed
 true: a live session has no `name` (user decision 2026-10-06, meta plan step 26)
 sev: INFO 9
 reason: `NoName`
+--
+type: SessionHandedOff
+true: one-shot: at the edge of a session from `busy` or `waiting` to `idle` or `ended`, `handover check <cwd>` exits with 0, and the last commit of `docs/PLAN.md` differs from `data.planCommit` of the last True event of this session (step 38, task of Severin)
+sev: INFO 9
+reason: `HandoverCheckPassed`, with the commit in `data.planCommit`
 ```
 
 The reason of `SessionWaitsForUser` has exactly two values, from tool protocol v0 (meta `docs/research/tool-protocol.md`, section 1). They are the words of MCP tasks (status `input_required`) and of A2A (`TASK_STATE_INPUT_REQUIRED`, `TASK_STATE_AUTH_REQUIRED`), so a consumer needs no table of names:
@@ -65,6 +70,15 @@ The kind of wait goes into `message`, for people: `<kind>, waits for the user si
 
 A condition that turns False gives an event with severity INFO 9. A session that disappears from the source sets its open conditions to False. `HandoverFailed` runs `handover check` once, at the edge to `ended`, not at each poll. An exit code 2 (for example a folder outside git) gives no event. `ApiError` turns False at the next poll without a new error line, so each new error gives one True event.
 
+`SessionHandedOff` tells Severin that a session ended a step with a clean hand-off (Severin `docs/research/driver-loop-inputs.md`, section 1). It has these rules:
+
+- The edge is a change of the row state from `busy` or `waiting` to `idle` or `ended`. A session that the watcher sees for the first time (after a start) has the edge when it is `idle` or `ended` and its last activity is after the watermark, the same rule as for `HandoverFailed`.
+- At the edge, `handover check <cwd>` runs once. One poll runs at most one check per session, and `HandoverFailed` and `SessionHandedOff` share its result.
+- Exit code 0: the watcher reads `git -C <cwd> log -1 --format=%H -- docs/PLAN.md`, without the variables of `git rev-parse --local-env-vars`. A new hash gives a True event with `data.planCommit`. The same hash, an empty output, or a git failure gives nothing. A session goes `idle` after each turn, also after a question to the user, so the hash is the filter.
+- Exit code 1 at the edge to `ended` keeps `HandoverFailed`. Exit code 1 at the edge to `idle` gives no event: a session at its prompt in the middle of a step is normal. Exit code 2 or a missing tool gives nothing.
+- It is a one-shot condition (`ONE_SHOT_CONDITIONS` in `src/watch/conditions.ts`). It never gives a False event: not at the next turn, and not when the session leaves the source. Each new plan commit gives a new True event, without a False event between them. The record stays in the state as the memory of the last commit, and a restart restores it from `data.planCommit` in the log. It does not count in the `open` count of the heartbeat, and `status --json` leaves it out.
+- It goes only to the log, not to `NOTIFY_CONDITIONS`. Severin reads the log by `sequence`.
+
 The reasons of `ApiError` come from the error text: `usage limit` or `rate limit` gives `UsageLimit`, `401`, `403`, `login`, or `authentication` gives `AuthError`, and else `ApiError`. The transcript reader of 25g.1 keeps only a count of `api_error` lines today. This slice extends it to keep the text of the last error, cut to 200 characters.
 
 ## 4. Event log
@@ -74,7 +88,7 @@ The envelope and the file follow section 6 of the meta report:
 - File: `$XDG_STATE_HOME/idfx/events.jsonl`, append only, one full line per `write` call. One writer: the watcher. A file lock (`flock` on `events.lock`) stops a second watcher, which exits with code 1 and a message.
 - Envelope: CloudEvents 1.0 JSON. The attributes are `specversion`, `id`, `source` (`//<hostname>/idfx`), `type`, `time`, `subject` (the session name, else the first 8 characters of the session id), `sequence` (20 digits with leading zeros), `severitytext`, `severitynumber`, and `data`.
 - `type`: `dv.idfx.session.<condition in kebab case>`, for example `dv.idfx.session.stalled`. `SessionWaitsForUser` uses `dv.idfx.session.waiting`, the type of tool protocol v0. A log line from before that change has `dv.idfx.session.waits-for-user`; the restore reads `data.condition`, so it still counts. The heartbeat is `dv.idfx.watch.heartbeat`, every 5 minutes, severity INFO 9.
-- `data`: `condition`, `status` (`True` or `False`), `reason`, `message`, `lastTransitionTime`, `session` (the full id), `cwd`, and `kind`.
+- `data`: `condition`, `status` (`True` or `False`), `reason`, `message`, `lastTransitionTime`, `session` (the full id), `cwd`, and `kind`. `SessionHandedOff` adds `planCommit` (the full hash), and the restore reads it back.
 - Rotation: above 10 MB the watcher renames the file to `events.<first sequence>.jsonl` and starts a new file. The sequence continues.
 
 The event file is the state of the watcher. At start, the watcher reads the last event of each condition and subject from the current file. So a restart does not repeat a True event that is still true. It sends a False event for a condition that cleared while it was down.
@@ -83,7 +97,7 @@ The event file is the state of the watcher. At start, the watcher reads the last
 
 Each notice costs context in the supervisor, so the watcher sends few notices (supervisor decision, 2026-10-06):
 
-- Only a True edge of `SessionWaitsForUser` or `ApiError` gives a notice. The set is the constant `NOTIFY_CONDITIONS` in `src/watch/wake.ts`. The other conditions (`SessionStalled`, `ContextHigh`, `HandoverFailed`, `SessionUnnamed`) and all False edges go only to the log.
+- Only a True edge of `SessionWaitsForUser` or `ApiError` gives a notice. The set is the constant `NOTIFY_CONDITIONS` in `src/watch/wake.ts`. The other conditions (`SessionStalled`, `ContextHigh`, `HandoverFailed`, `SessionUnnamed`, `SessionHandedOff`) and all False edges go only to the log.
 - One poll gives at most one notice, with all its notifying edges.
 - At most one notice goes out in 60 seconds. Edges that come in the pause wait, and the first poll after the pause sends them in one notice.
 - A known state never gives a second notice. A condition that stays True gives no edge. A restart restores the state from the log, so a condition that is still True gives no edge either.
@@ -130,3 +144,5 @@ idfix gives the unit file `contrib/systemd/idfx-watch.service`: `ExecStart=%h/.l
 - opencode runs give no events yet.
 - A session on another machine gives no events. Each machine runs its own watcher with its own `source`.
 - `handover check` of a worktree session checks the worktree, not the main checkout. The supervisor then reads the event and decides.
+- `SessionHandedOff` misses a turn that starts and ends between two polls (shorter than 15 seconds): the watcher sees `idle` twice and no edge. The next turn with a new plan commit gives the event.
+- `handover check` now runs after each turn of each session, not only at its end. The check makes no network call, so a poll stays short; a measurement can change this.

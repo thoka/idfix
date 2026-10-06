@@ -18,6 +18,8 @@
  * - At start, `readLogState` reads the newest rotated file and the current
  *   file. It gives the last sequence, the time of the last event, the time of
  *   the last heartbeat, and the last record of each condition and session.
+ *   The record of `SessionHandedOff` keeps `data.planCommit`, so a restart
+ *   does not repeat the event for the same plan commit.
  */
 import {
   closeSync,
@@ -73,6 +75,7 @@ export const EVENT_TYPES: Record<ConditionType, string> = {
   HandoverFailed: "dv.idfx.session.handover-failed",
   ApiError: "dv.idfx.session.api-error",
   SessionUnnamed: "dv.idfx.session.unnamed",
+  SessionHandedOff: "dv.idfx.session.handed-off",
 };
 
 /** The `data` of a condition event. */
@@ -85,6 +88,8 @@ export type ConditionData = {
   session: string;
   cwd: string;
   kind: string;
+  /** `SessionHandedOff` only: the hash of the last commit of `docs/PLAN.md`. */
+  planCommit?: string;
 };
 
 /** One CloudEvents 1.0 event in the JSON format, with the extensions `sequence` and severity. */
@@ -147,6 +152,7 @@ export function conditionEvent(edge: Edge, sequence: number, source: string): Cl
     session: edge.session,
     cwd: edge.cwd,
     kind: edge.kind,
+    ...(edge.planCommit === undefined ? {} : { planCommit: edge.planCommit }),
   };
   return envelope(sequence, source, EVENT_TYPES[edge.condition], edge.lastTransitionMs, edge.severity, data, edge.subject);
 }
@@ -182,6 +188,7 @@ export function recordOf(event: unknown): ConditionRecord | undefined {
     subject: typeof subject === "string" ? subject : d.session.slice(0, 8),
     cwd: typeof d.cwd === "string" ? d.cwd : "",
     kind: typeof d.kind === "string" ? d.kind : "",
+    ...(typeof d.planCommit === "string" ? { planCommit: d.planCommit } : {}),
   };
 }
 

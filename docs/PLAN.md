@@ -202,6 +202,15 @@ Input from the supervisor, 2026-10-06 (meta step 4e, `~/dv/meta/docs/research/de
 2. The OTel GenAI conventions (own repository since 2026-05, status Development, prefix `gen_ai`) serve only as a mapping for now.
 3. The OTel filelog receiver keeps offsets only with a storage extension, and it identifies a file by its first 1000 bytes. If `events.jsonl` is ever rotated or read by a collector, keep its first line stable and unique, or use the storage extension.
 
+### 20. Step 38: the condition SessionHandedOff in `idfx watch --all`
+
+Task from Severin, routed by the supervisor on 2026-10-06 (`~/dv/severin/.worktrees/step4-decide/docs/outbox/2026-10-06-task-idfix-session-handed-off.md`; background `~/dv/severin/docs/research/driver-loop-inputs.md`, section 1). Severin acts when a session ends a step with a clean hand-off. Severin does not wait for it: until it exists, the supervisor calls `severin tick <project>` itself.
+
+1. Edge: the state of a session changes from `busy` or `waiting` to `idle` or `ended`. Today `handover check` runs only at the edge to `ended`, and only exit code 1 writes an event (`src/watch/conditions.ts`).
+2. At that edge, run `handover check <cwd>` once. Exit code 1 keeps `HandoverCheckFailed`. Exit code 0 goes on.
+3. Read `git log -1 --format=%H -- docs/PLAN.md` in the cwd. If the hash differs from `data.planCommit` of the last True event of this session, write a True event of `SessionHandedOff` (type `dv.idfx.session.handed-off`, severity INFO 9) with `data.planCommit`. A session goes `idle` after each turn, also after a question, so this filter is necessary.
+4. Log only: not in `NOTIFY_CONDITIONS`. Tests and docs (`docs/design/idfx-watch.md`, `docs/GUIDE.md`).
+
 ### Later
 
 - Flaky test: `test/watch-guards.test.ts` ("watch with a guard finding") times out after 20 seconds in some runs, with or without the temp folder fix of 2026-10-05. It was seen at a load average of about 10. The fake server likely pushes events before `watch` subscribes.

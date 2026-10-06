@@ -9,13 +9,13 @@ const STATE = path.join(BASE, "state");
 const ENV = { XDG_STATE_HOME: STATE };
 mkdirSync(path.join(STATE, "oc-sub"), { recursive: true });
 writeFileSync(
-  path.join(STATE, "oc-sub", "sandbox-meta.json"),
-  JSON.stringify({ name: "oc-sub-meta", root: "/h/dv/meta", port: 18770 }),
+  path.join(STATE, "oc-sub", "sandbox-proj-a.json"),
+  JSON.stringify({ name: "oc-sub-proj-a", root: "/h/proj-a", port: 18770 }),
 );
 afterAll(() => rmSync(BASE, { recursive: true, force: true }));
 
-const projectName = () => "meta";
-const DIR = "/h/dv/meta/.worktrees/r-claude-glm";
+const projectName = () => "proj-a";
+const DIR = "/h/proj-a/.worktrees/r-claude-glm";
 
 describe("missingSandboxFolder", () => {
   test("refuses a host worktree that the sandbox clone lacks, and names both fixes", () => {
@@ -27,8 +27,8 @@ describe("missingSandboxFolder", () => {
         return false;
       },
     });
-    expect(asked).toEqual([`oc-sub-meta ${DIR}`]);
-    expect(message).toContain(`${DIR} does not exist in the sandbox oc-sub-meta`);
+    expect(asked).toEqual([`oc-sub-proj-a ${DIR}`]);
+    expect(message).toContain(`${DIR} does not exist in the sandbox oc-sub-proj-a`);
     expect(message).toContain("oc-sub worktree r-claude-glm");
     expect(message).toContain("oc-sub up --no-sandbox");
   });

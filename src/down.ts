@@ -10,6 +10,14 @@
  * proxy again, and a child without its loop would be an orphan.
  * `stopStartedGroups` does the same for a caller that cannot wait for the
  * normal `down`, for example the teardown of a test.
+ *
+ * One SIGTERM does not always end a process. opencode serve has no SIGTERM
+ * handler of its own and normally dies at once. But a library can catch
+ * SIGTERM for a short time: while opencode installs the dependencies of a
+ * config folder with npm's arborist, the `signal-exit` handler of arborist
+ * catches the signal, aborts only the install, and removes itself. The
+ * server then keeps running. So `stopGroup` repeats SIGTERM while the
+ * process lives, and sends SIGKILL to the group at the deadline.
  */
 import { resolveTarget, type Env } from "./config";
 import { assertUsable, makeClient, probeServer, unwrap } from "./client";
@@ -17,6 +25,10 @@ import { readDirs, readPid, removeFiles, proxyPidPath, serveDirsPath, servePidPa
 
 const STOP_TIMEOUT_MS = 15_000;
 const STOP_INTERVAL_MS = 200;
+/** How often `stopGroup` repeats SIGTERM while the process still lives. */
+const TERM_REPEAT_MS = 1_000;
+/** How long `stopGroup` waits for the exit after SIGKILL. */
+const KILL_TIMEOUT_MS = 2_000;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -83,13 +95,54 @@ export async function busySessions(serveUrl: string, directories: readonly strin
   return busy;
 }
 
-export async function waitUntilGone(pid: number): Promise<boolean> {
-  const deadline = Date.now() + STOP_TIMEOUT_MS;
+export async function waitUntilGone(pid: number, timeoutMs: number = STOP_TIMEOUT_MS): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (!isAlive(pid)) return true;
     await sleep(STOP_INTERVAL_MS);
   }
   return !isAlive(pid);
+}
+
+/** The times of `stopGroup`. The tests make them short. */
+export type StopTiming = { timeoutMs: number; repeatMs: number; killTimeoutMs: number };
+
+export const DEFAULT_STOP_TIMING: StopTiming = {
+  timeoutMs: STOP_TIMEOUT_MS,
+  repeatMs: TERM_REPEAT_MS,
+  killTimeoutMs: KILL_TIMEOUT_MS,
+};
+
+/**
+ * How `stopGroup` ended: the process stopped after SIGTERM, it stopped only
+ * after SIGKILL, or it still lives after SIGKILL.
+ */
+export type StopResult = "terminated" | "killed" | "stuck";
+
+/**
+ * Stops the process group that `pid` leads and waits until `pid` is gone.
+ * It sends SIGTERM, and again every `repeatMs` while the process lives,
+ * because a library handler can catch one SIGTERM and keep the process
+ * running (see the head of this file). At `timeoutMs`, it sends SIGKILL to
+ * the group and waits `killTimeoutMs` more.
+ */
+export async function stopGroup(
+  pid: number,
+  signalGroup: (pid: number, signal: NodeJS.Signals) => void,
+  timing: StopTiming = DEFAULT_STOP_TIMING,
+): Promise<StopResult> {
+  const deadline = Date.now() + timing.timeoutMs;
+  while (Date.now() < deadline) {
+    signalGroup(pid, "SIGTERM");
+    if (await waitUntilGone(pid, Math.min(timing.repeatMs, deadline - Date.now()))) return "terminated";
+  }
+  signalGroup(pid, "SIGKILL");
+  return (await waitUntilGone(pid, timing.killTimeoutMs)) ? "killed" : "stuck";
+}
+
+/** The error text for a process that `stopGroup` could not stop. */
+function stuckMessage(what: string, pid: number): string {
+  return `${what} (PID ${pid}) did not stop within ${STOP_TIMEOUT_MS / 1000}s, also not after SIGKILL`;
 }
 
 /**
@@ -98,13 +151,24 @@ export async function waitUntilGone(pid: number): Promise<boolean> {
  */
 export type DownDeps = {
   commandLineOf: (pid: number) => string | null;
-  /** Signals the process group of a detached process of `up`. */
-  killGroup: (pid: number) => void;
+  /**
+   * Signals the process group of a detached process of `up`, with SIGTERM
+   * when no signal is given. A group that is already gone is fine.
+   */
+  killGroup: (pid: number, signal?: NodeJS.Signals) => void;
 };
+
+export function signalGroup(pid: number, signal: NodeJS.Signals = "SIGTERM"): void {
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    // The group is already gone; the wait sees that.
+  }
+}
 
 export const defaultDownDeps: DownDeps = {
   commandLineOf,
-  killGroup: (pid) => process.kill(-pid, "SIGTERM"),
+  killGroup: signalGroup,
 };
 
 /**
@@ -118,9 +182,8 @@ async function stopProxy(env: Env, port: number, deps: DownDeps): Promise<void> 
   const pid = await readPid(pidPath);
   const commandLine = pid === null ? null : deps.commandLineOf(pid);
   if (pid !== null && commandLine !== null && isProxyLoop(commandLine, port + 1)) {
-    deps.killGroup(pid);
-    if (!(await waitUntilGone(pid))) {
-      throw new Error(`the cost proxy (PID ${pid}) did not stop within ${STOP_TIMEOUT_MS / 1000}s`);
+    if ((await stopGroup(pid, deps.killGroup)) === "stuck") {
+      throw new Error(stuckMessage("the cost proxy", pid));
     }
   }
   await removeFiles(pidPath);
@@ -173,10 +236,13 @@ export async function down(
   // `oc-sub up` starts the server detached, so it leads its own process
   // group. Signal the group, so that child processes (for example language
   // servers) stop, too.
-  deps.killGroup(pid);
-  if (!(await waitUntilGone(pid))) {
-    console.error(`error: opencode serve (PID ${pid}) did not stop within ${STOP_TIMEOUT_MS / 1000}s`);
+  const stopped = await stopGroup(pid, deps.killGroup);
+  if (stopped === "stuck") {
+    console.error(`error: ${stuckMessage("opencode serve", pid)}`);
     return 1;
+  }
+  if (stopped === "killed") {
+    console.error(`warning: opencode serve (PID ${pid}) ignored SIGTERM for ${STOP_TIMEOUT_MS / 1000}s; it was killed`);
   }
   try {
     await stopProxy(env, port, deps);

@@ -12,7 +12,7 @@ import type { Env } from "./config";
 import type { ServerState } from "./client";
 import type { CheckResult } from "./doctor";
 // The busy check and the holder stop reuse the helpers of `down`.
-import { busySessions, formatBusyLine, isAlive, waitUntilGone } from "./down";
+import { busySessions, formatBusyLine, isAlive, signalGroup, stopGroup } from "./down";
 import { assertUsable, probeServer } from "./client";
 import { resolveServerUrl } from "./config";
 import { DEEPINFRA_HOST, DEEPINFRA_PLACEHOLDER, deepinfraKeyPath, gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOfRun } from "./keys";
@@ -1616,10 +1616,10 @@ export async function stopSandbox(
   const pid = await readPid(pidPath);
   if (pid !== null && isAlive(pid)) {
     // The holder process leads its own process group, like the server of
-    // `up`. Signal the group, so that child processes stop, too.
-    process.kill(-pid, "SIGTERM");
-    if (!(await waitUntilGone(pid))) {
-      console.error(`error: the sandbox holder process (PID ${pid}) did not stop`);
+    // `up`. Signal the group, so that child processes stop, too. `stopGroup`
+    // repeats SIGTERM and ends with SIGKILL, like `oc-sub down`.
+    if ((await stopGroup(pid, signalGroup)) === "stuck") {
+      console.error(`error: the sandbox holder process (PID ${pid}) did not stop, also not after SIGKILL`);
       return 1;
     }
   }

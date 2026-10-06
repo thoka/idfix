@@ -657,9 +657,16 @@ export type ServeProcess = {
  * `detached: true` makes bun call `setsid`, so the process leads a new
  * session and process group, and its PID is the group ID. A caller stops it
  * and all its children with `process.kill(-pid, signal)`. The process works
- * in `cwd`, default the current folder.
+ * in `cwd`, default the current folder. With `env`, the process gets exactly
+ * that environment; without it, it inherits the environment of this process.
  */
-export function spawnDetached(cmd: readonly string[], logPath: string, pidPath: string, cwd: string = process.cwd()): ServeProcess {
+export function spawnDetached(
+  cmd: readonly string[],
+  logPath: string,
+  pidPath: string,
+  cwd: string = process.cwd(),
+  env?: Env,
+): ServeProcess {
   // The process keeps running after this one exits, so its output goes to
   // a file: fd numbers are inherited by the child and closed here again.
   // The file opens in append mode, so the proxy `end` lines of older runs
@@ -670,6 +677,7 @@ export function spawnDetached(cmd: readonly string[], logPath: string, pidPath: 
     proc = Bun.spawn({
       cmd: [...cmd],
       cwd,
+      ...(env === undefined ? {} : { env: { ...env } }),
       stdin: "ignore",
       stdout: logFd,
       stderr: logFd,

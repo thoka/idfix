@@ -1,0 +1,310 @@
+/**
+ * Long-lived processes as transient systemd user services, with an owner and
+ * a reason.
+ *
+ * oc-sub starts processes that outlive it: the host server, the cost proxy,
+ * the holder of sandbox mode, and the idle watchdog. Before this module they
+ * ran as plain detached processes, so a forgotten one carried no label, and
+ * a tool could find it only with a guess. `startUnit` starts such a command
+ * under the user manager with `systemd-run --user`:
+ *
+ * - The unit name `ocsub-<kind>-<name>.service` is the handle.
+ * - The description `owner=<owner> reason=<reason>` carries the label as
+ *   data, and the slice `ocsub.slice` groups all units.
+ * - `--collect` unloads the unit after it ends, also after a failure.
+ * - `systemctl --user stop <unit>` stops the whole cgroup, also a child that
+ *   detached or double-forked (`stopUnit`).
+ *
+ * Every child also gets `OCSUB_OWNER` and `OCSUB_REASON` in its environment,
+ * so a tool can read the label from `/proc/<pid>/environ` on both paths.
+ *
+ * The environment of the child can hold API keys, so no value goes on the
+ * command line of `systemd-run`, where `ps` shows it. Each variable goes as
+ * `--setenv=NAME` without a value, and `systemd-run` runs with the child
+ * environment as its own environment. systemd then copies the value of the
+ * variable with the same name from the environment of `systemd-run`.
+ *
+ * On a host without a user manager (macOS, a container, a WSL VM without
+ * systemd), `startUnit` falls back to the detached spawn of `sandbox.ts`
+ * with the same two label variables, and the handle has no unit. When the
+ * manager answers but `systemd-run` fails, for example because a unit with
+ * the name exists already, `startUnit` throws with the stderr of
+ * `systemd-run` and does not fall back.
+ *
+ * Every process call goes through an injectable runner, so the unit tests
+ * need no systemd. Research: `.plan/research/process-labels.md`.
+ */
+import { writeFileSync } from "node:fs";
+import path from "node:path";
+import type { Env } from "./config";
+import { spawnDetached, type RunnerResult, type ServeProcess } from "./sandbox";
+
+/** The prefix of every unit that oc-sub starts. */
+export const UNIT_PREFIX = "ocsub-";
+/** The slice that holds every unit that oc-sub starts. */
+export const UNIT_SLICE = "ocsub.slice";
+/** The longest unit name without the `.service` suffix (systemd allows 255 with it). */
+export const MAX_UNIT_NAME = 200;
+
+/** What to start, and the label of it. */
+export type UnitOptions = {
+  /** The kind of process, for example "serve", "proxy", "holder", or "idle". */
+  kind: string;
+  /** What tells two units of one kind apart, for example the port or the project. */
+  name: string;
+  /** Who needs the process: a project or a session. */
+  owner: string;
+  /** Why the process runs, as free text. */
+  reason: string;
+  /** The command and its arguments. */
+  cmd: readonly string[];
+  /** The working folder of the process. */
+  cwd: string;
+  /** The full environment of the child. */
+  env: Env;
+  /** The log file; stdout and stderr are appended to it. */
+  logPath: string;
+  /** The PID file; it gets the main PID of the process. */
+  pidPath: string;
+  /** With "on-failure", the manager starts the process again after a failure. */
+  restart?: "on-failure";
+  /** The manager stops the unit after this many seconds. */
+  runtimeMaxSec?: number;
+};
+
+/**
+ * A started process. `pid` leads its own session and process group on both
+ * paths, so `process.kill(-pid, signal)` reaches the whole group.
+ *
+ * `exitCode()` gives null while the process runs. On the unit path, it asks
+ * the manager: null while the unit is active, activating (also between two
+ * starts of `Restart=on-failure`), or deactivating. After the end, it gives
+ * the exit status of the main process while the unit is still loaded, and -1
+ * when the manager unloaded the unit already (`--collect`) and the real code
+ * is lost. The log file keeps the output.
+ */
+export type UnitHandle = ServeProcess & {
+  /** The unit name without `.service`, or null on the fallback path. */
+  unit: string | null;
+};
+
+/** One synchronous process call with an optional own environment. */
+export type UnitRunner = (cmd: readonly string[], opts?: { env?: Env }) => RunnerResult;
+
+/** Everything that `startUnit` and `stopUnit` reach outside this module. */
+export type UnitDeps = {
+  /** Runs `systemd-run` and `systemctl`. */
+  run: UnitRunner;
+  /** Whether a user manager answers. The default caches the probe per process. */
+  available: () => boolean;
+  /** The environment that `systemctl` and `systemd-run` need to reach the user bus. */
+  busEnv: () => Env;
+  /** The detached spawn of the fallback path. */
+  spawnFallback: (cmd: readonly string[], logPath: string, pidPath: string, cwd: string, env: Env) => ServeProcess;
+  /** Writes the PID file. */
+  writePid: (pidPath: string, pid: number) => void;
+};
+
+/**
+ * Makes a string safe for a unit name. systemd allows ASCII letters, digits,
+ * and `:_.\-` in a unit name. This keeps letters, digits, `_`, `.`, and `-`,
+ * and replaces each run of other characters with one `_`, so `my project`
+ * becomes `my_project`. It leaves out `:` and `\` on purpose: `\` starts an
+ * escape in systemd, and both read badly in a unit name. An empty result
+ * becomes `_`. Pure.
+ */
+export function sanitizeUnitPart(part: string): string {
+  const clean = part.replace(/[^A-Za-z0-9_.-]+/g, "_");
+  return clean.length === 0 ? "_" : clean;
+}
+
+/** The unit name `ocsub-<kind>-<name>`, without `.service`, at most `MAX_UNIT_NAME` long. Pure. */
+export function unitName(kind: string, name: string): string {
+  return `${UNIT_PREFIX}${sanitizeUnitPart(kind)}-${sanitizeUnitPart(name)}`.slice(0, MAX_UNIT_NAME);
+}
+
+/**
+ * The description of a unit: `owner=<owner> reason=<reason>`. Control
+ * characters such as a newline become a space, because the description is
+ * one line in `systemctl` output. Pure.
+ */
+export function unitDescription(owner: string, reason: string): string {
+  const line = (text: string) => text.replace(/[\u0000-\u001f\u007f]+/g, " ");
+  return `owner=${line(owner)} reason=${line(reason)}`;
+}
+
+/** The child environment with the two label variables. Undefined values are left out. Pure. */
+export function labelledEnv(env: Env, owner: string, reason: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value;
+  out.OCSUB_OWNER = owner;
+  out.OCSUB_REASON = reason;
+  return out;
+}
+
+/**
+ * The argv of `systemd-run` for a unit. It holds the names of the child
+ * variables, never their values. Pure.
+ */
+export function systemdRunArgv(opts: UnitOptions, childEnv: Record<string, string>): string[] {
+  const argv = [
+    "systemd-run",
+    "--user",
+    "--quiet",
+    `--unit=${unitName(opts.kind, opts.name)}`,
+    `--description=${unitDescription(opts.owner, opts.reason)}`,
+    `--slice=${UNIT_SLICE}`,
+    "--collect",
+    `--working-directory=${path.resolve(opts.cwd)}`,
+    `--property=StandardOutput=append:${path.resolve(opts.logPath)}`,
+    `--property=StandardError=append:${path.resolve(opts.logPath)}`,
+  ];
+  if (opts.restart === "on-failure") argv.push("--property=Restart=on-failure");
+  if (opts.runtimeMaxSec !== undefined) {
+    if (!Number.isInteger(opts.runtimeMaxSec) || opts.runtimeMaxSec <= 0) {
+      throw new Error(`runtimeMaxSec must be a positive whole number, got ${opts.runtimeMaxSec}`);
+    }
+    argv.push(`--property=RuntimeMaxSec=${opts.runtimeMaxSec}`);
+  }
+  for (const key of Object.keys(childEnv)) argv.push(`--setenv=${key}`);
+  argv.push("--", ...opts.cmd);
+  return argv;
+}
+
+/**
+ * The environment that reaches the user bus. WSL and a plain `su` can leave
+ * out `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS`; this fills them from
+ * the uid when they are missing (`/run/user/<uid>` and its `bus` socket).
+ * Pure.
+ */
+export function busEnv(base: Env, uid: number): Env {
+  const runtime = base.XDG_RUNTIME_DIR ?? `/run/user/${uid}`;
+  return {
+    ...base,
+    XDG_RUNTIME_DIR: runtime,
+    DBUS_SESSION_BUS_ADDRESS: base.DBUS_SESSION_BUS_ADDRESS ?? `unix:path=${runtime}/bus`,
+  };
+}
+
+/**
+ * Whether a user manager answers: `systemctl --user is-system-running`
+ * prints `running` or `degraded`. It exits with a code other than 0 for
+ * `degraded`, so only the output counts. A missing `systemctl` gives false.
+ */
+export function probeUserManager(run: UnitRunner, env: Env): boolean {
+  const res = run(["systemctl", "--user", "is-system-running"], { env });
+  const state = res.stdout.trim();
+  return state === "running" || state === "degraded";
+}
+
+/** The real runner: one synchronous subprocess per call. A missing binary gives exit code 127. */
+export const defaultUnitRunner: UnitRunner = (cmd, opts = {}) => {
+  try {
+    const proc = Bun.spawnSync([...cmd], {
+      stdout: "pipe",
+      stderr: "pipe",
+      ...(opts.env === undefined ? {} : { env: { ...opts.env } }),
+    });
+    return { stdout: proc.stdout.toString(), exitCode: proc.exitCode ?? 1, stderr: proc.stderr.toString() };
+  } catch (error) {
+    return { stdout: "", exitCode: 127, stderr: error instanceof Error ? error.message : String(error) };
+  }
+};
+
+function processBusEnv(): Env {
+  return busEnv(process.env, process.getuid?.() ?? 0);
+}
+
+let cachedAvailable: boolean | undefined;
+
+/** The default dependencies, with the real `systemd-run` and `systemctl`. */
+export const defaultUnitDeps: UnitDeps = {
+  run: defaultUnitRunner,
+  available: () => {
+    cachedAvailable ??= probeUserManager(defaultUnitRunner, processBusEnv());
+    return cachedAvailable;
+  },
+  busEnv: processBusEnv,
+  spawnFallback: (cmd, logPath, pidPath, cwd, env) => spawnDetached(cmd, logPath, pidPath, cwd, env),
+  writePid: (pidPath, pid) => writeFileSync(pidPath, `${pid}\n`),
+};
+
+/** The stderr of a call, or its stdout when stderr is empty, or its exit code. */
+function failureText(res: RunnerResult): string {
+  const text = (res.stderr ?? "").trim() || res.stdout.trim();
+  return text.length > 0 ? text : `exit code ${res.exitCode}`;
+}
+
+/** The `--value` lines of `systemctl --user show` for the given properties, in their order. */
+function showUnit(deps: UnitDeps, unit: string, properties: readonly string[]): string[] | null {
+  const res = deps.run(
+    ["systemctl", "--user", "show", ...properties.map((p) => `--property=${p}`), "--value", `${unit}.service`],
+    { env: deps.busEnv() },
+  );
+  if (res.exitCode !== 0) return null;
+  return res.stdout.split("\n");
+}
+
+const RUNNING_STATES = new Set(["active", "activating", "deactivating", "reloading", "refreshing"]);
+
+/**
+ * The exit code of a unit for `UnitHandle.exitCode`: null while it runs,
+ * the exit status of the main process while it is loaded, -1 after the
+ * manager unloaded it.
+ */
+export function unitExitCode(deps: UnitDeps, unit: string): number | null {
+  const lines = showUnit(deps, unit, ["LoadState", "ActiveState", "ExecMainStatus"]);
+  if (lines === null) return -1;
+  const [load = "", active = "", status = ""] = lines.map((line) => line.trim());
+  if (RUNNING_STATES.has(active)) return null;
+  if (load !== "loaded") return -1;
+  const code = Number.parseInt(status, 10);
+  return Number.isNaN(code) ? -1 : code;
+}
+
+/**
+ * Starts `opts.cmd` as the transient user service `ocsub-<kind>-<name>`, or
+ * detached without a unit when no user manager answers. Writes the main PID
+ * into `opts.pidPath` on both paths, so the readers of PID files keep
+ * working.
+ *
+ * systemd starts the main process of a service with `setsid`, so the main
+ * PID leads its own session and process group, like the detached spawn.
+ * `process.kill(-pid, signal)` in `down` therefore still reaches the group.
+ */
+export function startUnit(opts: UnitOptions, deps: UnitDeps = defaultUnitDeps): UnitHandle {
+  const childEnv = labelledEnv(opts.env, opts.owner, opts.reason);
+  if (!deps.available()) {
+    const proc = deps.spawnFallback(opts.cmd, opts.logPath, opts.pidPath, opts.cwd, childEnv);
+    return { pid: proc.pid, unit: null, exitCode: proc.exitCode };
+  }
+  const unit = unitName(opts.kind, opts.name);
+  const argv = systemdRunArgv(opts, childEnv);
+  // systemd-run reads each `--setenv=NAME` value from its own environment.
+  // It also needs the bus variables, which the child may not have.
+  const res = deps.run(argv, { env: { ...deps.busEnv(), ...childEnv } });
+  if (res.exitCode !== 0) throw new Error(`systemd-run cannot start ${unit}: ${failureText(res)}`);
+  const lines = showUnit(deps, unit, ["MainPID"]);
+  const pid = lines === null ? 0 : Number.parseInt((lines[0] ?? "").trim(), 10);
+  if (!Number.isInteger(pid) || pid <= 0) {
+    // A PID of 0 must never reach a PID file: `process.kill(-0)` would
+    // signal the group of the caller.
+    throw new Error(`${unit} has no main process; it ended at once. See ${opts.logPath}`);
+  }
+  deps.writePid(opts.pidPath, pid);
+  return { pid, unit, exitCode: () => unitExitCode(deps, unit) };
+}
+
+/**
+ * Stops a unit and its whole cgroup with `systemctl --user stop`. Gives true
+ * when the unit stopped, and false when no such unit is loaded. Throws on
+ * any other failure. `unit` may carry the `.service` suffix or not.
+ */
+export function stopUnit(unit: string, deps: UnitDeps = defaultUnitDeps): boolean {
+  const full = unit.endsWith(".service") ? unit : `${unit}.service`;
+  const res = deps.run(["systemctl", "--user", "stop", full], { env: deps.busEnv() });
+  if (res.exitCode === 0) return true;
+  // systemctl exits with 5 when the unit is not loaded.
+  if (res.exitCode === 5 || /not loaded/i.test(res.stderr ?? "")) return false;
+  throw new Error(`systemctl cannot stop ${full}: ${failureText(res)}`);
+}

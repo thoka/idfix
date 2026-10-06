@@ -123,7 +123,7 @@ export const DEFAULT_BASES = ["alpha", "main", "master"] as const;
  * folder that exists but is not a registered worktree is stale: it stops
  * with an error that names the folder and `idfx worktree rm`.
  *
- * When the project sets a `setup` command in `.opencode/oc-sub.json`, it
+ * When the project sets a `setup` command in `.opencode/idfx.json`, it
  * runs that command inside the new worktree after a successful `git
  * worktree add` (for example `bun install`, because the worktree holds
  * only tracked files and no `node_modules`). With a sandbox mise, `mise
@@ -206,7 +206,7 @@ export async function worktree(
   await disposeFresh(deps, state.port, worktreePath);
 
   // The worktree holds only tracked files, so it has no `node_modules`. The
-  // project can set a setup command in `.opencode/oc-sub.json`; run it once
+  // project can set a setup command in `.opencode/idfx.json`; run it once
   // inside the new worktree. First `mise install` installs the tools of the
   // `mise.toml` of the worktree (a worktree can name a tool that the host
   // never installed), then the setup command runs in the same `sh -c`. The

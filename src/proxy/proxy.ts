@@ -4,7 +4,7 @@
  * `/deepinfra/` goes to DeepInfra with that prefix removed; every other path
  * goes to OpenRouter. It forwards every request to the upstream base URL, streams the
  * response back without buffering, and writes one JSON log line per request
- * event to stdout (tagged with `"source":"oc-sub-cost-proxy"`). See
+ * event to stdout (tagged with `"source":"idfx-cost-proxy"`). See
  * .plan/research/cost-proxy.md.
  *
  * Key safety: the proxy never logs the `Authorization` header or any other
@@ -12,7 +12,17 @@
  */
 import { applyChunk, createSseTap, type TapResult } from "./tap";
 
-export const LOG_SOURCE = "oc-sub-cost-proxy";
+export const LOG_SOURCE = "idfx-cost-proxy";
+/**
+ * The log source of the proxy before step 24.3. A running sandbox proxy
+ * keeps its old bundle until its restart, so the readers accept both.
+ */
+export const OLD_LOG_SOURCE = "oc-sub-cost-proxy";
+
+/** Whether a log line value is the source of the cost proxy, new or old. Pure. */
+export function isProxyLogSource(source: unknown): boolean {
+  return source === LOG_SOURCE || source === OLD_LOG_SOURCE;
+}
 
 /**
  * The upstream origin plus the prefix in front of the API version. opencode

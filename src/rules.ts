@@ -107,7 +107,7 @@ export async function pingRules(
   const content = await deps.readText(sharedFile);
   if (content === null) {
     console.error(`error: cannot read the shared agents file ${sharedFile}`);
-    console.error("Set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md.");
+    console.error("Set IDFX_SHARED_DIR to the folder that holds AGENTS.md.");
     return 1;
   }
   const heading = firstHeading(content);

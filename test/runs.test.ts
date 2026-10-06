@@ -19,10 +19,10 @@ const ENV = { XDG_STATE_HOME: "/tmp/opencode/runs-test/state" };
 const CWD = "/tmp/opencode/runs-test/cwd";
 
 describe("state run record paths", () => {
-  test("live under <stateHome>/oc-sub/runs", () => {
-    expect(stateRunsDir(ENV)).toBe(path.join("/tmp/opencode/runs-test/state", "oc-sub", "runs"));
+  test("live under <stateHome>/idfx/runs", () => {
+    expect(stateRunsDir(ENV)).toBe(path.join("/tmp/opencode/runs-test/state", "idfx", "runs"));
     expect(stateRunRecordPath(ENV, "ses_1")).toBe(
-      path.join("/tmp/opencode/runs-test/state", "oc-sub", "runs", "ses_1.json"),
+      path.join("/tmp/opencode/runs-test/state", "idfx", "runs", "ses_1.json"),
     );
   });
 

@@ -1,14 +1,15 @@
 /** Server URL and basic-auth resolution. Pure functions, no I/O. */
 import { UsageError } from "./args";
+import { idfxEnv } from "./env-names";
 
 export const DEFAULT_PORT = 8767;
 export const DEFAULT_SERVER_URL = `http://127.0.0.1:${DEFAULT_PORT}`;
 
 export type Env = Record<string, string | undefined>;
 
-/** Resolve the server URL from a CLI flag, the environment, or the default. */
+/** Resolve the server URL from a CLI flag, `IDFX_URL` (or the old `OC_SUB_URL`), or the default. */
 export function resolveServerUrl(flag: string | undefined, env: Env): string {
-  const raw = flag ?? env.OC_SUB_URL ?? DEFAULT_SERVER_URL;
+  const raw = flag ?? idfxEnv(env, "url") ?? DEFAULT_SERVER_URL;
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
     throw new Error("server URL is empty");
@@ -51,7 +52,7 @@ export function resolvePort(flag: number | undefined, url: string): number {
 
 /**
  * The target of `up` and `down`: the server URL and its port. The `--port`
- * flag names the port without touching the host, so `OC_SUB_URL` keeps its
+ * flag names the port without touching the host, so `IDFX_URL` keeps its
  * host and only the port changes. When both `--url` and `--port` are given
  * and their ports differ, that is ambiguous and a usage error. Without
  * `--port`, the port comes from the URL, else from the default.

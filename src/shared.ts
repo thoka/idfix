@@ -1,21 +1,21 @@
 /**
  * The shared agent files of the user: one folder with `AGENTS.md` (the global
  * rules) and `skills/<name>/SKILL.md`. It is the only source; idfx never
- * copies it. The folder comes from `OC_SUB_SHARED_DIR`. Without the variable,
+ * copies it. The folder comes from `IDFX_SHARED_DIR` (the old name
+ * `OC_SUB_SHARED_DIR` still works). Without the variable,
  * there is no shared folder: `up` and `ping --rules` stop, and doctor warns.
  */
 import path from "node:path";
 import type { Env } from "./config";
+import { idfxEnv } from "./env-names";
 
 /**
- * The folder with the shared agent files, or undefined when
- * `OC_SUB_SHARED_DIR` is not set. Pure: it only reads the env object. An
- * empty `OC_SUB_SHARED_DIR` counts as unset, like the other `OC_SUB_*` variables.
+ * The folder with the shared agent files, or undefined when neither
+ * `IDFX_SHARED_DIR` nor the old `OC_SUB_SHARED_DIR` is set. Pure: it only
+ * reads the env object. A blank value counts as unset (`idfxEnv`).
  */
 export function sharedAgentsDir(env: Env): string | undefined {
-  const fromEnv = env.OC_SUB_SHARED_DIR;
-  if (fromEnv !== undefined && fromEnv.trim().length > 0) return fromEnv;
-  return undefined;
+  return idfxEnv(env, "sharedDir");
 }
 
 /** The global rules file inside the shared folder, or undefined without a folder. */
@@ -24,12 +24,12 @@ export function sharedAgentsFile(env: Env): string | undefined {
   return dir === undefined ? undefined : path.join(dir, "AGENTS.md");
 }
 
-/** The message when `OC_SUB_SHARED_DIR` is not set. */
-export const SHARED_DIR_UNSET = "OC_SUB_SHARED_DIR is not set.";
+/** The message when no shared folder variable is set. */
+export const SHARED_DIR_UNSET = "IDFX_SHARED_DIR is not set.";
 
 /** What the shared folder must hold, as the fix of a missing folder. */
 export const SHARED_DIR_HINT =
-  "Set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills).";
+  "Set IDFX_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills).";
 
 /**
  * The configuration entries that make opencode load the shared rules and

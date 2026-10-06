@@ -15,6 +15,7 @@ import type { CheckResult } from "./doctor";
 import { busySessions, formatBusyLine, isAlive, signalGroup, stopGroup } from "./down";
 import { assertUsable, probeServer } from "./client";
 import { resolveServerUrl } from "./config";
+import { idfxEnv } from "./env-names";
 import { DEEPINFRA_HOST, DEEPINFRA_PLACEHOLDER, deepinfraKeyPath, gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOfRun } from "./keys";
 import { stateDir, serveDirsPath, serveLogPath, servePidPath, servePluginPath, readPid, readDirs, removeFiles, appendLogMarker, readLogTail } from "./state";
 import { SHARED_DIR_HINT, SHARED_DIR_UNSET, sharedAgentsDir, sharedConfigEntries } from "./shared";
@@ -237,7 +238,7 @@ export function sandboxUrlFor(
 
 /**
  * The server URL for the commands of one directory: the `--url` flag, then
- * `OC_SUB_URL`, then the sandbox state of the project of the directory,
+ * `IDFX_URL`, then the sandbox state of the project of the directory,
  * then the default. `resolveServerUrl` normalizes the result.
  */
 export function resolveCommandUrl(
@@ -246,7 +247,7 @@ export function resolveCommandUrl(
   directory?: string,
   projectName: (dir: string) => string = projectNameOfRun,
 ): string {
-  if (flag !== undefined || env.OC_SUB_URL !== undefined) return resolveServerUrl(flag, env);
+  if (flag !== undefined || idfxEnv(env, "url") !== undefined) return resolveServerUrl(flag, env);
   const sandboxUrl = sandboxUrlFor(directory ?? process.cwd(), env, projectName);
   return resolveServerUrl(sandboxUrl, env);
 }
@@ -663,7 +664,7 @@ export type SandboxDeps = {
   isPortFree: (port: number) => boolean | Promise<boolean>;
   /** Probes the server URL. */
   probe: (url: string) => Promise<ServerState>;
-  /** Starts the holder process: the unit `ocsub-holder-<port>` by default. */
+  /** Starts the holder process: the unit `idfx-holder-<port>` by default. */
   spawnServe: StartProcess;
   /** Starts the idle watchdog (`idle.ts`) after a healthy start. */
   spawnIdleWatch: SpawnIdleWatch;
@@ -1075,7 +1076,7 @@ export function sandboxMountPlan(
 ): { mounted: string[]; inClone: string[] } {
   const mounted: string[] = [];
   const inClone: string[] = [];
-  // Without OC_SUB_SHARED_DIR there is no shared folder to mount.
+  // Without IDFX_SHARED_DIR there is no shared folder to mount.
   const dirs = sharedDir === undefined ? [pluginDir, installsDir] : [pluginDir, installsDir, sharedDir];
   for (const dir of dirs) {
     (isInsideRoot(dir, root) ? inClone : mounted).push(dir);
@@ -1125,7 +1126,7 @@ export async function upSandbox(
   const deps = mergeDeps(depsOverrides);
   const dir = path.resolve(args.dir ?? process.cwd());
   const project = deps.projectName(dir);
-  // The owner of the units: `OC_SUB_OWNER`, or the project.
+  // The owner of the units: `IDFX_OWNER`, or the project.
   const owner = unitOwner(env, project);
   const name = sandboxName(project);
   const root = deps.rootOf(dir);
@@ -1142,7 +1143,7 @@ export async function upSandbox(
   const sharedFile = path.join(sharedDir, "AGENTS.md");
   if (!deps.fileExists(sharedFile)) {
     console.error(`error: the shared agents file ${sharedFile} does not exist.`);
-    console.error("Create it, or set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md.");
+    console.error("Create it, or set IDFX_SHARED_DIR to the folder that holds AGENTS.md.");
     return 1;
   }
   if (!deps.binExists(bin)) {

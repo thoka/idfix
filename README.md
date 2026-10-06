@@ -66,7 +66,43 @@ The CLI has the name `idfx`, and `oc-sub` is only its old name. `test/old-name.t
 
 `idfx` drives an opencode server: start it, launch subagent runs, watch them live, and read the results. Entry point: `src/cli.ts`. Run it with `bin/idfx`, `bin/oc-sub`, `bun run src/cli.ts`, or `bun src/cli.ts`. With the plugin enabled, Claude runs it as `idfx`.
 
-The server URL comes from `--url` or the environment variable `OC_SUB_URL`, default `http://127.0.0.1:8767`. `up`, `down`, and `restart` run the server in sandbox mode by default (one Docker Sandbox per project, in clone mode: the agent works in a private clone of the repository; see `docs/GUIDE.md`). `--no-sandbox` selects the host server, which the sections below describe. `--port N` and `--url URL` name a host server, so they imply `--no-sandbox`. With `--port N`, they target port N and keep the host of the URL; a `--url` flag whose port differs from `--port` is a usage error. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: idfx up` and exit with code 1. If a server answers with HTTP 401 or 403, every command exits with code 1 and says that the server rejected the password in `OPENCODE_SERVER_PASSWORD`, or that it needs one. `up` then does not start a second server. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `ping`, `watch`, `log`, `abort`, and `answer` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
+The server URL comes from `--url` or the environment variable `IDFX_URL`, default `http://127.0.0.1:8767`. `up`, `down`, and `restart` run the server in sandbox mode by default (one Docker Sandbox per project, in clone mode: the agent works in a private clone of the repository; see `docs/GUIDE.md`). `--no-sandbox` selects the host server, which the sections below describe. `--port N` and `--url URL` name a host server, so they imply `--no-sandbox`. With `--port N`, they target port N and keep the host of the URL; a `--url` flag whose port differs from `--port` is a usage error. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: idfx up` and exit with code 1. If a server answers with HTTP 401 or 403, every command exits with code 1 and says that the server rejected the password in `OPENCODE_SERVER_PASSWORD`, or that it needs one. `up` then does not start a second server. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `ping`, `watch`, `log`, `abort`, and `answer` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
+
+#### Old names
+
+The CLI had the name `oc-sub` before. Some names that live on disk or in the environment had that name too. They have new names now, and the old names still work:
+
+```tbl
+what: What
+new-name: New name
+old-name: Old name, still read
+--
+what: Environment variables
+new-name: `IDFX_URL`, `IDFX_OWNER`, `IDFX_SHARED_DIR`
+old-name: `OC_SUB_URL`, `OC_SUB_OWNER`, `OC_SUB_SHARED_DIR`
+--
+what: State folder
+new-name: `$XDG_STATE_HOME/idfx/`
+old-name: `$XDG_STATE_HOME/oc-sub/`
+--
+what: Project file
+new-name: `.opencode/idfx.json`
+old-name: `.opencode/oc-sub.json`
+--
+what: systemd user units
+new-name: `idfx-<kind>-<port>` in `idfx.slice`
+old-name: `ocsub-<kind>-<port>` in `ocsub.slice`
+--
+what: Log start marker
+new-name: `--- idfx <label> <time> ---`
+old-name: `--- oc-sub <label> <time> ---`
+--
+what: Cost proxy log source
+new-name: `idfx-cost-proxy`
+old-name: `oc-sub-cost-proxy`
+```
+
+idfx reads the new name first and the old name second. A blank value counts as unset. It writes only the new names. `idfx doctor` warns about each old name that is still in use (checks `state-names`, `env-names`, and `project-config-name`), and `idfx doctor --fix` moves the state folder and renames the project file. Some names stay: the data folder `$XDG_DATA_HOME/oc-sub/`, because each sandbox mounts it by its path, the sandbox name `oc-sub-<project>`, its clone remote, and the label variables `OCSUB_OWNER` and `OCSUB_REASON`.
 
 ### idfx up
 
@@ -75,15 +111,15 @@ bun run src/cli.ts up [--dir DIR] [--idle-minutes N]
 bun run src/cli.ts up --no-sandbox [--port N] [--idle-minutes N]
 ```
 
-Checks the health of the host server (`GET /global/health`). When nothing answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background (as a systemd user unit, so it outlives the command; see "Background processes" below), waits until it is healthy, and prints the URL and the version. Without `--port`, the port comes from the URL, then from 8767. With `--port N`, `up` checks and starts the server on port N and keeps the host of the URL (so `OC_SUB_URL` keeps its host). When both `--url` and `--port` are given and their ports differ, `up` stops with a usage error. Without `--no-sandbox`, `up` starts a sandbox instead (see `docs/GUIDE.md`).
+Checks the health of the host server (`GET /global/health`). When nothing answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background (as a systemd user unit, so it outlives the command; see "Background processes" below), waits until it is healthy, and prints the URL and the version. Without `--port`, the port comes from the URL, then from 8767. With `--port N`, `up` checks and starts the server on port N and keeps the host of the URL (so `IDFX_URL` keeps its host). When both `--url` and `--port` are given and their ports differ, `up` stops with a usage error. Without `--no-sandbox`, `up` starts a sandbox instead (see `docs/GUIDE.md`).
 
 `up` sets `OPENCODE_CONFIG_DIR` in the environment of the child process to the `opencode/` folder of this repository (computed from the location of the source file, not from the working directory). opencode then loads the research agents of the plugin for every project, after the project `.opencode` folder, so its agent wins over a project agent with the same name. If the environment already sets `OPENCODE_CONFIG_DIR` to another value, `up` keeps that value and prints a warning to stderr, because the research agents are then not loaded. If `OPENCODE_CONFIG_DIR` already holds the folder of the plugin, `up` prints no warning.
 
-`up` also needs the shared agents folder. Set `OC_SUB_SHARED_DIR` to it; there is no default. It holds your global rules in `AGENTS.md` and your skills in `skills/<name>/SKILL.md`. It is the only source, and `up` never copies it. When `OC_SUB_SHARED_DIR` is not set or blank, `up` stops before it starts anything, with an error that names the variable and what the folder must hold. When `<shared>/AGENTS.md` is missing, `up` stops with an error that names the path and `OC_SUB_SHARED_DIR`. Otherwise `up` sets `OPENCODE_CONFIG_CONTENT` for the child, with the rules file under `instructions` and the skills folder under `skills.paths`. The reason: opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever `OPENCODE_CONFIG_DIR` is set, and `up` always sets it. An absolute path in `instructions` still loads (see `.plan/research/opencode-rules.md`). If the environment already sets `OPENCODE_CONFIG_CONTENT`, `up` keeps it and prints a warning, because the shared entries are then not added.
+`up` also needs the shared agents folder. Set `IDFX_SHARED_DIR` to it. There is no default. The old name `OC_SUB_SHARED_DIR` still works. It holds your global rules in `AGENTS.md` and your skills in `skills/<name>/SKILL.md`. It is the only source, and `up` never copies it. When `IDFX_SHARED_DIR` is not set or blank, `up` stops before it starts anything, with an error that names the variable and what the folder must hold. When `<shared>/AGENTS.md` is missing, `up` stops with an error that names the path and `IDFX_SHARED_DIR`. Otherwise `up` sets `OPENCODE_CONFIG_CONTENT` for the child, with the rules file under `instructions` and the skills folder under `skills.paths`. The reason: opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever `OPENCODE_CONFIG_DIR` is set, and `up` always sets it. An absolute path in `instructions` still loads (see `.plan/research/opencode-rules.md`). If the environment already sets `OPENCODE_CONFIG_CONTENT`, `up` keeps it and prints a warning, because the shared entries are then not added.
 
 DeepInfra is an optional second model provider. When the project has the key file `~/.config/<project>/deepinfra.key`, `up` sets it up: in sandbox mode the key stays on the host as a custom secret of `sbx`, and in host mode the server gets `DEEPINFRA_API_KEY` (the environment first, then the key file). A run picks it with `--model deepinfra/zai-org/GLM-5.3-Flash`. DeepInfra serves this model only in fp4 precision, see `.plan/research/deepinfra.md`. The setup and the cost log are in `docs/GUIDE.md`, section "DeepInfra as a direct provider".
 
-One server serves many project folders, so its state lives in one folder per user, `$XDG_STATE_HOME/oc-sub/` (default `~/.local/state/oc-sub/`):
+One server serves many project folders, so its state lives in one folder per user, `$XDG_STATE_HOME/idfx/` (default `~/.local/state/idfx/`). Older versions used `$XDG_STATE_HOME/oc-sub/`. While that old path is a real folder, idfx keeps using it, so a running server keeps its PID file. `idfx doctor --fix` moves its entries into the new folder and links the old path to the new folder. The folder holds:
 
 - `serve-<port>.log` holds the output of the server.
 - `serve-<port>.pid` holds its PID.
@@ -94,13 +130,13 @@ One server serves many project folders, so its state lives in one folder per use
 
 #### Background processes
 
-`up` starts each long-lived process as a transient systemd user unit (a user service that exists only while it runs). The name is `ocsub-<kind>-<port>`. The kind is `serve` (the host server), `proxy` (the cost proxy), `holder` (the `sbx exec` holder of sandbox mode), or `idle` (the idle watchdog). The description of each unit gives the owner (the project of the folder where you ran `up`) and the reason, for example `owner=idfix reason=cost proxy for port 4096`. The environment variable `OC_SUB_OWNER` overrides the owner, for example `OC_SUB_OWNER=my-session idfx up`. It changes only the label, not the project of the key files. A blank value keeps the project name, and white space in the value becomes `_`. The integration tests set `OC_SUB_OWNER=test`, and their teardown stops their units. List them with:
+`up` starts each long-lived process as a transient systemd user unit (a user service that exists only while it runs). The name is `idfx-<kind>-<port>`, in the slice `idfx.slice`. The kind is `serve` (the host server), `proxy` (the cost proxy), `holder` (the `sbx exec` holder of sandbox mode), or `idle` (the idle watchdog). The description of each unit gives the owner (the project of the folder where you ran `up`) and the reason, for example `owner=idfix reason=cost proxy for port 4096`. The environment variable `IDFX_OWNER` (old name `OC_SUB_OWNER`) overrides the owner, for example `IDFX_OWNER=my-session idfx up`. It changes only the label, not the project of the key files. A blank value keeps the project name, and white space in the value becomes `_`. The integration tests set `IDFX_OWNER=test`, and their teardown stops their units. Older versions named the units `ocsub-<kind>-<port>`. `down`, `down --all`, the idle watchdog, and `doctor` stop and list both names. List them with:
 
 ```
-systemctl --user list-units 'ocsub-*' --all
+systemctl --user list-units 'idfx-*' 'ocsub-*' --all
 ```
 
-`down` stops the units of its port first. A unit stop ends every process of the unit, also a child that left its process group. The manager starts the cost proxy again one second after each end, like the old `sh` loop, with no start limit. The PID files stay, because `status` and `doctor` read them. On a host without a systemd user manager (macOS, a container, WSL without systemd), `up` starts the same processes detached, as before, and the cost proxy runs in a `sh` restart loop. Each process also gets the variables `OCSUB_OWNER` and `OCSUB_REASON` on both paths.
+`down` stops the units of its port first. A unit stop ends every process of the unit, also a child that left its process group. The manager starts the cost proxy again one second after each end, like the old `sh` loop, with no start limit. The PID files stay, because `status` and `doctor` read them. On a host without a systemd user manager (macOS, a container, WSL without systemd), `up` starts the same processes detached, as before, and the cost proxy runs in a `sh` restart loop. Each process also gets the variables `OCSUB_OWNER` and `OCSUB_REASON` on both paths. These two label names keep the old spelling, because `IDFX_OWNER` is the input that sets the owner.
 
 #### The idle watchdog
 
@@ -149,11 +185,11 @@ bun run src/cli.ts run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T]
 
 Creates a session for the directory DIR, sends the brief to the agent asynchronously (`POST /session/:id/prompt_async`), and returns immediately. The brief is either a file (`--brief brief.md`) or positional text. With `--title T` the session gets that title.
 
-With `--agent researcher`, `run` appends the critical-research footer to the brief, after a blank line. It reads the footer from `<OC_SUB_SHARED_DIR>/skills/critical-research/SKILL.md`: the first fenced block after the heading `## The footer`. The footer starts with a line `---` and asks for a section "Critical analysis" with four points. A brief that already ends with the footer stays unchanged. If the skill file or the block is missing, `run` stops with an error that names the file. Other agents get no footer.
+With `--agent researcher`, `run` appends the critical-research footer to the brief, after a blank line. It reads the footer from `<IDFX_SHARED_DIR>/skills/critical-research/SKILL.md`: the first fenced block after the heading `## The footer`. The footer starts with a line `---` and asks for a section "Critical analysis" with four points. A brief that already ends with the footer stays unchanged. If the skill file or the block is missing, `run` stops with an error that names the file. Other agents get no footer.
 
-When the project has a sandbox state and you pass neither `--url` nor `OC_SUB_URL`, `run` sends the run to the sandbox server. It first checks with `sbx exec NAME test -d DIR` that DIR exists inside the sandbox clone. A worktree that `git worktree add` created on the host is not in the clone. In that case `run` stops with exit code 1 before any session exists, and it names the two fixes: `idfx worktree STEP`, or a host server with `--url`. Without this check, opencode fails the prompt with `NotFound: FileSystem.realPath`, and the session ends idle without an answer.
+When the project has a sandbox state and you pass neither `--url` nor `IDFX_URL`, `run` sends the run to the sandbox server. It first checks with `sbx exec NAME test -d DIR` that DIR exists inside the sandbox clone. A worktree that `git worktree add` created on the host is not in the clone. In that case `run` stops with exit code 1 before any session exists, and it names the two fixes: `idfx worktree STEP`, or a host server with `--url`. Without this check, opencode fails the prompt with `NotFound: FileSystem.realPath`, and the session ends idle without an answer.
 
-When `run` uses the sandbox server in this way and the server does not answer `GET /global/health`, `run` starts it first. It runs the same steps as `idfx up` for the project, with the defaults, so the idle watchdog starts too. It prints `started the sandbox server of <project> (it was down)` to stderr and goes on. The output of the start also goes to stderr, so the session ID stays the first line on stdout. If the start fails, `run` stops with the error and the exit code of `up`. The start comes before the folder check, because that check runs `sbx exec` in the sandbox. With `--url`, with `OC_SUB_URL`, or without a sandbox state, `run` starts nothing and keeps its old error for a server that is down.
+When `run` uses the sandbox server in this way and the server does not answer `GET /global/health`, `run` starts it first. It runs the same steps as `idfx up` for the project, with the defaults, so the idle watchdog starts too. It prints `started the sandbox server of <project> (it was down)` to stderr and goes on. The output of the start also goes to stderr, so the session ID stays the first line on stdout. If the start fails, `run` stops with the error and the exit code of `up`. The start comes before the folder check, because that check runs `sbx exec` in the sandbox. With `--url`, with `IDFX_URL`, or without a sandbox state, `run` starts nothing and keeps its old error for a server that is down.
 
 `run` holds the server lock `serve-<port>.lock` in the state folder from its health check until the prompt of the new session is sent. It releases the lock also on an error. The lock keeps the idle watchdog from stopping the server while a run starts a session on it. It also keeps two runs from starting the same sandbox server twice: the second run waits up to about one minute for the lock. If the lock stays held, `run` stops with an error that names the lock. A lock of a dead process counts as stale after 10 seconds, and the next run takes it over.
 
@@ -168,7 +204,7 @@ The command prints, one per line:
 3. the path of the run record in the current directory,
 4. the path of the run record copy in the state folder.
 
-The run record is a JSON file `.opencode/runs/<session-id>.json` in the current directory, with the session ID, directory, agent, title (`null` when unset), and start time. It also holds the first 8 hex digits of the SHA-256 of the key (`keyFingerprint`, never the key) and the key usage at the start in USD (`usageAtStart`, `null` without an answer). A copy goes to `~/.local/state/oc-sub/runs/` (or `$XDG_STATE_HOME/oc-sub/runs/`), so `watch` and `log` find the record from any working directory.
+The run record is a JSON file `.opencode/runs/<session-id>.json` in the current directory, with the session ID, directory, agent, title (`null` when unset), and start time. It also holds the first 8 hex digits of the SHA-256 of the key (`keyFingerprint`, never the key) and the key usage at the start in USD (`usageAtStart`, `null` without an answer). A copy goes to `~/.local/state/idfx/runs/` (or `$XDG_STATE_HOME/idfx/runs/`), so `watch` and `log` find the record from any working directory.
 
 ### idfx attach
 
@@ -180,7 +216,7 @@ Attaches the opencode TUI to a known run, like `opencode attach URL --dir DIR --
 
 - No match: `error: no run matches "CODE"`, exit code 1.
 - Two or more matches: it lists the session ID, the title, and the directory of each match, tells you to give a longer part, and exits with code 1.
-- One match: it starts `opencode attach URL --dir DIR --session ID` with the current terminal. The URL comes from `--url`, then `OC_SUB_URL`, then the sandbox state of the directory, then the default. The command returns the exit code of the opencode process.
+- One match: it starts `opencode attach URL --dir DIR --session ID` with the current terminal. The URL comes from `--url`, then `IDFX_URL`, then the sandbox state of the directory, then the default. The command returns the exit code of the opencode process.
 - CODE may carry the agent icon of the `idfx top` line (for example `🔧3NcXxn`): attach keeps only the letters, digits, and `_` of CODE before it matches.
 
 While attach runs, it polls the server every 2 seconds. If the session is deleted, or if the server does not answer for about 6 seconds, attach ends the TUI. An idle session keeps the TUI open, so you can read the last screen and type a follow-up.
@@ -208,7 +244,7 @@ bun run src/cli.ts top --once [--dir DIR | --all] [--json]
 
 A live view of the sessions, like `htop`. Without `--all`, it covers the directory of `--dir` (default: the current directory) and its git worktrees. With `--all`, it covers every directory of every known server (the host server and every sandbox). It shows the sessions that are not idle and the sessions with activity in the last 60 minutes.
 
-One compact line per session, with one space between the columns: `id` (the agent icon, then the CODE for `idfx attach CODE`, the last 6 characters of the session ID; agents 🔧 coder, 🔎 researcher, 📖 reader, another agent shows its first two letters), `where` (the folder name under `.worktrees/`, or `-` for the main folder; with `--all` it is `project/worktree`, or only `project` for the main folder, and the project is the `shortName` from `.opencode/oc-sub.json` of the project root when the project has set one, else the full project name; a worktree name that starts with `research-` shows 🔬 instead of the prefix), `¢` (the cost in US cents, without a unit), `run` (elapsed time), `last` (time since the last event), `stp` (steps), `tls` (tool calls), `ctx` (context tokens), `rsn` (reasoning share), and title. The state has no column: the color of the `id` shows it, green `busy`, yellow `waiting` and `retry`, red `stalled` and `looping`, magenta `reasoning`, gray `idle`. `--once` colors the `id` only on a terminal. In a pipe it adds a `state` column with the word after `id`. The times have at most five characters: `42s`, `4m05s`, `34m`, `3h12m`, `2d04h`. Seconds show only below ten minutes. The numbers align to the right. Icons are two cells wide, and the padding counts display cells. The cost and the tokens include the subagent sessions.
+One compact line per session, with one space between the columns: `id` (the agent icon, then the CODE for `idfx attach CODE`, the last 6 characters of the session ID; agents 🔧 coder, 🔎 researcher, 📖 reader, another agent shows its first two letters), `where` (the folder name under `.worktrees/`, or `-` for the main folder; with `--all` it is `project/worktree`, or only `project` for the main folder, and the project is the `shortName` from `.opencode/idfx.json` (old name `.opencode/oc-sub.json`) of the project root when the project has set one, else the full project name; a worktree name that starts with `research-` shows 🔬 instead of the prefix), `¢` (the cost in US cents, without a unit), `run` (elapsed time), `last` (time since the last event), `stp` (steps), `tls` (tool calls), `ctx` (context tokens), `rsn` (reasoning share), and title. The state has no column: the color of the `id` shows it, green `busy`, yellow `waiting` and `retry`, red `stalled` and `looping`, magenta `reasoning`, gray `idle`. `--once` colors the `id` only on a terminal. In a pipe it adds a `state` column with the word after `id`. The times have at most five characters: `42s`, `4m05s`, `34m`, `3h12m`, `2d04h`. Seconds show only below ten minutes. The numbers align to the right. Icons are two cells wide, and the padding counts display cells. The cost and the tokens include the subagent sessions.
 
 Without `--once`, it opens a full-screen view in the alternate screen. It follows `GET /global/event` of every server, reconnects after an error, and redraws on each change and once per second. `j`/`k` or the arrow keys select a session. A detail pane shows its pending requests, its subagent sessions as a tree, and its last 20 events. The footer shows the servers with their state, the totals, and the keys. `o` attaches to the selected session: inside tmux it splits the window and runs the attach in the new pane (side by side when the pane of `top` is wide, else below; tmux closes the pane when attach ends), without tmux it only shows the attach command. When the split fails, the footer shows the error and the attach command. `a` switches between the scope of `--dir` and `--all`, and `q` or Ctrl-C quit. The view has no keys that act on a session. When stdin or stdout is not a terminal, it prints the `--once` snapshot and a one-line hint to stderr.
 
@@ -318,6 +354,8 @@ With `--fix`, the command first runs the checks, then the fix action of every ch
 Which checks have a fix action:
 
 - `plugin-fresh`: runs `claude plugin marketplace update idfix` and, when that exited 0, `claude plugin update idfix@idfix`. A non-zero exit is a failed fix. When only the old key `opencode-subagents@opencode-subagents` is installed, the check warns and names the reinstall commands, and the fix runs nothing, because the reinstall changes the plugin configuration of the user.
+- `state-names`: moves the old state folder `$XDG_STATE_HOME/oc-sub/` into `$XDG_STATE_HOME/idfx/`. It stops when a `serve-<port>.lock` exists in the old folder, because then a run starts or the watchdog stops a server. It moves each entry with a rename, so a running server keeps writing its log. An entry whose name exists in both folders stays, and the fix fails and names it. When the old folder is empty, the fix removes it and links the old path to the new folder.
+- `project-config-name`: renames `.opencode/oc-sub.json` of the project to `.opencode/idfx.json`. It never overwrites a new file. Commit the rename yourself.
 - `global-rules`: for each of the three rule paths, a copy whose content equals the shared `AGENTS.md` exactly becomes a symlink to it; a copy with different content is left alone (the fix fails and names it), so no edit is lost. A broken or wrong symlink is re-pointed. A missing path is not created. Without the shared file, the fix fails and changes nothing.
 
 The checks:
@@ -371,8 +409,20 @@ check: `deepinfra-key`
 what-it-checks: The optional DeepInfra key file `~/.config/<project>/deepinfra.key` has mode 600 or stricter. It only reads the mode, never the content. Without the file, it skips (DeepInfra is off).
 fail-means: Warn only. Other users may read the key. Run `chmod 600` on the file.
 --
+check: `state-names`
+what-it-checks: The old state folder `$XDG_STATE_HOME/oc-sub/` is missing or is a link. While it is a real folder, idfx keeps its state there.
+fail-means: Warn. `--fix` moves the old folder into `$XDG_STATE_HOME/idfx/` and links the old path to it.
+--
+check: `env-names`
+what-it-checks: No variable has only its old name set (`OC_SUB_URL`, `OC_SUB_OWNER`, `OC_SUB_SHARED_DIR`). The old names still work.
+fail-means: Warn. Set the new name (`IDFX_URL`, `IDFX_OWNER`, `IDFX_SHARED_DIR`) where the old name is set. No `--fix` action, because the configuration of the machine sets the variables.
+--
+check: `project-config-name`
+what-it-checks: The project root has no old config file `.opencode/oc-sub.json`.
+fail-means: Warn. `--fix` renames it to `.opencode/idfx.json`. When both files exist, merge them by hand.
+--
 check: `units`
-what-it-checks: Lists each loaded `ocsub-*` systemd user unit with its owner and its reason (at most 10 entries and the total count). A unit is orphaned when its working folder is gone, or when it is a `proxy` or `idle` unit of a port without a `serve` or `holder` unit. It does not ask whether a named owner session still lives. Without a user manager, it skips.
+what-it-checks: Lists each loaded systemd user unit of idfx (`idfx-*`, and `ocsub-*` of older versions) with its owner and its reason (at most 10 entries and the total count). A unit is orphaned when its working folder is gone, or when it is a `proxy` or `idle` unit of a port without a `serve` or `holder` unit. It does not ask whether a named owner session still lives. Without a user manager, it skips.
 fail-means: Warn. An orphaned unit runs for no one. `--fix --force` stops each orphaned unit, never the unit of doctor itself.
 ```
 
@@ -408,7 +458,7 @@ bun run src/cli.ts log <session-id> --dir <repo>
 
 ## Tests
 
-`bun test` runs the unit tests in `test/` (argument parsing, event filtering and line formatting, cost and token summary, the end check of a session missing from the status map, the child sessions of a session and their usage, run records, state files, the process check of `down`, client helpers, the pending question and permission requests, and the pause detection of `watch` against a fake server) and integration tests. The integration tests start a real `opencode serve` on a free port from 8790 upward, run `up`, create sessions over the SDK without sending any prompt, check `status`, run `abort`, check the pending lists and `answer` against a server without pending requests, and stop the server with `restart` and `down`. They never call a model and cost nothing. They start their units with `OC_SUB_OWNER=test`. The teardown of each test fails when a unit of its port or a process of its PID files is left. After the last test file, the test preload stops each `owner=test` unit on a test port that this run or a killed run left. They skip themselves with a clear message when the command `opencode` is not on the PATH.
+`bun test` runs the unit tests in `test/` (argument parsing, event filtering and line formatting, cost and token summary, the end check of a session missing from the status map, the child sessions of a session and their usage, run records, state files, the process check of `down`, client helpers, the pending question and permission requests, and the pause detection of `watch` against a fake server) and integration tests. The integration tests start a real `opencode serve` on a free port from 8790 upward, run `up`, create sessions over the SDK without sending any prompt, check `status`, run `abort`, check the pending lists and `answer` against a server without pending requests, and stop the server with `restart` and `down`. They never call a model and cost nothing. They start their units with `IDFX_OWNER=test`. The teardown of each test fails when a unit of its port or a process of its PID files is left. After the last test file, the test preload stops each `owner=test` unit on a test port that this run or a killed run left. They skip themselves with a clear message when the command `opencode` is not on the PATH.
 
 The preload `test/setup.ts` gives each test run one temporary folder, `oc-sub-test-run-*` in the system temp folder. It points `TMPDIR` and the XDG data and state folders at it, and a global `afterAll` hook removes it after the last test. So a test can create temporary folders with `mkdtempSync(tmpdir())` and leaves nothing in `/tmp`. The preload also removes run folders older than six hours, which a killed run left behind. `test/temp-hygiene.test.ts` makes sure that the redirect is active.
 
@@ -429,8 +479,9 @@ A git hook sets repository-local git variables such as `GIT_DIR` and `GIT_INDEX_
 - `src/runs.ts` — run records in `.opencode/runs/` and in the state folder, real-cost line
 - `src/realcost.ts` — the real-cost output of `watch` and `log`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
-- `src/units.ts`: the start and the stop of the `ocsub-*` systemd user units, with the fallback to a detached process (`src/spawn.ts`)
-- `src/state.ts`: per-user state files of the server (PID, log, folders with runs, lock)
+- `src/units.ts`: the start and the stop of the `idfx-*` systemd user units (and of the old `ocsub-*` units), with the fallback to a detached process (`src/spawn.ts`)
+- `src/state.ts`: per-user state files of the server (PID, log, folders with runs, lock), and the move of the old state folder
+- `src/env-names.ts`: the environment variables `IDFX_*` and their old names `OC_SUB_*`
 - `src/lock.ts`: the server lock `serve-<port>.lock` of `run` and the idle watchdog
 - `src/idle.ts`: the idle watchdog of a server: the pure busy tracker, the hidden `idle-watch` command, and its start and stop
 - `src/attach.ts` — the `attach` command

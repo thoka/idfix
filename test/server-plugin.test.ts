@@ -7,7 +7,7 @@ import { serveDirsPath, servePidPath, servePluginPath } from "../src/state";
 
 function makeEnv(): Record<string, string> {
   const env = { XDG_STATE_HOME: mkdtempSync(path.join(tmpdir(), "oc-sub-server-plugin-")) };
-  mkdirSync(path.join(env.XDG_STATE_HOME, "oc-sub"), { recursive: true });
+  mkdirSync(path.join(env.XDG_STATE_HOME, "idfx"), { recursive: true });
   return env;
 }
 

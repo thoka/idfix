@@ -12,9 +12,9 @@ export type KnownServer = { project: string | null; url: string; sandbox: boolea
 
 /**
  * The known servers. With `urlFlag`, only that server (resolved with
- * `resolveServerUrl`, so `OC_SUB_URL` would not win over it). Without it,
+ * `resolveServerUrl`, so `IDFX_URL` would not win over it). Without it,
  * the host server first (`resolveServerUrl(undefined, env)`, so
- * `OC_SUB_URL` still applies), then one entry per valid sandbox state file,
+ * `IDFX_URL` still applies), then one entry per valid sandbox state file,
  * sorted by project name. A missing state folder and a missing, unreadable,
  * or invalid state file add nothing. A sandbox URL that equals the host URL
  * appears once.

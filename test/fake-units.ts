@@ -3,7 +3,7 @@
  * watchdog, and `doctor`. It answers `systemctl --user stop` and `systemctl
  * --user show --property=ActiveState` from a set of loaded units, and records
  * each stop in order. It answers the list query `systemctl --user show
- * 'ocsub-*'` of `listUnits` with the text of `show`, or, without `show`,
+ * 'idfx-*' 'ocsub-*'` of `listUnits` with the text of `show`, or, without `show`,
  * with one `Id=` block per loaded unit. A `show` of null makes the list query
  * fail. No test that uses it reaches the real `systemctl`.
  */
@@ -11,7 +11,7 @@ import type { UnitDeps, UnitRunner } from "../src/units";
 
 export type FakeUnits = {
   deps: UnitDeps;
-  /** Each `systemctl` call as `<verb> <unit>`, for example `stop ocsub-serve-8790`, in order. */
+  /** Each `systemctl` call as `<verb> <unit>`, for example `stop idfx-serve-8790`, in order. */
   calls: string[];
   /** The units that are loaded now, without `.service`. */
   loaded: Set<string>;
@@ -36,7 +36,7 @@ export function fakeUnits(
       if (!loaded.delete(unit)) return { stdout: "", exitCode: 5, stderr: `Unit ${unit}.service not loaded.` };
       return { stdout: "", exitCode: 0 };
     }
-    if (cmd[0] === "systemctl" && cmd[2] === "show" && cmd[3] === "ocsub-*") {
+    if (cmd[0] === "systemctl" && cmd[2] === "show" && cmd[3] === "idfx-*") {
       calls.push("list");
       if (opts.show === null) return { stdout: "", exitCode: 1, stderr: "Failed to connect to bus" };
       const text = opts.show ?? [...loaded].map((name) => `Id=${name}.service\n`).join("\n");

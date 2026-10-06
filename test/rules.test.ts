@@ -155,7 +155,7 @@ describe("pingRules", () => {
     expect(calls.prompt).toHaveLength(0);
     expect(calls.deleted).toHaveLength(0);
     expect(printed.err.join("\n")).toContain(SHARED_FILE);
-    expect(printed.err.join("\n")).toContain("OC_SUB_SHARED_DIR");
+    expect(printed.err.join("\n")).toContain("IDFX_SHARED_DIR");
   });
 
   test("stops with an error when the shared file has no heading", async () => {
@@ -204,8 +204,8 @@ describe("pingRules", () => {
       expect(code).toBe(1);
       expect(calls.prompt).toHaveLength(0);
       expect(printed.err).toEqual([
-        "error: OC_SUB_SHARED_DIR is not set.",
-        "Set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills).",
+        "error: IDFX_SHARED_DIR is not set.",
+        "Set IDFX_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills).",
       ]);
     });
   }

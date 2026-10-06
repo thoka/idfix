@@ -7,6 +7,7 @@ import {
   MAX_UNIT_NAME,
   PORT_UNIT_KINDS,
   portUnitName,
+  portUnitNames,
   stopPortUnits,
   unitActive,
   unitOfCgroup,
@@ -92,8 +93,8 @@ describe("unit names", () => {
     expect(sanitizeUnitPart("")).toBe("_");
   });
 
-  test("builds ocsub-<kind>-<name> and caps the length", () => {
-    expect(unitName("serve", "18768")).toBe("ocsub-serve-18768");
+  test("builds idfx-<kind>-<name> and caps the length", () => {
+    expect(unitName("serve", "18768")).toBe("idfx-serve-18768");
     expect(unitName("idle", "x".repeat(400)).length).toBe(MAX_UNIT_NAME);
   });
 
@@ -124,9 +125,9 @@ describe("systemdRunArgv", () => {
       "systemd-run",
       "--user",
       "--quiet",
-      "--unit=ocsub-serve-18768",
+      "--unit=idfx-serve-18768",
       "--description=owner=proj reason=host server",
-      "--slice=ocsub.slice",
+      "--slice=idfx.slice",
       "--collect",
       "--working-directory=/work",
       "--property=StandardOutput=append:/state/serve-18768.log",
@@ -229,7 +230,7 @@ describe("probeUserManager", () => {
   });
 
   test("the real runner gives 127 for a missing binary", () => {
-    expect(defaultUnitRunner(["ocsub-no-such-binary-xyz"]).exitCode).toBe(127);
+    expect(defaultUnitRunner(["idfx-no-such-binary-xyz"]).exitCode).toBe(127);
   });
 });
 
@@ -241,7 +242,7 @@ describe("startUnit", () => {
     });
     const handle = startUnit(options(), deps);
     expect(handle.pid).toBe(777);
-    expect(handle.unit).toBe("ocsub-serve-18768");
+    expect(handle.unit).toBe("idfx-serve-18768");
     expect(pids).toEqual([["/state/serve-18768.pid", 777]]);
     expect(calls[1]?.cmd).toEqual([
       "systemctl",
@@ -249,7 +250,7 @@ describe("startUnit", () => {
       "show",
       "--property=MainPID",
       "--value",
-      "ocsub-serve-18768.service",
+      "idfx-serve-18768.service",
     ]);
   });
 
@@ -273,7 +274,7 @@ describe("startUnit", () => {
 
   test("throws with the stderr of systemd-run and does not fall back", () => {
     const { deps, fallbacks, pids } = fakeDeps({
-      "systemd-run": { stdout: "", exitCode: 1, stderr: "Failed to start transient service unit: Unit ocsub-serve-18768.service was already loaded or has a fragment file." },
+      "systemd-run": { stdout: "", exitCode: 1, stderr: "Failed to start transient service unit: Unit idfx-serve-18768.service was already loaded or has a fragment file." },
     });
     expect(() => startUnit(options(), deps)).toThrow(/already loaded/);
     expect(fallbacks).toEqual([]);
@@ -326,10 +327,10 @@ describe("unitExitCode", () => {
 describe("stopUnit", () => {
   test("stops the unit and adds .service", () => {
     const { deps, calls } = fakeDeps({ "systemctl stop": { stdout: "", exitCode: 0 } });
-    expect(stopUnit("ocsub-serve-1", deps)).toBe(true);
-    expect(calls[0]?.cmd).toEqual(["systemctl", "--user", "stop", "ocsub-serve-1.service"]);
-    expect(stopUnit("ocsub-serve-1.service", deps)).toBe(true);
-    expect(calls[1]?.cmd).toEqual(["systemctl", "--user", "stop", "ocsub-serve-1.service"]);
+    expect(stopUnit("idfx-serve-1", deps)).toBe(true);
+    expect(calls[0]?.cmd).toEqual(["systemctl", "--user", "stop", "idfx-serve-1.service"]);
+    expect(stopUnit("idfx-serve-1.service", deps)).toBe(true);
+    expect(calls[1]?.cmd).toEqual(["systemctl", "--user", "stop", "idfx-serve-1.service"]);
   });
 
   test("a unit that is not loaded is no error", () => {
@@ -350,7 +351,7 @@ describe("stopUnit", () => {
 describe("units of a port", () => {
   test("the kinds are serve, proxy, holder, and idle, named by the port", () => {
     expect(PORT_UNIT_KINDS).toEqual(["serve", "proxy", "holder", "idle"]);
-    expect(portUnitName("proxy", 4096)).toBe("ocsub-proxy-4096");
+    expect(portUnitName("proxy", 4096)).toBe("idfx-proxy-4096");
   });
 
   test("unitsAvailable asks the user manager", () => {
@@ -360,37 +361,47 @@ describe("units of a port", () => {
 
   test("unitActive is true for a running unit only", () => {
     const show = (state: string) => fakeDeps({ "systemctl show": { stdout: `${state}\n`, exitCode: 0 } }).deps;
-    expect(unitActive("ocsub-serve-1", show("active"))).toBe(true);
-    expect(unitActive("ocsub-serve-1", show("activating"))).toBe(true);
-    expect(unitActive("ocsub-serve-1", show("inactive"))).toBe(false);
-    expect(unitActive("ocsub-serve-1", show("failed"))).toBe(false);
+    expect(unitActive("idfx-serve-1", show("active"))).toBe(true);
+    expect(unitActive("idfx-serve-1", show("activating"))).toBe(true);
+    expect(unitActive("idfx-serve-1", show("inactive"))).toBe(false);
+    expect(unitActive("idfx-serve-1", show("failed"))).toBe(false);
   });
 
   test("unitActive asks nothing without a user manager", () => {
     const { deps, calls } = fakeDeps({}, false);
-    expect(unitActive("ocsub-serve-1", deps)).toBe(false);
+    expect(unitActive("idfx-serve-1", deps)).toBe(false);
     expect(calls).toEqual([]);
   });
 
-  test("stopPortUnits stops the kinds in their order and names the stopped ones", () => {
+  test("stopPortUnits stops the kinds in their order, each with the new and the old prefix, and names the stopped ones", () => {
     const { deps, calls } = fakeDeps({
       "systemctl stop": [
         { stdout: "", exitCode: 0 },
-        { stdout: "", exitCode: 5, stderr: "Unit ocsub-proxy-4096.service not loaded." },
+        { stdout: "", exitCode: 5, stderr: "Unit ocsub-serve-4096.service not loaded." },
+        { stdout: "", exitCode: 5, stderr: "Unit idfx-proxy-4096.service not loaded." },
+        { stdout: "", exitCode: 0 },
       ],
     });
-    expect(stopPortUnits(4096, ["serve", "proxy"], deps)).toEqual(["ocsub-serve-4096"]);
+    expect(stopPortUnits(4096, ["serve", "proxy"], deps)).toEqual(["idfx-serve-4096", "ocsub-proxy-4096"]);
     expect(calls.map((call) => call.cmd.join(" "))).toEqual([
+      "systemctl --user stop idfx-serve-4096.service",
       "systemctl --user stop ocsub-serve-4096.service",
+      "systemctl --user stop idfx-proxy-4096.service",
       "systemctl --user stop ocsub-proxy-4096.service",
     ]);
   });
 
-  test("stopPortUnits never stops the unit of the caller", () => {
+  test("stopPortUnits never stops the unit of the caller, with either prefix", () => {
     const { deps, calls } = fakeDeps({ "systemctl stop": { stdout: "", exitCode: 0 } });
+    deps.ownUnit = () => "idfx-idle-4096";
+    expect(stopPortUnits(4096, ["serve", "idle"], deps)).toEqual(["idfx-serve-4096", "ocsub-serve-4096", "ocsub-idle-4096"]);
+    expect(calls).toHaveLength(3);
     deps.ownUnit = () => "ocsub-idle-4096";
-    expect(stopPortUnits(4096, ["serve", "idle"], deps)).toEqual(["ocsub-serve-4096"]);
-    expect(calls).toHaveLength(1);
+    expect(stopPortUnits(4096, ["idle"], deps)).toEqual(["idfx-idle-4096"]);
+  });
+
+  test("portUnitNames gives the new name first, then the old name", () => {
+    expect(portUnitNames("holder", 18768)).toEqual(["idfx-holder-18768", "ocsub-holder-18768"]);
   });
 
   test("stopPortUnits does nothing without a user manager", () => {
@@ -408,25 +419,25 @@ describe("units of a port", () => {
 describe("parseUnitShow", () => {
   test("reads the active state when the query asks for it", () => {
     const text = [
-      "Id=ocsub-serve-4096.service",
+      "Id=idfx-serve-4096.service",
       "Description=owner=proj reason=opencode server",
       "WorkingDirectory=/work",
       "ActiveState=active",
       "",
-      "Id=ocsub-proxy-4096.service",
+      "Id=idfx-proxy-4096.service",
       "Description=owner=proj reason=cost proxy",
       "WorkingDirectory=",
       "ActiveState=failed",
     ].join("\n");
     expect(parseUnitShow(text)).toEqual([
-      { unit: "ocsub-serve-4096", description: "owner=proj reason=opencode server", workingDirectory: "/work", activeState: "active" },
-      { unit: "ocsub-proxy-4096", description: "owner=proj reason=cost proxy", workingDirectory: "", activeState: "failed" },
+      { unit: "idfx-serve-4096", description: "owner=proj reason=opencode server", workingDirectory: "/work", activeState: "active" },
+      { unit: "idfx-proxy-4096", description: "owner=proj reason=cost proxy", workingDirectory: "", activeState: "failed" },
     ]);
   });
 
   test("gives an empty value for a property that the query left out, and keeps = in a value", () => {
-    expect(parseUnitShow("Id=ocsub-x-1.service\nDescription=owner=a reason=b=c\n")).toEqual([
-      { unit: "ocsub-x-1", description: "owner=a reason=b=c", workingDirectory: "", activeState: "" },
+    expect(parseUnitShow("Id=idfx-x-1.service\nDescription=owner=a reason=b=c\n")).toEqual([
+      { unit: "idfx-x-1", description: "owner=a reason=b=c", workingDirectory: "", activeState: "" },
     ]);
   });
 });
@@ -451,22 +462,33 @@ describe("parseUnitLabel", () => {
 });
 
 describe("listUnits", () => {
-  const show = "Id=ocsub-serve-4096.service\nDescription=owner=proj reason=r\nWorkingDirectory=/work\nActiveState=active\n";
+  const show = "Id=idfx-serve-4096.service\nDescription=owner=proj reason=r\nWorkingDirectory=/work\nActiveState=active\n";
 
-  test("asks systemctl once for all ocsub units with the bus environment", () => {
+  test("asks systemctl once for the units of both prefixes with the bus environment", () => {
     const { deps, calls } = fakeDeps({ "systemctl show": { stdout: show, exitCode: 0 } });
     expect(listUnits(deps)).toEqual([
-      { unit: "ocsub-serve-4096", description: "owner=proj reason=r", workingDirectory: "/work", activeState: "active" },
+      { unit: "idfx-serve-4096", description: "owner=proj reason=r", workingDirectory: "/work", activeState: "active" },
     ]);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.cmd).toEqual([
       "systemctl",
       "--user",
       "show",
+      "idfx-*",
       "ocsub-*",
-      "--property=Id,Description,WorkingDirectory,ActiveState",
+      "--property=Id,Description,WorkingDirectory,ActiveState,Slice",
     ]);
     expect(calls[0]?.env?.XDG_RUNTIME_DIR).toBe("/run/user/1000");
+  });
+
+  test("keeps the units of both prefixes in the slices of idfx, and leaves out another unit with the prefix idfx-", () => {
+    const text = [
+      "Id=idfx-serve-4096.service\nDescription=owner=p reason=r\nWorkingDirectory=/w\nActiveState=active\nSlice=idfx.slice\n",
+      "Id=ocsub-proxy-4096.service\nDescription=owner=p reason=r\nWorkingDirectory=/w\nActiveState=active\nSlice=ocsub.slice\n",
+      "Id=idfx-watch.service\nDescription=idfx watch --all\nWorkingDirectory=\nActiveState=active\nSlice=app.slice\n",
+    ].join("\n");
+    const { deps } = fakeDeps({ "systemctl show": { stdout: text, exitCode: 0 } });
+    expect(listUnits(deps)?.map((u) => u.unit)).toEqual(["idfx-serve-4096", "ocsub-proxy-4096"]);
   });
 
   test("gives an empty list when no unit is loaded", () => {
@@ -496,51 +518,61 @@ describe("orphanedUnits", () => {
   const all = () => true;
 
   test("finds no orphan in a full set of units of one port", () => {
-    const units = ["serve", "proxy", "idle"].map((kind) => loaded(`ocsub-${kind}-4096`));
+    const units = ["serve", "proxy", "idle"].map((kind) => loaded(`idfx-${kind}-4096`));
     expect(orphanedUnits(units, all)).toEqual([]);
   });
 
   test("a holder unit also keeps the helpers of its port", () => {
-    expect(orphanedUnits([loaded("ocsub-holder-4096"), loaded("ocsub-idle-4096")], all)).toEqual([]);
+    expect(orphanedUnits([loaded("idfx-holder-4096"), loaded("idfx-idle-4096")], all)).toEqual([]);
   });
 
   test("a unit whose folder is gone is orphaned", () => {
-    const units = [loaded("ocsub-serve-4096", "/gone"), loaded("ocsub-serve-4097", "/work")];
+    const units = [loaded("idfx-serve-4096", "/gone"), loaded("idfx-serve-4097", "/work")];
     const orphans = orphanedUnits(units, (dir) => dir !== "/gone");
-    expect(orphans.map((u) => u.unit)).toEqual(["ocsub-serve-4096"]);
+    expect(orphans.map((u) => u.unit)).toEqual(["idfx-serve-4096"]);
     expect(orphans[0]?.cause).toBe("its folder /gone is gone");
   });
 
   test("an empty folder counts as unknown, not as missing", () => {
-    expect(orphanedUnits([loaded("ocsub-serve-4096", "")], () => false)).toEqual([]);
+    expect(orphanedUnits([loaded("idfx-serve-4096", "")], () => false)).toEqual([]);
   });
 
   test("a proxy or idle unit without a server unit on its port is orphaned", () => {
-    const units = [loaded("ocsub-serve-4096"), loaded("ocsub-proxy-4097"), loaded("ocsub-idle-4098"), loaded("ocsub-idle-4096")];
+    const units = [loaded("idfx-serve-4096"), loaded("idfx-proxy-4097"), loaded("idfx-idle-4098"), loaded("idfx-idle-4096")];
     const orphans = orphanedUnits(units, all);
     expect(orphans.map((u) => [u.unit, u.cause])).toEqual([
-      ["ocsub-proxy-4097", "no serve or holder unit runs on port 4097"],
-      ["ocsub-idle-4098", "no serve or holder unit runs on port 4098"],
+      ["idfx-proxy-4097", "no serve or holder unit runs on port 4097"],
+      ["idfx-idle-4098", "no serve or holder unit runs on port 4098"],
     ]);
   });
 
   test("a unit of another form is orphaned only when its folder is gone", () => {
-    const units = [loaded("ocsub-test-1-2"), loaded("ocsub-idle-proj")];
+    const units = [loaded("idfx-test-1-2"), loaded("idfx-idle-proj")];
     expect(orphanedUnits(units, all)).toEqual([]);
-    expect(orphanedUnits(units, () => false).map((u) => u.unit)).toEqual(["ocsub-test-1-2", "ocsub-idle-proj"]);
+    expect(orphanedUnits(units, () => false).map((u) => u.unit)).toEqual(["idfx-test-1-2", "idfx-idle-proj"]);
   });
 
   test("the folder cause comes first and a unit is listed once", () => {
-    const orphans = orphanedUnits([loaded("ocsub-proxy-4096", "/gone")], () => false);
+    const orphans = orphanedUnits([loaded("idfx-proxy-4096", "/gone")], () => false);
     expect(orphans).toHaveLength(1);
     expect(orphans[0]?.cause).toContain("is gone");
   });
 });
 
 describe("unitOfCgroup", () => {
-  test("finds the ocsub unit in a cgroup v2 path", () => {
+  test("finds the idfx unit in a cgroup v2 path", () => {
+    const text = "0::/user.slice/user-1000.slice/user@1000.service/idfx.slice/idfx-idle-4096.service\n";
+    expect(unitOfCgroup(text)).toBe("idfx-idle-4096");
+  });
+
+  test("finds a unit of older code in the slice ocsub.slice", () => {
     const text = "0::/user.slice/user-1000.slice/user@1000.service/ocsub.slice/ocsub-idle-4096.service\n";
     expect(unitOfCgroup(text)).toBe("ocsub-idle-4096");
+  });
+
+  test("ignores another user unit with the prefix idfx- outside the slices of idfx", () => {
+    const text = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/idfx-watch.service\n";
+    expect(unitOfCgroup(text)).toBeNull();
   });
 
   test("gives null for another unit or an empty text", () => {
@@ -553,7 +585,7 @@ describe("unitOfCgroup", () => {
 const live = defaultUnitDeps.available();
 
 describe.skipIf(!live)("live: a real transient user service", () => {
-  const unit = `ocsub-test-${process.pid}-${Date.now()}`;
+  const unit = `idfx-test-${process.pid}-${Date.now()}`;
   let dir = "";
 
   afterEach(() => {
@@ -563,12 +595,12 @@ describe.skipIf(!live)("live: a real transient user service", () => {
   });
 
   test("starts with the label, reaches the group, and stops", () => {
-    dir = mkdtempSync(path.join(tmpdir(), "ocsub-units-"));
+    dir = mkdtempSync(path.join(tmpdir(), "idfx-units-"));
     const pidPath = path.join(dir, "sleep.pid");
     const started = performance.now();
     const handle = startUnit({
       kind: "test",
-      name: unit.slice("ocsub-test-".length),
+      name: unit.slice("idfx-test-".length),
       owner: "test",
       reason: "live test of units.ts",
       cmd: ["sleep", "30"],

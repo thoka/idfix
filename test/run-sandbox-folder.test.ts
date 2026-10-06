@@ -7,9 +7,9 @@ import { missingSandboxFolder } from "../src/run";
 const BASE = "/tmp/opencode/run-sandbox-folder-test";
 const STATE = path.join(BASE, "state");
 const ENV = { XDG_STATE_HOME: STATE };
-mkdirSync(path.join(STATE, "oc-sub"), { recursive: true });
+mkdirSync(path.join(STATE, "idfx"), { recursive: true });
 writeFileSync(
-  path.join(STATE, "oc-sub", "sandbox-proj-a.json"),
+  path.join(STATE, "idfx", "sandbox-proj-a.json"),
   JSON.stringify({ name: "oc-sub-proj-a", root: "/h/proj-a", port: 18770 }),
 );
 afterAll(() => rmSync(BASE, { recursive: true, force: true }));

@@ -191,7 +191,7 @@ describe("scopeDirectories", () => {
   test("with a sandbox state it maps a clone-mode run folder to the root and lists the clone directories", async () => {
     const stateHome = emptyStateHome();
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-repo.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-repo.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-repo", root: "/repo", port: 18768 }));
       const worktrees: string[] = [];
@@ -253,7 +253,7 @@ describe("top", () => {
       messages: { ses_sbx: messagesOf("ses_sbx", SBX_DIR, 0.002) },
     });
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-sbx.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-sbx.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-sbx", root: SBX_DIR, port: sandbox.port }));
       const captured = captureLog();

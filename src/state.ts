@@ -2,19 +2,156 @@
  * Per-user state of the servers that `idfx up` starts. One server serves
  * many project directories, so its PID file, its log, and the list of
  * directories with runs live in one place per user, not in the current
- * directory: `$XDG_STATE_HOME/oc-sub/`, default `~/.local/state/oc-sub/`.
+ * directory: `$XDG_STATE_HOME/idfx/`, default `~/.local/state/idfx/`.
+ *
+ * Before step 24.3 the folder was `$XDG_STATE_HOME/oc-sub/`. While that old
+ * path is a real folder (not a symlink), `stateDir` keeps using it, so one
+ * state stays in one place and a running server keeps its PID file. The
+ * `state-names` check of `doctor` warns, and `doctor --fix` runs
+ * `migrateStateDir`: it moves the entries into the new folder and links the
+ * old path to it, for processes of older code.
  */
-import { readFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, symlinkSync } from "node:fs";
 import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
 
-export function stateDir(env: Env, home: string = homedir()): string {
-  const base = env.XDG_STATE_HOME !== undefined && path.isAbsolute(env.XDG_STATE_HOME)
+/** The name of the state folder. */
+export const STATE_NAME = "idfx";
+/** The name of the state folder before step 24.3. */
+export const OLD_STATE_NAME = "oc-sub";
+
+/** The base of the state folders: `$XDG_STATE_HOME` when it is absolute, else `~/.local/state`. Pure. */
+export function stateBase(env: Env, home: string = homedir()): string {
+  return env.XDG_STATE_HOME !== undefined && path.isAbsolute(env.XDG_STATE_HOME)
     ? env.XDG_STATE_HOME
     : path.join(home, ".local", "state");
-  return path.join(base, "oc-sub");
+}
+
+/** The new state folder `<base>/idfx`, whatever is on disk. Pure. */
+export function newStateDir(env: Env, home: string = homedir()): string {
+  return path.join(stateBase(env, home), STATE_NAME);
+}
+
+/** The old state folder `<base>/oc-sub`, whatever is on disk. Pure. */
+export function oldStateDir(env: Env, home: string = homedir()): string {
+  return path.join(stateBase(env, home), OLD_STATE_NAME);
+}
+
+/** Whether the path is a real folder: it exists, and it is not a symlink. */
+export function isRealFolder(file: string): boolean {
+  try {
+    const info = lstatSync(file);
+    return info.isDirectory() && !info.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The old state folder while it is a real folder, else null. Then
+ * `stateDir` uses it, and `doctor` warns.
+ */
+export function legacyStateDir(env: Env, home: string = homedir()): string | null {
+  const old = oldStateDir(env, home);
+  return isRealFolder(old) ? old : null;
+}
+
+/**
+ * The state folder: the old folder `<base>/oc-sub` while it is a real
+ * folder, else the new folder `<base>/idfx`.
+ */
+export function stateDir(env: Env, home: string = homedir()): string {
+  return legacyStateDir(env, home) ?? newStateDir(env, home);
+}
+
+/** The result of `migrateStateDir`. */
+export type StateMigration = {
+  /** True when the old path is now a link to the new folder, or was one already, or is missing. */
+  ok: boolean;
+  /** One line for the user: what happened, or why nothing happened. */
+  note: string;
+  /** The entries that moved into the new folder. */
+  moved: string[];
+  /** The entries that exist in both folders and stay in the old one. */
+  skipped: string[];
+};
+
+/** The lock folders of `run` and the watchdog (`serveLockPath`). */
+const SERVE_LOCK = /^serve-\d+\.lock$/;
+
+/**
+ * Moves the old state folder into the new one (the fix of the `state-names`
+ * check of `doctor`). Steps:
+ *
+ * 1. When the old path is missing or a symlink, nothing is to do.
+ * 2. When a `serve-<port>.lock` exists in the old folder, a run starts or the
+ *    watchdog stops a server now, so nothing moves.
+ * 3. Each entry of the old folder moves into the new folder with a rename.
+ *    On one file system a rename keeps open files valid, so a running
+ *    server keeps writing its log. An entry whose name exists in the new
+ *    folder too stays, and the result names it.
+ * 4. When the old folder is empty, it goes away, and the old path becomes a
+ *    relative symlink to the new folder.
+ *
+ * A second run finds the link and does nothing.
+ */
+export function migrateStateDir(env: Env, home: string = homedir()): StateMigration {
+  const oldDir = oldStateDir(env, home);
+  const newDir = newStateDir(env, home);
+  const none = { moved: [], skipped: [] };
+  let info;
+  try {
+    info = lstatSync(oldDir);
+  } catch {
+    return { ok: true, note: `no old state folder ${oldDir}`, ...none };
+  }
+  if (info.isSymbolicLink()) return { ok: true, note: `${oldDir} is a link already`, ...none };
+  if (!info.isDirectory()) return { ok: false, note: `${oldDir} is not a folder; move it away by hand`, ...none };
+  const entries = readdirSync(oldDir).sort();
+  const locks = entries.filter((entry) => SERVE_LOCK.test(entry));
+  if (locks.length > 0) {
+    return {
+      ok: false,
+      note: `${locks.join(", ")} in ${oldDir}: a run or the idle watchdog works now. Nothing moved; try again later`,
+      ...none,
+    };
+  }
+  mkdirSync(newDir, { recursive: true });
+  const moved: string[] = [];
+  const skipped: string[] = [];
+  for (const entry of entries) {
+    const target = path.join(newDir, entry);
+    let taken = true;
+    try {
+      lstatSync(target);
+    } catch {
+      taken = false;
+    }
+    if (taken) {
+      skipped.push(entry);
+      continue;
+    }
+    renameSync(path.join(oldDir, entry), target);
+    moved.push(entry);
+  }
+  if (skipped.length > 0) {
+    return {
+      ok: false,
+      note: `moved ${moved.length} entr${moved.length === 1 ? "y" : "ies"}; ${skipped.join(", ")} exist(s) in both ${oldDir} and ${newDir}. Merge or remove them by hand, then run idfx doctor --fix again`,
+      moved,
+      skipped,
+    };
+  }
+  rmdirSync(oldDir);
+  symlinkSync(STATE_NAME, oldDir);
+  return {
+    ok: true,
+    note: `moved ${moved.length} entr${moved.length === 1 ? "y" : "ies"} into ${newDir}, and ${oldDir} links to it now`,
+    moved,
+    skipped,
+  };
 }
 
 export function servePidPath(env: Env, port: number): string {
@@ -80,12 +217,16 @@ export function proxyLogPath(env: Env, port: number): string {
  * skip the line, because it is not JSON. Pure.
  */
 export function logMarkerLine(label: string, now: Date = new Date()): string {
-  return `--- oc-sub ${label} ${now.toISOString()} ---`;
+  return `--- idfx ${label} ${now.toISOString()} ---`;
 }
 
-/** True when the line is a start marker of `logMarkerLine`. Pure. */
+/**
+ * True when the line is a start marker of `logMarkerLine`. It also accepts
+ * the marker `--- oc-sub ...` of older code, because the logs append and
+ * keep old lines. Pure.
+ */
 export function isLogMarkerLine(line: string): boolean {
-  return /^--- oc-sub \S+ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(line.trim());
+  return /^--- (?:idfx|oc-sub) \S+ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(line.trim());
 }
 
 /**

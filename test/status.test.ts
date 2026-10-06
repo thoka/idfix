@@ -272,7 +272,7 @@ describe("cloneDirectories", () => {
   test("lists the root first, then the worktrees of the clone, through sbx exec", () => {
     const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-clone-"));
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-proj.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-proj.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-proj", root: "/repo", port: 18768 }));
       let cmd: readonly string[] = [];
@@ -291,7 +291,7 @@ describe("cloneDirectories", () => {
   test("returns an empty list when the command fails, for example a stopped sandbox", () => {
     const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-clone-"));
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-proj.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-proj.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-proj", root: "/repo", port: 18768 }));
       expect(cloneDirectories("proj", { XDG_STATE_HOME: stateHome }, runnerFor({ stdout: "", exitCode: 1 }))).toEqual(
@@ -316,7 +316,7 @@ describe("serverDirectories", () => {
       projects: [{ id: "p1", worktree: "/repo" }],
     });
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-sbx.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-sbx.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-sbx", root: "/repo", port: server.port }));
       const calls: string[] = [];
@@ -424,7 +424,7 @@ describe("status", () => {
       states: { ses_wt: { type: "busy" } },
     });
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-repo.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-repo.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-repo", root: "/repo", port: server.port }));
       const calls: string[] = [];
@@ -489,7 +489,7 @@ describe("status", () => {
       ],
     });
     try {
-      const dirsFile = path.join(stateHome, "oc-sub", `serve-${server.port}.dirs`);
+      const dirsFile = path.join(stateHome, "idfx", `serve-${server.port}.dirs`);
       mkdirSync(path.dirname(dirsFile), { recursive: true });
       writeFileSync(dirsFile, "/from-dirs\n/gone\n");
       const { code, lines } = await runStatus({
@@ -526,7 +526,7 @@ describe("status", () => {
       projects: [{ id: "p2", worktree: "/sbxproj" }],
     });
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-sbx.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-sbx.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-sbx", root: "/sbxproj", port: sandbox.port }));
       const captured = captureLog();
@@ -557,7 +557,7 @@ describe("status", () => {
       projects: [{ id: "p2", worktree: "/sbxproj" }],
     });
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-sbx.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-sbx.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-sbx", root: "/sbxproj", port: sandbox.port }));
       const captured = captureLog();
@@ -588,7 +588,7 @@ describe("status", () => {
       projects: [{ id: "p1", worktree: "/hostproj" }],
     });
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-gone.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-gone.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-gone", root: "/gone", port: 18799 }));
       const captured = captureLog();
@@ -619,7 +619,7 @@ describe("status", () => {
       projects: [{ id: "p2", worktree: "/proj" }],
     });
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-dup.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-dup.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-dup", root: "/proj", port: sandbox.port }));
       const captured = captureLog();
@@ -788,7 +788,7 @@ describe("status --json", () => {
       brokenDirectories: ["/sbxproj/.worktrees/x"],
     });
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-sbx.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-sbx.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-sbx", root: "/sbxproj", port: server.port }));
       const { code, lines, errors } = await runStatus({
@@ -877,7 +877,7 @@ describe("host worktree of a project", () => {
       states: { ses_root: { type: "busy" } },
     });
     try {
-      const stateFile = path.join(stateHome, "oc-sub", "sandbox-repo.json");
+      const stateFile = path.join(stateHome, "idfx", "sandbox-repo.json");
       mkdirSync(path.dirname(stateFile), { recursive: true });
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-repo", root: "/repo", port: server.port }));
       const worktree = "/repo/.claude/worktrees/x";

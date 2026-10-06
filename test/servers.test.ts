@@ -10,7 +10,7 @@ function tempStateHome(): string {
 }
 
 function writeState(stateHome: string, project: string, port: number): string {
-  const file = path.join(stateHome, "oc-sub", `sandbox-${project}.json`);
+  const file = path.join(stateHome, "idfx", `sandbox-${project}.json`);
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify({ name: `oc-sub-${project}`, root: `/repo-${project}`, port }));
   return file;
@@ -46,7 +46,7 @@ describe("listServers", () => {
   test("skips a missing, unreadable, or invalid state file", () => {
     const stateHome = tempStateHome();
     try {
-      const dir = path.join(stateHome, "oc-sub");
+      const dir = path.join(stateHome, "idfx");
       mkdirSync(dir, { recursive: true });
       writeState(stateHome, "good", 18768);
       writeFileSync(path.join(dir, "sandbox-broken.json"), "{ not json");

@@ -62,6 +62,16 @@ describe("unitsToReap", () => {
     expect(names(unitsToReap(units, TMP, onlyThisRun))).toEqual(["ocsub-serve-8790", "ocsub-proxy-8900", "ocsub-test-123-456"]);
   });
 
+  test("stops the test units with the new prefix idfx- too", () => {
+    const units = [
+      unit("idfx-serve-8790", "owner=test reason=opencode server of up on port 8790"),
+      unit("idfx-test-123-456", "owner=test reason=live test of units.ts"),
+      unit("idfx-serve-4096", "owner=test reason=x"),
+      unit("idfx-watch", "owner=test reason=x"),
+    ];
+    expect(names(unitsToReap(units, TMP, onlyThisRun))).toEqual(["idfx-serve-8790", "idfx-test-123-456"]);
+  });
+
   test("never touches a unit with another owner, also on a test port in a run folder", () => {
     const units = [
       unit("ocsub-serve-8790", "owner=idfix reason=opencode server of up on port 8790"),

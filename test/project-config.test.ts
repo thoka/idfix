@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   makeProjectNameResolver,
+  oldProjectConfigFile,
   projectConfigFile,
   projectSetupCommand,
   projectShortName,
@@ -64,6 +65,28 @@ describe("setupFromConfigText", () => {
 
   test("a valid setup comes through", () => {
     expect(setupFromConfigText('{"setup": "bun install"}')).toBe("bun install");
+  });
+});
+
+describe("the file names", () => {
+  test("the new file is .opencode/idfx.json, the old file .opencode/oc-sub.json", () => {
+    expect(projectConfigFile("/p")).toBe("/p/.opencode/idfx.json");
+    expect(oldProjectConfigFile("/p")).toBe("/p/.opencode/oc-sub.json");
+  });
+
+  test("the new file wins over the old file", () => {
+    const deps = depsWith({
+      [projectConfigFile("/p")]: '{"shortName": "new", "setup": "new setup"}',
+      [oldProjectConfigFile("/p")]: '{"shortName": "old", "setup": "old setup"}',
+    });
+    expect(projectShortName("/p", deps, new Map())).toBe("new");
+    expect(projectSetupCommand("/p", deps)).toBe("new setup");
+  });
+
+  test("the old file still works alone", () => {
+    const deps = depsWith({ [oldProjectConfigFile("/p")]: '{"shortName": "old", "setup": "old setup"}' });
+    expect(projectShortName("/p", deps, new Map())).toBe("old");
+    expect(projectSetupCommand("/p", deps)).toBe("old setup");
   });
 });
 

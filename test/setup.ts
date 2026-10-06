@@ -25,22 +25,22 @@
  * repository itself (meta lesson git-hook-env-leaks-into-other-repos).
  *
  * The preload also guards the real user manager. `up`, `down`, and the
- * watchdog start and stop `ocsub-<kind>-<port>` units, and a unit test that
+ * watchdog start and stop `idfx-<kind>-<port>` units (`ocsub-` of older code), and a unit test that
  * forgets its fake `UnitDeps` would stop the real server of another session
  * on the same port. So the real runner of `units.ts` refuses a start or a
- * stop of any unit other than `ocsub-test-*` (the live test of units.ts)
+ * stop of any unit other than `idfx-test-*` (the live test of units.ts)
  * and the units of the ports of the integration tests, and throws instead.
  *
  * After the last test, the preload also reaps the units that a test left
  * loaded, like the Ryuk container of Testcontainers. The integration tests
- * start their units with `OC_SUB_OWNER=test`, and their teardown stops them
+ * start their units with `IDFX_OWNER=test`, and their teardown stops them
  * and fails when one is left. A test run that crashed or was killed cannot
- * do that, so the global `afterAll` lists the loaded `ocsub-*` units and
+ * do that, so the global `afterAll` lists the loaded units of idfx and
  * stops each unit that matches all of these:
  *
  * - its description starts with `owner=test `,
  * - `testMayTouchUnit` allows its name (a port of the integration tests or
- *   `ocsub-test-*`),
+ *   `idfx-test-*`, and both with the old prefix `ocsub-`),
  * - its working folder lies in a test run folder `oc-sub-test-run-*`, and
  *   that run is this run, or a run whose bun process is gone.
  *
@@ -128,8 +128,8 @@ export const INTEGRATION_PORTS = { first: 8790, last: 8900 } as const;
 /** Whether a test may start or stop this real unit. Pure. */
 export function testMayTouchUnit(unit: string): boolean {
   const name = unit.replace(/\.service$/, "");
-  if (name.startsWith("ocsub-test-")) return true;
-  const match = /^ocsub-[a-z]+-(\d+)$/.exec(name);
+  if (name.startsWith("idfx-test-") || name.startsWith("ocsub-test-")) return true;
+  const match = /^(?:idfx|ocsub)-[a-z]+-(\d+)$/.exec(name);
   if (match === null) return false;
   const port = Number(match[1]);
   return port >= INTEGRATION_PORTS.first && port <= INTEGRATION_PORTS.last;
@@ -145,7 +145,7 @@ export function unitOfCall(cmd: readonly string[]): string | null {
   return null;
 }
 
-/** The owner that the integration tests give their units (`OC_SUB_OWNER`). */
+/** The owner that the integration tests give their units (`IDFX_OWNER`). */
 export const TEST_OWNER = "test";
 
 /** The test run folder (`<tmp>/oc-sub-test-run-*`) that holds `dir`, or null. Pure. */

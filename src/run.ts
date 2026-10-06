@@ -4,6 +4,7 @@ import path from "node:path";
 import { appendCriticalFooter, readCriticalFooter } from "./critical-footer";
 import { assertOk, errorMessage, makeClient, probeServer, requireServer, unwrap, type ServerState } from "./client";
 import { resolvePort, type Env } from "./config";
+import { idfxEnv } from "./env-names";
 import {
   checkOpenRouterKey,
   keyFingerprint,
@@ -77,7 +78,7 @@ const defaultDeps: RunDeps = {
 
 /**
  * The sandbox that `run` sends a run to, or null. Without `--url` and
- * `OC_SUB_URL`, a run goes to the sandbox of the project of `--dir` when a
+ * `IDFX_URL`, a run goes to the sandbox of the project of `--dir` when a
  * sandbox state exists. Only then may `run` start a server that is down.
  */
 export function sandboxTarget(
@@ -85,13 +86,13 @@ export function sandboxTarget(
   env: Env,
   projectName: (directory: string) => string,
 ): SandboxState | null {
-  if (args.url !== undefined || env.OC_SUB_URL !== undefined) return null;
+  if (args.url !== undefined || idfxEnv(env, "url") !== undefined) return null;
   return readSandboxState(sandboxStatePath(env, projectName(path.resolve(args.dir))));
 }
 
 /**
  * The refusal of a run whose folder is missing in the sandbox, or null.
- * Without `--url` and `OC_SUB_URL`, `run` sends a run to the sandbox of the
+ * Without `--url` and `IDFX_URL`, `run` sends a run to the sandbox of the
  * project when a sandbox state exists. In clone mode the sandbox has its
  * own copy of the repository, so a worktree that `git worktree add` created
  * on the host does not exist there. opencode then fails the prompt with a

@@ -322,7 +322,7 @@ describe("sandbox state file", () => {
 
   test("usedSandboxPorts collects the ports of the other projects", () => {
     const env = makeEnv();
-    const stateHome = path.join(env.XDG_STATE_HOME as string, "oc-sub");
+    const stateHome = path.join(env.XDG_STATE_HOME as string, "idfx");
     mkdirSync(stateHome, { recursive: true });
     writeFileSync(path.join(stateHome, "sandbox-other.json"), `{"name":"o","root":"/o","port":20000}`);
     writeFileSync(path.join(stateHome, "sandbox-broken.json"), "not json");
@@ -701,7 +701,7 @@ describe("sandboxConfigContent", () => {
     expect(spawned[0]?.slice(2)).toEqual(["idle-watch", "--port", "18768", "--minutes", "7", idlePidPath(env, 18768)]);
   });
 
-  test("starts the holder as the unit ocsub-holder-<port> after a stop of a stale one", async () => {
+  test("starts the holder as the unit idfx-holder-<port> after a stop of a stale one", async () => {
     const env = makeEnv();
     const { runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
@@ -710,7 +710,8 @@ describe("sandboxConfigContent", () => {
       if (cmd[0] === "git") return GIT_REMOTE;
       return DENIED;
     });
-    const units = fakeUnits({ loaded: ["ocsub-holder-18768", "ocsub-idle-18768"] });
+    // A stale holder of this code and a stale watchdog of older code.
+    const units = fakeUnits({ loaded: ["idfx-holder-18768", "ocsub-idle-18768"] });
     const started: UnitOptions[] = [];
     const record = (opts: UnitOptions) => {
       started.push(opts);
@@ -726,7 +727,15 @@ describe("sandboxConfigContent", () => {
       spawnIdleWatch: record,
     }));
     expect(result).toBe(0);
-    expect(units.calls).toEqual(["stop ocsub-holder-18768", "stop ocsub-idle-18768", "start holder", "start idle"]);
+    expect(units.calls).toEqual([
+      "stop idfx-holder-18768",
+      "stop ocsub-holder-18768",
+      "stop idfx-idle-18768",
+      "stop ocsub-idle-18768",
+      "start holder",
+      "start idle",
+    ]);
+    expect(units.loaded.size).toBe(0);
     expect(started.map((opts) => [opts.kind, opts.name, opts.owner, opts.reason])).toEqual([
       ["holder", "18768", "test", "sandbox oc-sub-test: opencode server of up on port 18768"],
       ["idle", "18768", "test", "idle watchdog for port 18768, stops the server after 30m without activity"],
@@ -745,7 +754,7 @@ describe("sandboxConfigContent", () => {
       if (cmd[0] === "git") return GIT_REMOTE;
       return DENIED;
     });
-    const units = fakeUnits({ loaded: ["ocsub-holder-18768", "ocsub-idle-18768"] });
+    const units = fakeUnits({ loaded: ["idfx-holder-18768", "idfx-idle-18768"] });
     const started: UnitOptions[] = [];
     const record = (opts: UnitOptions) => {
       started.push(opts);
@@ -961,8 +970,8 @@ describe("upSandbox", () => {
       expect(result).toBe(1);
       expect(calls).toHaveLength(0);
       expect(errors).toEqual([
-        "error: OC_SUB_SHARED_DIR is not set.",
-        "Set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills).",
+        "error: IDFX_SHARED_DIR is not set.",
+        "Set IDFX_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills).",
       ]);
     });
   }
@@ -982,7 +991,7 @@ describe("upSandbox", () => {
     expect(calls).toHaveLength(0);
     const text = errors.join("\n");
     expect(text).toContain("AGENTS.md");
-    expect(text).toContain("OC_SUB_SHARED_DIR");
+    expect(text).toContain("IDFX_SHARED_DIR");
   });
 
   test("an existing sandbox without the shared mount stops up with a hint", async () => {
@@ -1557,7 +1566,7 @@ describe("upSandbox", () => {
 
   test("a healthy server keeps its plugin digest: up neither syncs nor rewrites it", async () => {
     const env = makeEnv();
-    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "idfx"), { recursive: true });
     writeFileSync(servePluginPath(env, 18768), "sha256:old\n");
     const { runner } = fakeRunner((cmd) =>
       isSubcommand(cmd, "ls") ? { stdout: lsWorkspace("oc-sub-test", env) } : cmd[0] === "git" ? GIT_REMOTE : DENIED,
@@ -1743,7 +1752,7 @@ describe("downSandbox", () => {
     mkdirSync(env.XDG_STATE_HOME as string, { recursive: true });
     await writeSandboxState(sandboxStatePath(env, "test"), { name: "oc-sub-test", root: "/repo", port: 18768 });
     const { calls, runner } = fakeRunner(() => ({ stdout: "" }));
-    const units = fakeUnits({ loaded: ["ocsub-holder-18768", "ocsub-idle-18768"] });
+    const units = fakeUnits({ loaded: ["idfx-holder-18768", "idfx-idle-18768"] });
     const result = await downSandbox({ force: false }, env, makeDeps({
       runner: (cmd, opts) => {
         units.calls.push(cmd.join(" "));
@@ -1754,7 +1763,13 @@ describe("downSandbox", () => {
     }));
     expect(result).toBe(0);
     expect(calls).toEqual([{ cmd: ["sbx", "stop", "oc-sub-test"] }]);
-    expect(units.calls).toEqual(["sbx stop oc-sub-test", "stop ocsub-holder-18768", "stop ocsub-idle-18768"]);
+    expect(units.calls).toEqual([
+      "sbx stop oc-sub-test",
+      "stop idfx-holder-18768",
+      "stop ocsub-holder-18768",
+      "stop idfx-idle-18768",
+      "stop ocsub-idle-18768",
+    ]);
   });
 
   test("the watchdog stops the holder unit but never its own unit", async () => {
@@ -1762,15 +1777,15 @@ describe("downSandbox", () => {
     mkdirSync(env.XDG_STATE_HOME as string, { recursive: true });
     await writeSandboxState(sandboxStatePath(env, "test"), { name: "oc-sub-test", root: "/repo", port: 18768 });
     const { runner } = fakeRunner(() => ({ stdout: "" }));
-    const units = fakeUnits({ loaded: ["ocsub-holder-18768", "ocsub-idle-18768"], own: "ocsub-idle-18768" });
+    const units = fakeUnits({ loaded: ["idfx-holder-18768", "idfx-idle-18768"], own: "idfx-idle-18768" });
     const result = await downSandbox({ force: false }, env, makeDeps({
       runner,
       units: units.deps,
       probe: async () => ({ state: "down" }),
     }));
     expect(result).toBe(0);
-    expect(units.calls).toEqual(["stop ocsub-holder-18768"]);
-    expect([...units.loaded]).toEqual(["ocsub-idle-18768"]);
+    expect(units.calls).toEqual(["stop idfx-holder-18768", "stop ocsub-holder-18768", "stop ocsub-idle-18768"]);
+    expect([...units.loaded]).toEqual(["idfx-idle-18768"]);
   });
 
   test("reports a failed sbx stop", async () => {
@@ -2077,7 +2092,7 @@ describe("server log keeps older starts (sandbox mode)", () => {
     expect(result).toBe(0);
     const text = readFileSync(logPath, "utf8");
     expect(text).toContain("old start output");
-    expect(text.match(/^--- oc-sub up \S+ ---$/gm)).toHaveLength(2);
+    expect(text.match(/^--- (?:oc-sub|idfx) up \S+ ---$/gm)).toHaveLength(2);
   });
 
   test("a failed start shows only the output after the last marker", async () => {

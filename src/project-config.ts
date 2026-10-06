@@ -1,6 +1,9 @@
 /**
- * The per-project configuration of idfx: the file `.opencode/oc-sub.json`
- * in the project root. It holds two settings: the `shortName`
+ * The per-project configuration of idfx: the file `.opencode/idfx.json`
+ * in the project root. Before step 24.3 the file was `.opencode/oc-sub.json`.
+ * The readers read the new file first, then the old file. The
+ * `project-config-name` check of `doctor` warns on the old file, and
+ * `doctor --fix` renames it. The file holds two settings: the `shortName`
  * that the project column of `idfx top` shows, and the `setup` shell
  * command that `idfx worktree` runs inside a new run worktree. Without
  * the file, or with an invalid one, there is no setting; nothing fails.
@@ -14,15 +17,30 @@ import { projectRootOfRun } from "./keys";
 import { splitFolder } from "./top/columns";
 
 /** The config file of a project root, relative to the root. */
-export const PROJECT_CONFIG_RELATIVE = path.join(".opencode", "oc-sub.json");
+export const PROJECT_CONFIG_RELATIVE = path.join(".opencode", "idfx.json");
+/** The config file before step 24.3, relative to the root. */
+export const OLD_PROJECT_CONFIG_RELATIVE = path.join(".opencode", "oc-sub.json");
 
 /** The config file of a project root. */
 export function projectConfigFile(root: string): string {
   return path.join(root, PROJECT_CONFIG_RELATIVE);
 }
 
+/** The old config file of a project root. */
+export function oldProjectConfigFile(root: string): string {
+  return path.join(root, OLD_PROJECT_CONFIG_RELATIVE);
+}
+
 /**
- * The `shortName` of an `oc-sub.json` text, or undefined. The text must be
+ * The text of the config file of a project root: the new file when it can
+ * be read, else the old file, else null.
+ */
+export function readProjectConfigText(root: string, deps: ProjectConfigDeps = defaultProjectConfigDeps): string | null {
+  return deps.readTextSync(projectConfigFile(root)) ?? deps.readTextSync(oldProjectConfigFile(root));
+}
+
+/**
+ * The `shortName` of a config file text, or undefined. The text must be
  * a JSON object with a non-empty string `shortName`; anything else gives
  * undefined.
  */
@@ -40,7 +58,7 @@ export function shortNameFromConfigText(text: string | null): string | undefined
 }
 
 /**
- * The `setup` of an `oc-sub.json` text, or undefined. The text must be a
+ * The `setup` of a config file text, or undefined. The text must be a
  * JSON object with a non-empty string `setup`; anything else gives
  * undefined.
  */
@@ -89,7 +107,7 @@ export function projectShortName(
   cache: Map<string, string | undefined> = defaultConfigCache,
 ): string | undefined {
   if (cache.has(root)) return cache.get(root);
-  const shortName = shortNameFromConfigText(deps.readTextSync(projectConfigFile(root)));
+  const shortName = shortNameFromConfigText(readProjectConfigText(root, deps));
   cache.set(root, shortName);
   return shortName;
 }
@@ -103,7 +121,7 @@ export function projectSetupCommand(
   root: string,
   deps: ProjectConfigDeps = defaultProjectConfigDeps,
 ): string | undefined {
-  return setupFromConfigText(deps.readTextSync(projectConfigFile(root)));
+  return setupFromConfigText(readProjectConfigText(root, deps));
 }
 
 /**

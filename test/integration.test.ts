@@ -7,9 +7,9 @@
  * PATH.
  *
  * `up` starts the server, the cost proxy, and the idle watchdog the same way
- * as in production: as `ocsub-<kind>-<port>` user units, or detached in
+ * as in production: as `idfx-<kind>-<port>` user units, or detached in
  * their own process group without a user manager. Each test passes
- * `OC_SUB_OWNER=test`, so its units carry `owner=test`. The teardown of each
+ * `IDFX_OWNER=test`, so its units carry `owner=test`. The teardown of each
  * test stops the units and the groups (`stopStartedGroups`), also when the
  * test failed before `down`. Then it checks that no unit of its port is
  * loaded and no group of its PID files is alive; if one is left, it stops
@@ -58,7 +58,7 @@ async function findFreePort(): Promise<number> {
 const startedGroups = new Set<number>();
 
 /** The environment that every CLI call of these tests adds: the test owner of the units. */
-const TEST_ENV = { OC_SUB_OWNER: TEST_OWNER } as const;
+const TEST_ENV = { IDFX_OWNER: TEST_OWNER } as const;
 
 /**
  * Records the groups of the server on `port`, of its proxy, and of its idle
@@ -88,7 +88,7 @@ function groupExists(pgid: number): boolean {
 function loadedPortUnits(port: number): string[] {
   if (!defaultUnitDeps.available()) return [];
   const res = defaultUnitDeps.run(
-    ["systemctl", "--user", "list-units", `ocsub-*-${port}.service`, "--all", "--plain", "--no-legend"],
+    ["systemctl", "--user", "list-units", `idfx-*-${port}.service`, `ocsub-*-${port}.service`, "--all", "--plain", "--no-legend"],
     { env: defaultUnitDeps.busEnv() },
   );
   return res.stdout.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
@@ -240,7 +240,7 @@ test.skipIf(!hasOpencode)(
     // this checkout and prints no warning.
     const { OPENCODE_CONFIG_DIR: _outer, ...baseEnv } = process.env as Record<string, string | undefined>;
     const env = { ...baseEnv, ...TEST_ENV, XDG_DATA_HOME: dataDir, XDG_STATE_HOME: stateHome } as Record<string, string>;
-    const pidFile = path.join(stateHome, "oc-sub", `serve-${port}.pid`);
+    const pidFile = path.join(stateHome, "idfx", `serve-${port}.pid`);
 
     try {
       const url = `http://127.0.0.1:${port}`;
@@ -373,7 +373,7 @@ test.skipIf(!hasOpencode)(
       XDG_STATE_HOME: stateHome,
     } as Record<string, string>;
     const url = `http://127.0.0.1:${port}`;
-    const pidFile = path.join(stateHome, "oc-sub", `serve-${port}.pid`);
+    const pidFile = path.join(stateHome, "idfx", `serve-${port}.pid`);
 
     try {
       const started = runCli(workDir, ["up", "--url", url], env);
@@ -437,7 +437,7 @@ test.skipIf(!hasOpencode)(
     const none = { ...base };
     delete none.OPENCODE_SERVER_PASSWORD;
     const url = `http://127.0.0.1:${port}`;
-    const pidFile = path.join(stateHome, "oc-sub", `serve-${port}.pid`);
+    const pidFile = path.join(stateHome, "idfx", `serve-${port}.pid`);
 
     try {
       const started = runCli(workDir, ["up", "--url", url], right);
@@ -494,7 +494,7 @@ test.skipIf(!hasOpencode)(
       // With a user manager, the server runs as a unit with the test owner.
       if (defaultUnitDeps.available()) {
         const show = defaultUnitDeps.run(
-          ["systemctl", "--user", "show", "--property=Description", "--value", `ocsub-serve-${port}.service`],
+          ["systemctl", "--user", "show", "--property=Description", "--value", `idfx-serve-${port}.service`],
           { env: defaultUnitDeps.busEnv() },
         );
         expect(show.stdout.trim()).toStartWith(`owner=${TEST_OWNER} `);

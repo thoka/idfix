@@ -121,7 +121,7 @@ export function serveEnv(
 
 /**
  * Starts one long-lived process of `up` and gives its PID. The default is
- * `startUnit`: a transient user service `ocsub-<kind>-<port>`, or a detached
+ * `startUnit`: a transient user service `idfx-<kind>-<port>`, or a detached
  * process without a user manager.
  */
 export type StartProcess = (opts: UnitOptions, units: UnitDeps) => ServeProcess;
@@ -220,7 +220,7 @@ export async function up(
   }
   if (!existsSync(sharedFile)) {
     console.error(`error: the shared agents file ${sharedFile} does not exist.`);
-    console.error("Create it, or set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md.");
+    console.error("Create it, or set IDFX_SHARED_DIR to the folder that holds AGENTS.md.");
     return 1;
   }
 
@@ -260,7 +260,7 @@ export async function up(
   // first, then the DeepInfra key file of the project of the current folder.
   // Without either, nothing changes.
   // The project of the current folder owns the processes of this start, and
-  // `OC_SUB_OWNER` overrides the owner of the units, not the key file.
+  // `IDFX_OWNER` overrides the owner of the units, not the key file.
   const project = deps.projectName(process.cwd());
   const owner = unitOwner(env, project);
   const deepinfraKey = hostDeepInfraKey(env, deepinfraKeyPath(project, env), deps.readKeyFile);

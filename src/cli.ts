@@ -71,7 +71,7 @@ Usage:
   ${prog} doctor --fix-as-root [--force] [--dir DIR] [--json]
 
 Every command accepts:
-  --url URL   opencode server URL (default: $OC_SUB_URL or http://127.0.0.1:8767)
+  --url URL   opencode server URL (default: $IDFX_URL or http://127.0.0.1:8767)
 
 Sandbox mode:
   Sandbox mode is the default for up, down, and restart. It runs the opencode
@@ -98,9 +98,13 @@ Sandbox mode:
   of a run lives inside the sandbox clone, not on the host.
 
 Environment:
-  OC_SUB_URL                 default server URL
-  OC_SUB_SHARED_DIR          the folder with the shared AGENTS.md and skills
+  IDFX_URL                   default server URL
+  IDFX_SHARED_DIR            the folder with the shared AGENTS.md and skills
                              (no default; up and ping --rules need it)
+  IDFX_OWNER                 the owner of the units that up starts
+                             (default: the project)
+                             The old names OC_SUB_URL, OC_SUB_SHARED_DIR, and
+                             OC_SUB_OWNER still work. The new name wins.
   OPENCODE_SERVER_PASSWORD   enables basic auth (never printed)
   OPENCODE_SERVER_USERNAME   basic-auth user (default: opencode)
   SBX_BIN                    the sbx binary (default: sbx on PATH)

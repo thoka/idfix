@@ -17,7 +17,7 @@ const defaultDeps: RealCostDeps = { fetch, cwd: process.cwd() };
 
 /**
  * The real-cost line for a finished run. It first sums the `end` lines of the
- * cost proxy (~/.local/state/oc-sub logs) for the session tree; when the proxy
+ * cost proxy (~/.local/state/idfx logs) for the session tree; when the proxy
  * log has none of the tree sessions, it falls back to the growth of the key
  * usage at OpenRouter since the start of the run. Returns null without a run
  * record with a fingerprint, because then there is nothing to ask OpenRouter

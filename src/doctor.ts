@@ -21,6 +21,9 @@ import { LOCK_FILE, lockHolder, watchStateDir, type LockHolder } from "./watch/l
 import { pluginDataDir, pluginDigest, syncPluginDir } from "./plugin-sync";
 import { idfxVersion, TOOL } from "./protocol";
 import { defaultUnitDeps, listUnits, orphanedUnits, parseUnitLabel, stopUnit, type LoadedUnit, type UnitDeps } from "./units";
+import { oldOnlyEnvNames } from "./env-names";
+import { legacyStateDir, migrateStateDir, newStateDir, type StateMigration } from "./state";
+import { oldProjectConfigFile, projectConfigFile } from "./project-config";
 import { busyCheck, busyCheckNote, findRunningServers, restartServer, serverLabel, type BusyCheck, type RunningServer } from "./server-plugin";
 
 /**
@@ -163,10 +166,20 @@ export type DoctorDeps = {
   /** The version of idfx in the `--json` object, see `src/protocol.ts`. */
   toolVersion: () => string;
   /**
-   * The user manager, for the `units` check: it lists the `ocsub-*` units
+   * The user manager, for the `units` check: it lists the `idfx-*` and old `ocsub-*` units
    * and its fix stops the orphaned ones. The tests pass a fake.
    */
   units: UnitDeps;
+  /** The environment of doctor, for the `env-names` check. */
+  env: Env;
+  /** The old state folder `<base>/oc-sub` while it is a real folder, else null (`state-names`). */
+  legacyStateDir: () => string | null;
+  /** The new state folder `<base>/idfx`, named in the `state-names` message. */
+  newStateDir: string;
+  /** Moves the old state folder into the new one (the fix of `state-names`). */
+  migrateStateDir: () => StateMigration;
+  /** Renames a file in the project (the fix of `project-config-name`). */
+  renameFile: (from: string, to: string) => void;
 };
 
 /** One process of the host, as the process checks see it. */
@@ -271,7 +284,7 @@ export function defaultOriginAlphaSha(repoRoot: string): string | null {
  * same folder, then rename it over the old file.
  */
 export function defaultReplaceWithSymlink(file: string, target: string): void {
-  const tmp = `${file}.oc-sub-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const tmp = `${file}.idfx-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   symlinkSync(target, tmp);
   renameSync(tmp, file);
 }
@@ -384,6 +397,11 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     watchLock: () => lockHolder(watchStateDir(env)),
     toolVersion: idfxVersion,
     units: defaultUnitDeps,
+    env,
+    legacyStateDir: () => legacyStateDir(env),
+    newStateDir: newStateDir(env),
+    migrateStateDir: () => migrateStateDir(env),
+    renameFile: (from, to) => renameSync(from, to),
   };
   return { ...deps, ...overrides };
 }
@@ -506,7 +524,7 @@ function globalRulesCheck(deps: DoctorDeps): CheckResult {
       "global-rules",
       "warn",
       `${SHARED_DIR_UNSET} There is no shared rules file.`,
-      "set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills)",
+      "set IDFX_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills)",
     );
   }
   const sharedFile = path.join(deps.sharedDir, "AGENTS.md");
@@ -516,7 +534,7 @@ function globalRulesCheck(deps: DoctorDeps): CheckResult {
       "global-rules",
       "warn",
       `the shared rules file ${sharedFile} is missing`,
-      "create it, or set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md",
+      "create it, or set IDFX_SHARED_DIR to the folder that holds AGENTS.md",
     );
   }
   const missing: string[] = [];
@@ -1524,7 +1542,8 @@ function limitedList(entries: readonly string[]): string {
 }
 
 /**
- * The `units` check: it lists the loaded `ocsub-*` systemd user units with
+ * The `units` check: it lists the loaded systemd user units of idfx (`idfx-*` and the
+ * old `ocsub-*`) with
  * owner and reason, and warns for each orphaned unit (see `orphanedUnits` in
  * `src/units.ts`): its folder is gone, or it is a proxy or idle unit of a
  * port without a serve or holder unit. It skips without a user manager. It
@@ -1533,15 +1552,15 @@ function limitedList(entries: readonly string[]): string {
 export function unitsCheck(deps: DoctorDeps): CheckResult {
   const units = listUnits(deps.units);
   if (units === null) return result("units", "skip", "no systemd user manager");
-  if (units.length === 0) return result("units", "pass", "no ocsub unit is loaded");
+  if (units.length === 0) return result("units", "pass", "no idfx unit is loaded");
   const orphans = orphanedUnits(units, deps.exists);
   if (orphans.length === 0) {
-    return result("units", "pass", `${units.length} ocsub unit(s): ${limitedList(units.map(unitEntry))}`);
+    return result("units", "pass", `${units.length} idfx unit(s): ${limitedList(units.map(unitEntry))}`);
   }
   return result(
     "units",
     "warn",
-    `${orphans.length} of ${units.length} ocsub unit(s) orphaned: ${limitedList(orphans.map((u) => `${unitEntry(u)}: ${u.cause}`))}`,
+    `${orphans.length} of ${units.length} idfx unit(s) orphaned: ${limitedList(orphans.map((u) => `${unitEntry(u)}: ${u.cause}`))}`,
     UNITS_FIX,
   );
 }
@@ -1560,7 +1579,7 @@ export function unitsFix(deps: DoctorDeps, _result: CheckResult, ctx: { force: b
   if (units === null) return { ok: true, note: "no systemd user manager" };
   const own = deps.units.ownUnit();
   const orphans = orphanedUnits(units, deps.exists).filter((u) => u.unit !== own);
-  if (orphans.length === 0) return { ok: true, note: "no orphaned ocsub unit" };
+  if (orphans.length === 0) return { ok: true, note: "no orphaned idfx unit" };
   let stopped = 0;
   const failed: string[] = [];
   for (const u of orphans) {
@@ -1596,6 +1615,85 @@ export function watchRunningCheck(deps: DoctorDeps): CheckResult {
   return result("watch-running", "warn", `no idfx watch --all runs: ${why}; the supervisor gets no wake-up`, WATCH_SERVICE_FIX);
 }
 
+/** The hint of the `state-names` check. */
+export const STATE_NAMES_FIX = "run idfx doctor --fix: it moves the old state folder into the new one and links the old path to it";
+
+/**
+ * The `state-names` check (step 24.3): it warns while the old state folder
+ * `<base>/oc-sub` is a real folder, because then idfx still keeps its state
+ * there. It passes when the old path is missing or is a link.
+ */
+export function stateNamesCheck(deps: DoctorDeps): CheckResult {
+  const old = deps.legacyStateDir();
+  if (old === null) return result("state-names", "pass", `the state folder is ${deps.newStateDir}`);
+  return result("state-names", "warn", `the state lives in the old folder ${old}, not in ${deps.newStateDir}`, STATE_NAMES_FIX);
+}
+
+/**
+ * The fix of `state-names`: `migrateStateDir` (`src/state.ts`). It stops
+ * while a `serve-<port>.lock` exists, skips and names an entry that exists
+ * in both folders, and links the old path to the new folder only when the
+ * old folder is empty.
+ */
+export function stateNamesFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): FixOutcome {
+  const outcome = deps.migrateStateDir();
+  return { ok: outcome.ok, note: outcome.note };
+}
+
+/**
+ * The `env-names` check (step 24.3): it warns for each variable that has
+ * only its old name set (`OC_SUB_URL`, `OC_SUB_OWNER`, `OC_SUB_SHARED_DIR`)
+ * and names the new name. The old names still work. There is no fix,
+ * because the configuration of the machine sets the variables.
+ */
+export function envNamesCheck(deps: DoctorDeps): CheckResult {
+  const old = oldOnlyEnvNames(deps.env);
+  if (old.length === 0) return result("env-names", "pass", "no variable uses only its old name");
+  return result(
+    "env-names",
+    "warn",
+    `only the old name is set: ${old.map((n) => `${n.old} (new name ${n.name})`).join(", ")}. The old names still work`,
+    `set ${old.map((n) => n.name).join(", ")} where ${old.map((n) => n.old).join(", ")} is set`,
+  );
+}
+
+/** The hint of the `project-config-name` check. */
+export const PROJECT_CONFIG_NAME_FIX = `run idfx doctor --fix: it renames the file, then commit the rename`;
+
+/**
+ * The `project-config-name` check (step 24.3): it warns when the project
+ * root has the old config file `.opencode/oc-sub.json`. The readers still
+ * read it when the new file `.opencode/idfx.json` is missing.
+ */
+export function projectConfigNameCheck(deps: DoctorDeps): CheckResult {
+  const oldFile = oldProjectConfigFile(deps.root);
+  const newFile = projectConfigFile(deps.root);
+  if (!deps.exists(oldFile)) return result("project-config-name", "pass", "the project has no old config file .opencode/oc-sub.json");
+  if (deps.exists(newFile)) {
+    return result(
+      "project-config-name",
+      "warn",
+      `the project has both ${newFile} and the old ${oldFile}; idfx reads only the new file`,
+      `merge ${oldFile} into ${newFile} by hand, then remove the old file`,
+    );
+  }
+  return result("project-config-name", "warn", `the project has the old config file ${oldFile}`, PROJECT_CONFIG_NAME_FIX);
+}
+
+/**
+ * The fix of `project-config-name`: it renames `.opencode/oc-sub.json` to
+ * `.opencode/idfx.json`. It never overwrites a new file. The user commits
+ * the rename.
+ */
+export function projectConfigNameFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): FixOutcome {
+  const oldFile = oldProjectConfigFile(deps.root);
+  const newFile = projectConfigFile(deps.root);
+  if (!deps.exists(oldFile)) return { ok: true, note: "no old config file" };
+  if (deps.exists(newFile)) return { ok: false, note: `${newFile} exists too; merge the two files by hand. Nothing changed` };
+  deps.renameFile(oldFile, newFile);
+  return { ok: true, note: `renamed ${oldFile} to ${newFile}; commit the rename` };
+}
+
 /** The fast checks: `up` and `run` run them on every invocation. */
 export const FAST_CHECKS: Check[] = [
   { name: "env-files", run: envFilesCheck },
@@ -1608,7 +1706,12 @@ export const FAST_CHECKS: Check[] = [
 
 /** The slow checks: only `idfx doctor` runs them. */
 export const SLOW_CHECKS: Check[] = [
-  // First: it only spawns mise, and no other check or fix depends on it.
+  // The stored names of step 24.3. First, so the state folder moves before
+  // any other fix reads or writes state.
+  { name: "state-names", run: stateNamesCheck, fix: stateNamesFix },
+  { name: "env-names", run: envNamesCheck },
+  { name: "project-config-name", run: projectConfigNameCheck, fix: projectConfigNameFix },
+  // It only spawns mise, and no other check or fix depends on it.
   { name: "opencode-version", run: opencodeVersionCheck, fix: opencodeVersionFix },
   { name: "opencode-release", run: opencodeReviewCheck },
   { name: "plugin-fresh", run: pluginFreshCheck, fix: pluginFreshFix },

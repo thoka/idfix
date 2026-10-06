@@ -6,7 +6,7 @@ import { realCostOutput } from "../src/realcost";
 
 const TMP = "/tmp/opencode/realcost-test";
 const ENV = { XDG_STATE_HOME: path.join(TMP, "state") };
-const STATE = path.join(ENV.XDG_STATE_HOME, "oc-sub");
+const STATE = path.join(ENV.XDG_STATE_HOME, "idfx");
 
 /** An SDK client that realCostOutput never reaches in these tests. */
 const CLIENT = {} as OpencodeClient;

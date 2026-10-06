@@ -74,7 +74,7 @@ describe("readCriticalFooter", () => {
     expect(criticalFooterFile({ HOME: "/home/user" })).toBeUndefined();
     expect(criticalFooterFile({ OC_SUB_SHARED_DIR: " " })).toBeUndefined();
     expect(() => readCriticalFooter({ HOME: "/home/user" })).toThrow(
-      "cannot read the critical-research footer: OC_SUB_SHARED_DIR is not set.",
+      "cannot read the critical-research footer: IDFX_SHARED_DIR is not set.",
     );
   });
 

@@ -3,7 +3,7 @@
  * cost proxy.
  *
  * With a user manager, `up` starts each process as a transient user service
- * `ocsub-<kind>-<port>` (`units.ts`). `down` stops the unit first:
+ * `idfx-<kind>-<port>` (`units.ts`; older code used `ocsub-`). `down` stops the unit first:
  * `systemctl --user stop` ends the whole cgroup, also a child that left the
  * process group. The PID files stay, because `status`, `doctor`, and the
  * watchdog read them. But the PID file of the proxy goes stale when the
@@ -33,7 +33,7 @@ import { resolveTarget, type Env } from "./config";
 import { assertUsable, makeClient, probeServer, unwrap } from "./client";
 import { readDirs, readPid, removeFiles, proxyPidPath, serveDirsPath, servePidPath, servePluginPath } from "./state";
 import { idlePidPath, isIdleWatch, stopIdleWatch } from "./idle";
-import { defaultUnitDeps, portUnitName, stopPortUnits, unitActive, type UnitDeps } from "./units";
+import { defaultUnitDeps, portUnitNames, stopPortUnits, unitActive, type UnitDeps } from "./units";
 
 const STOP_TIMEOUT_MS = 15_000;
 const STOP_INTERVAL_MS = 200;
@@ -174,7 +174,7 @@ export type DownDeps = {
    * when no signal is given. A group that is already gone is fine.
    */
   killGroup: (pid: number, signal?: NodeJS.Signals) => void;
-  /** The user manager, for the `ocsub-*` units of `up`. */
+  /** The user manager, for the `idfx-*` and old `ocsub-*` units of `up`. */
   units: UnitDeps;
 };
 
@@ -226,10 +226,13 @@ export async function down(
   const pid = await readPid(pidPath);
   const commandLine = pid === null ? null : deps.commandLineOf(pid);
   const pidIsServer = pid !== null && commandLine !== null && isOpencodeServe(commandLine, port);
-  // A running unit `ocsub-serve-<port>` is a server of `up`, also when its
-  // PID file is missing or its PID is still the systemd executor.
-  const serveUnit = portUnitName("serve", port);
-  const unitRuns = unitActive(serveUnit, deps.units);
+  // A running unit `idfx-serve-<port>` (or `ocsub-serve-<port>` of older
+  // code) is a server of `up`, also when its PID file is missing or its PID
+  // is still the systemd executor.
+  const serveUnits = portUnitNames("serve", port);
+  const activeUnit = serveUnits.find((unit) => unitActive(unit, deps.units));
+  const serveUnit = activeUnit ?? (serveUnits[0] as string);
+  const unitRuns = activeUnit !== undefined;
   if (!pidIsServer && !unitRuns) {
     // No server of ours: the PID file is missing or stale. The proxy of a
     // server that died can still run, so stop it before its PID file goes.

@@ -53,10 +53,13 @@ function makeDeps(overrides: Partial<UpDeps> = {}): UpDeps {
 describe("log marker helpers", () => {
   test("logMarkerLine names idfx, the label, and the ISO time", () => {
     const line = logMarkerLine("up", new Date("2026-10-01T21:00:00.000Z"));
-    expect(line).toBe("--- oc-sub up 2026-10-01T21:00:00.000Z ---");
+    expect(line).toBe("--- idfx up 2026-10-01T21:00:00.000Z ---");
   });
 
   test("isLogMarkerLine accepts markers and rejects log output", () => {
+    expect(isLogMarkerLine("--- idfx up 2026-10-01T21:00:00.000Z ---")).toBe(true);
+    expect(isLogMarkerLine("--- idfx up not-a-time ---")).toBe(false);
+    // The marker of older code still counts, because the logs keep old lines.
     expect(isLogMarkerLine("--- oc-sub up 2026-10-01T21:00:00.000Z ---")).toBe(true);
     expect(isLogMarkerLine("  --- oc-sub up 2026-10-01T21:00:00.000Z ---  ")).toBe(true);
     expect(isLogMarkerLine("opencode serve listening")).toBe(false);
@@ -87,7 +90,7 @@ describe("log marker helpers", () => {
     await appendLogMarker(file, "up");
     await appendLogMarker(file, "up");
     const text = readFileSync(file, "utf8");
-    expect(text.match(/^--- oc-sub up /gm)).toHaveLength(2);
+    expect(text.match(/^--- idfx up /gm)).toHaveLength(2);
   });
 
   test("readLogTail caps the lines of the newest start", async () => {
@@ -147,7 +150,8 @@ describe("up marks each start and keeps older log lines", () => {
 
     const serveText = readFileSync(serveLog, "utf8");
     expect(serveText).toContain("older start");
-    const serveMarkers = serveText.match(/^--- oc-sub up \d{4}-.* ---$/gm) ?? [];
+    // One old marker of older code and one new marker.
+    const serveMarkers = serveText.match(/^--- (?:oc-sub|idfx) up \d{4}-.* ---$/gm) ?? [];
     expect(serveMarkers).toHaveLength(2);
     // The old end line of the proxy log survives the restart: `idfx log`
     // of the older run keeps its real cost.
@@ -161,8 +165,8 @@ describe("up marks each start and keeps older log lines", () => {
     const proxyLog = proxyLogPath(env, 8790);
     const result = await up({ port: 8790 }, env, makeDeps({ bunBin: () => "/opt/bun/bin/bun" }));
     expect(result).toBe(0);
-    expect(readFileSync(serveLog, "utf8").match(/^--- oc-sub up \S+ ---$/gm)).toHaveLength(1);
-    expect(readFileSync(proxyLog, "utf8").match(/^--- oc-sub up \S+ ---$/gm)).toHaveLength(1);
+    expect(readFileSync(serveLog, "utf8").match(/^--- idfx up \S+ ---$/gm)).toHaveLength(1);
+    expect(readFileSync(proxyLog, "utf8").match(/^--- idfx up \S+ ---$/gm)).toHaveLength(1);
   });
 
   test("a failed start shows only the output after the last marker", async () => {

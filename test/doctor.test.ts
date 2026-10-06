@@ -35,6 +35,12 @@ import {
   TOP_RSS_LIMIT,
   WATCH_SERVICE_FIX,
   watchRunningCheck,
+  STATE_NAMES_FIX,
+  PROJECT_CONFIG_NAME_FIX,
+  stateNamesCheck,
+  envNamesCheck,
+  projectConfigNameCheck,
+  projectConfigNameFix,
   orphanProcessesFix,
   topMemoryFix,
   UNITS_FIX,
@@ -173,8 +179,21 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
       throw new Error("no process may be killed in this test");
     },
     wait: async () => {},
-    // A user manager with no ocsub unit by default, so units passes.
+    // A user manager with no idfx unit by default, so units passes.
     units: fakeUnits({ show: "" }).deps,
+    // No old names by default, so the checks of step 24.3 pass.
+    env: {},
+    legacyStateDir: () => null,
+    newStateDir: "/home/user/.local/state/idfx",
+    migrateStateDir: () => {
+      throw new Error("no state folder may move in this test");
+    },
+    renameFile: (from, to) => {
+      const entry = files.get(from);
+      if (entry === undefined) throw new Error(`no file ${from}`);
+      files.delete(from);
+      files.set(to, entry);
+    },
     ...overrides,
   };
   return deps;
@@ -299,9 +318,9 @@ describe("global-rules", () => {
     const deps = makeDeps({ files: map({ ...links, [sharedFile]: { content: "# rules" } }) }, { sharedDir: undefined });
     const check = byName(results(deps), "global-rules");
     expect(check?.status).toBe("warn");
-    expect(check?.message).toBe("OC_SUB_SHARED_DIR is not set. There is no shared rules file.");
+    expect(check?.message).toBe("IDFX_SHARED_DIR is not set. There is no shared rules file.");
     expect(check?.fix).toBe(
-      "set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills)",
+      "set IDFX_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills)",
     );
   });
 
@@ -812,7 +831,7 @@ describe("the global-rules fix", () => {
   test("changes nothing without OC_SUB_SHARED_DIR", () => {
     const deps = makeDeps({ files: map({ ...Object.fromEntries(base), [codexMd]: { content: "# rules" } }) }, { sharedDir: undefined });
     const outcome = globalRulesFix(deps, {} as CheckResult, { force: false });
-    expect(outcome).toEqual({ ok: false, note: "OC_SUB_SHARED_DIR is not set. Nothing changed" });
+    expect(outcome).toEqual({ ok: false, note: "IDFX_SHARED_DIR is not set. Nothing changed" });
     expect(deps.lstat(codexMd)?.isSymbolicLink).toBe(false);
   });
 
@@ -2849,8 +2868,8 @@ describe("units", () => {
   }
 
   const full = [
-    block("ocsub-serve-4096", "proj", "opencode server of up on port 4096", "/work"),
-    block("ocsub-proxy-4096", "proj", "cost proxy for port 4096", "/work"),
+    block("idfx-serve-4096", "proj", "opencode server of up on port 4096", "/work"),
+    block("idfx-proxy-4096", "proj", "cost proxy for port 4096", "/work"),
   ].join("\n");
 
   test("is a slow check after orphan-processes and has a fix", () => {
@@ -2870,9 +2889,23 @@ describe("units", () => {
     expect(unitsCheck(deps).status).toBe("skip");
   });
 
+  test("lists and stops an orphaned unit of older code with the prefix ocsub-", () => {
+    const show = [
+      block("idfx-serve-4096", "proj", "server", "/work"),
+      block("ocsub-proxy-4096", "proj", "proxy", "/work"),
+      block("ocsub-idle-4097", "proj", "idle", "/work"),
+    ].join("\n");
+    const { deps, fake } = unitDeps(show, { loaded: ["idfx-serve-4096", "ocsub-proxy-4096", "ocsub-idle-4097"] });
+    const check = unitsCheck(deps);
+    // An old proxy unit of a port with a new serve unit is no orphan.
+    expect(check.message).toBe("1 of 3 idfx unit(s) orphaned: ocsub-idle-4097 (owner proj: idle): no serve or holder unit runs on port 4097");
+    expect(unitsFix(deps, check, { force: true })).toEqual({ ok: true, note: "stopped 1 orphaned unit(s)" });
+    expect([...fake.loaded].sort()).toEqual(["idfx-serve-4096", "ocsub-proxy-4096"]);
+  });
+
   test("passes without a unit", () => {
     const { deps } = unitDeps("");
-    expect(unitsCheck(deps)).toMatchObject({ status: "pass", message: "no ocsub unit is loaded" });
+    expect(unitsCheck(deps)).toMatchObject({ status: "pass", message: "no idfx unit is loaded" });
   });
 
   test("passes with the count and the owner and reason of each unit", () => {
@@ -2880,43 +2913,43 @@ describe("units", () => {
     expect(unitsCheck(deps)).toMatchObject({
       status: "pass",
       message:
-        "2 ocsub unit(s): ocsub-serve-4096 (owner proj: opencode server of up on port 4096), ocsub-proxy-4096 (owner proj: cost proxy for port 4096)",
+        "2 idfx unit(s): idfx-serve-4096 (owner proj: opencode server of up on port 4096), idfx-proxy-4096 (owner proj: cost proxy for port 4096)",
     });
   });
 
   test("names a unit without a label", () => {
-    const { deps } = unitDeps("Id=ocsub-serve-1.service\nDescription=/usr/bin/sleep 9\nWorkingDirectory=/work\n");
-    expect(unitsCheck(deps).message).toBe("1 ocsub unit(s): ocsub-serve-1 (no owner: /usr/bin/sleep 9)");
+    const { deps } = unitDeps("Id=idfx-serve-1.service\nDescription=/usr/bin/sleep 9\nWorkingDirectory=/work\n");
+    expect(unitsCheck(deps).message).toBe("1 idfx unit(s): idfx-serve-1 (no owner: /usr/bin/sleep 9)");
   });
 
   test("warns with each orphan and its cause", () => {
     const show = [
-      block("ocsub-serve-4096", "proj", "server", "/gone"),
-      block("ocsub-idle-4097", "proj", "idle watchdog", "/work"),
-      block("ocsub-serve-4098", "proj", "server", "/work"),
+      block("idfx-serve-4096", "proj", "server", "/gone"),
+      block("idfx-idle-4097", "proj", "idle watchdog", "/work"),
+      block("idfx-serve-4098", "proj", "server", "/work"),
     ].join("\n");
     const { deps } = unitDeps(show);
     const check = unitsCheck(deps);
     expect(check.status).toBe("warn");
     expect(check.message).toBe(
-      "2 of 3 ocsub unit(s) orphaned: ocsub-serve-4096 (owner proj: server): its folder /gone is gone, " +
-        "ocsub-idle-4097 (owner proj: idle watchdog): no serve or holder unit runs on port 4097",
+      "2 of 3 idfx unit(s) orphaned: idfx-serve-4096 (owner proj: server): its folder /gone is gone, " +
+        "idfx-idle-4097 (owner proj: idle watchdog): no serve or holder unit runs on port 4097",
     );
     expect(check.fix).toBe(UNITS_FIX);
   });
 
   test("lists at most 10 entries and the rest as a count", () => {
-    const show = Array.from({ length: 12 }, (_, i) => block(`ocsub-serve-${4000 + i}`, "p", "r", "/work")).join("\n");
+    const show = Array.from({ length: 12 }, (_, i) => block(`idfx-serve-${4000 + i}`, "p", "r", "/work")).join("\n");
     const { deps } = unitDeps(show);
     const message = unitsCheck(deps).message;
-    expect(message.startsWith("12 ocsub unit(s): ")).toBe(true);
+    expect(message.startsWith("12 idfx unit(s): ")).toBe(true);
     expect(message.endsWith(", and 2 more")).toBe(true);
-    expect(message).toContain("ocsub-serve-4009");
-    expect(message).not.toContain("ocsub-serve-4010");
+    expect(message).toContain("idfx-serve-4009");
+    expect(message).not.toContain("idfx-serve-4010");
   });
 
   test("the fix needs --force and then stops nothing", () => {
-    const { deps, fake } = unitDeps(block("ocsub-idle-4097", "proj", "idle", "/work"), { loaded: ["ocsub-idle-4097"] });
+    const { deps, fake } = unitDeps(block("idfx-idle-4097", "proj", "idle", "/work"), { loaded: ["idfx-idle-4097"] });
     const outcome = unitsFix(deps, unitsCheck(deps), { force: false });
     expect(outcome.ok).toBe(false);
     expect(outcome.note).toContain("--force");
@@ -2925,40 +2958,40 @@ describe("units", () => {
 
   test("the fix with --force lists again and stops each orphan, never the own unit", () => {
     const show = [
-      block("ocsub-serve-4096", "proj", "server", "/work"),
-      block("ocsub-proxy-4096", "proj", "proxy", "/work"),
-      block("ocsub-idle-4097", "proj", "idle", "/work"),
-      block("ocsub-proxy-4098", "proj", "proxy", "/gone"),
-      block("ocsub-idle-4099", "proj", "idle", "/work"),
+      block("idfx-serve-4096", "proj", "server", "/work"),
+      block("idfx-proxy-4096", "proj", "proxy", "/work"),
+      block("idfx-idle-4097", "proj", "idle", "/work"),
+      block("idfx-proxy-4098", "proj", "proxy", "/gone"),
+      block("idfx-idle-4099", "proj", "idle", "/work"),
     ].join("\n");
     const { deps, fake } = unitDeps(show, {
-      own: "ocsub-idle-4099",
-      loaded: ["ocsub-serve-4096", "ocsub-proxy-4096", "ocsub-idle-4097", "ocsub-proxy-4098", "ocsub-idle-4099"],
+      own: "idfx-idle-4099",
+      loaded: ["idfx-serve-4096", "idfx-proxy-4096", "idfx-idle-4097", "idfx-proxy-4098", "idfx-idle-4099"],
     });
     const outcome = unitsFix(deps, unitsCheck(deps), { force: true });
     expect(outcome).toEqual({ ok: true, note: "stopped 2 orphaned unit(s)" });
-    expect(fake.calls).toEqual(["list", "list", "stop ocsub-idle-4097", "stop ocsub-proxy-4098"]);
-    expect([...fake.loaded].sort()).toEqual(["ocsub-idle-4099", "ocsub-proxy-4096", "ocsub-serve-4096"]);
+    expect(fake.calls).toEqual(["list", "list", "stop idfx-idle-4097", "stop idfx-proxy-4098"]);
+    expect([...fake.loaded].sort()).toEqual(["idfx-idle-4099", "idfx-proxy-4096", "idfx-serve-4096"]);
   });
 
   test("the fix counts a unit that is gone already as no stop and stays ok", () => {
-    const { deps } = unitDeps(block("ocsub-idle-4097", "proj", "idle", "/work"));
+    const { deps } = unitDeps(block("idfx-idle-4097", "proj", "idle", "/work"));
     expect(unitsFix(deps, unitsCheck(deps), { force: true })).toEqual({ ok: true, note: "stopped 0 orphaned unit(s)" });
   });
 
   test("the fix fails when a stop fails", () => {
-    const { deps } = unitDeps(block("ocsub-idle-4097", "proj", "idle", "/work"), {
-      loaded: ["ocsub-idle-4097"],
-      failStop: "ocsub-idle-4097",
+    const { deps } = unitDeps(block("idfx-idle-4097", "proj", "idle", "/work"), {
+      loaded: ["idfx-idle-4097"],
+      failStop: "idfx-idle-4097",
     });
     const outcome = unitsFix(deps, unitsCheck(deps), { force: true });
     expect(outcome.ok).toBe(false);
-    expect(outcome.note).toContain("1 failed: ocsub-idle-4097: systemctl cannot stop");
+    expect(outcome.note).toContain("1 failed: idfx-idle-4097: systemctl cannot stop");
   });
 
   test("the fix does nothing without an orphan or without a user manager", () => {
-    const { deps, fake } = unitDeps(full, { loaded: ["ocsub-serve-4096", "ocsub-proxy-4096"] });
-    expect(unitsFix(deps, unitsCheck(deps), { force: true })).toEqual({ ok: true, note: "no orphaned ocsub unit" });
+    const { deps, fake } = unitDeps(full, { loaded: ["idfx-serve-4096", "idfx-proxy-4096"] });
+    expect(unitsFix(deps, unitsCheck(deps), { force: true })).toEqual({ ok: true, note: "no orphaned idfx unit" });
     expect(fake.calls).toEqual(["list", "list"]);
     const none = unitDeps(null, { available: false });
     expect(unitsFix(none.deps, unitsCheck(none.deps), { force: true })).toEqual({ ok: true, note: "no systemd user manager" });
@@ -2996,5 +3029,107 @@ describe("watch-running", () => {
     expect(entry).toBeDefined();
     expect(entry?.fix).toBeUndefined();
     expect(entry?.rootFix).toBeUndefined();
+  });
+});
+
+describe("the stored names of step 24.3", () => {
+  const SLOW = SLOW_CHECKS.map((c) => c.name);
+
+  test("the three checks come first in the slow checks, so the state folder moves before other fixes", () => {
+    expect(SLOW.slice(0, 3)).toEqual(["state-names", "env-names", "project-config-name"]);
+    expect(SLOW_CHECKS.find((c) => c.name === "env-names")?.fix).toBeUndefined();
+  });
+
+  describe("state-names", () => {
+    test("passes without an old real state folder", () => {
+      expect(stateNamesCheck(makeDeps())).toMatchObject({ status: "pass", message: "the state folder is /home/user/.local/state/idfx" });
+    });
+
+    test("warns while the old real folder exists and names the fix", () => {
+      const check = stateNamesCheck(makeDeps({}, { legacyStateDir: () => "/home/user/.local/state/oc-sub" }));
+      expect(check.status).toBe("warn");
+      expect(check.message).toContain("/home/user/.local/state/oc-sub");
+      expect(check.fix).toBe(STATE_NAMES_FIX);
+    });
+
+    test("doctor --fix moves the real folder, links the old path, and passes on the second run", async () => {
+      const base = mkdtempSync(path.join(tmpdir(), "idfx-doctor-state-"));
+      mkdirSync(path.join(base, "oc-sub"));
+      writeFileSync(path.join(base, "oc-sub", "serve-8767.pid"), "1\n");
+      const deps = makeDoctorDeps({ XDG_STATE_HOME: base, HOME: base }, base);
+      const checks = SLOW_CHECKS.filter((c) => c.name === "state-names");
+      const before = runChecks(checks, deps);
+      expect(before[0]?.status).toBe("warn");
+      const fixes = await runFixes(checks, deps, before, { force: false }, () => {});
+      expect(fixes).toEqual([{ name: "state-names", ok: true, note: expect.stringContaining("links to it now") }]);
+      expect(readlinkSync(path.join(base, "oc-sub"))).toBe("idfx");
+      expect(readFileSync(path.join(base, "idfx", "serve-8767.pid"), "utf8")).toBe("1\n");
+      expect(runChecks(checks, deps)[0]?.status).toBe("pass");
+      // A second fix pass finds nothing to fix.
+      expect(await runFixes(checks, deps, runChecks(checks, deps), { force: false }, () => {})).toEqual([]);
+      rmSync(base, { recursive: true, force: true });
+    });
+
+    test("doctor --fix stops while a serve lock exists", async () => {
+      const base = mkdtempSync(path.join(tmpdir(), "idfx-doctor-state-"));
+      mkdirSync(path.join(base, "oc-sub", "serve-8767.lock"), { recursive: true });
+      const deps = makeDoctorDeps({ XDG_STATE_HOME: base, HOME: base }, base);
+      const checks = SLOW_CHECKS.filter((c) => c.name === "state-names");
+      const fixes = await runFixes(checks, deps, runChecks(checks, deps), { force: false }, () => {});
+      expect(fixes[0]).toMatchObject({ name: "state-names", ok: false, note: expect.stringContaining("serve-8767.lock") });
+      expect(runChecks(checks, deps)[0]?.status).toBe("warn");
+      rmSync(base, { recursive: true, force: true });
+    });
+  });
+
+  describe("env-names", () => {
+    test("passes with new names or no names", () => {
+      expect(envNamesCheck(makeDeps()).status).toBe("pass");
+      expect(envNamesCheck(makeDeps({}, { env: { IDFX_SHARED_DIR: "/a", OC_SUB_SHARED_DIR: "/a" } })).status).toBe("pass");
+    });
+
+    test("warns for each variable with only the old name and names the new name", () => {
+      const check = envNamesCheck(makeDeps({}, { env: { OC_SUB_SHARED_DIR: "/a", OC_SUB_OWNER: "me", IDFX_URL: "http://x" } }));
+      expect(check.status).toBe("warn");
+      expect(check.message).toBe(
+        "only the old name is set: OC_SUB_OWNER (new name IDFX_OWNER), OC_SUB_SHARED_DIR (new name IDFX_SHARED_DIR). The old names still work",
+      );
+      expect(check.fix).toBe("set IDFX_OWNER, IDFX_SHARED_DIR where OC_SUB_OWNER, OC_SUB_SHARED_DIR is set");
+    });
+  });
+
+  describe("project-config-name", () => {
+    const OLD = "/repo/.opencode/oc-sub.json";
+    const NEW = "/repo/.opencode/idfx.json";
+
+    test("passes without the old file", () => {
+      expect(projectConfigNameCheck(makeDeps()).status).toBe("pass");
+      expect(projectConfigNameCheck(makeDeps({ files: map({ [NEW]: { content: "{}" } }) })).status).toBe("pass");
+    });
+
+    test("warns on the old file, and --fix renames it", async () => {
+      const files = map<{ link?: string; content?: string }>({ [OLD]: { content: '{"shortName":"x"}' } });
+      const deps = makeDeps({ files });
+      const check = projectConfigNameCheck(deps);
+      expect(check).toMatchObject({ status: "warn", fix: PROJECT_CONFIG_NAME_FIX });
+      expect(projectConfigNameFix(deps, check, { force: false })).toEqual({
+        ok: true,
+        note: `renamed ${OLD} to ${NEW}; commit the rename`,
+      });
+      expect(files.has(OLD)).toBe(false);
+      expect(files.get(NEW)?.content).toBe('{"shortName":"x"}');
+      expect(projectConfigNameCheck(deps).status).toBe("pass");
+    });
+
+    test("never overwrites the new file when both exist", () => {
+      const files = map<{ link?: string; content?: string }>({ [OLD]: { content: "old" }, [NEW]: { content: "new" } });
+      const deps = makeDeps({ files });
+      const check = projectConfigNameCheck(deps);
+      expect(check.status).toBe("warn");
+      expect(check.message).toContain("both");
+      expect(projectConfigNameFix(deps, check, { force: false }).ok).toBe(false);
+      expect(files.get(NEW)?.content).toBe("new");
+      expect(files.get(OLD)?.content).toBe("old");
+    });
   });
 });

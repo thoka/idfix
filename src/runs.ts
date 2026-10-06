@@ -1,6 +1,6 @@
 /**
  * Run records: one JSON file per started run under `.opencode/runs/` of the
- * start directory, and a copy under `<stateHome>/oc-sub/runs/` so that
+ * start directory, and a copy under `<stateHome>/idfx/runs/` so that
  * `watch` and `log` find the record from any working directory.
  */
 import { mkdir, readFile } from "node:fs/promises";
@@ -44,7 +44,7 @@ export function runRecordPath(cwd: string, sessionId: string): string {
   return path.join(cwd, ".opencode", "runs", `${sessionId}.json`);
 }
 
-/** The folder of the run records in the per-user state, `<stateHome>/oc-sub/runs/`. */
+/** The folder of the run records in the per-user state, `<stateHome>/idfx/runs/`. */
 export function stateRunsDir(env: Env): string {
   return path.join(stateDir(env), "runs");
 }

@@ -4,7 +4,7 @@
  * `up` starts the server in the background, and before this module only
  * `idfx down` stopped it, so an idle server ran for days. After a start,
  * `up` starts the hidden command `idfx idle-watch --port <port> --minutes
- * <N>` as the unit `ocsub-idle-<port>` (`units.ts`), or detached without a
+ * <N>` as the unit `idfx-idle-<port>` (`units.ts`), or detached without a
  * user manager, with its own PID file `idle-<port>.pid` and its output
  * appended to the server log. The watchdog follows the event stream of all folders
  * (`GET /global/event`) and stops the server when no session is busy and no
@@ -339,7 +339,7 @@ export type StopIdleDeps = Pick<DownDeps, "commandLineOf" | "killGroup"> & { uni
 
 /**
  * Stops the watchdog of the server on `port` and removes its PID file. It
- * stops the unit `ocsub-idle-<port>` first, then the process of the PID
+ * stops the unit `idfx-idle-<port>` first, then the process of the PID
  * file, for a watchdog of an older idfx or of the fallback path. A
  * missing unit and a missing or stale PID file are fine. The watchdog itself
  * calls the stop path, so neither its own unit nor a PID equal to `selfPid`
@@ -377,7 +377,7 @@ export type SpawnIdleWatch = (opts: UnitOptions, units: UnitDeps) => ServeProces
 
 /**
  * Starts the watchdog of the server on `port` after a start of `up`, as the
- * unit `ocsub-idle-<port>` with `owner`. With `minutes` 0, it starts
+ * unit `idfx-idle-<port>` with `owner`. With `minutes` 0, it starts
  * nothing. A failed spawn gives a warning and no error, because the server
  * runs.
  */

@@ -436,7 +436,7 @@ function createSseTap() {
 }
 
 // src/proxy/proxy.ts
-var LOG_SOURCE = "oc-sub-cost-proxy";
+var LOG_SOURCE = "idfx-cost-proxy";
 var DEFAULT_UPSTREAM = "https://openrouter.ai/api";
 var DEFAULT_DEEPINFRA_UPSTREAM = "https://api.deepinfra.com";
 var DEEPINFRA_PREFIX = "/deepinfra";
@@ -605,7 +605,7 @@ var upstream = argOf("--upstream");
 var deepinfraUpstream = argOf("--deepinfra-upstream");
 var server = startProxy({ port, hostname, upstream, deepinfraUpstream });
 console.log(JSON.stringify({
-  source: "oc-sub-cost-proxy",
+  source: LOG_SOURCE,
   event: "listening",
   time: new Date().toISOString(),
   hostname: server.hostname,

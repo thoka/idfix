@@ -14,9 +14,10 @@ function endLine(input: {
   cost: number | null;
   time?: string;
   request?: number;
+  source?: string;
 }): string {
   return JSON.stringify({
-    source: "oc-sub-cost-proxy",
+    source: input.source ?? "idfx-cost-proxy",
     event: "end",
     time: input.time ?? "2026-10-01T04:58:34.594Z",
     request: input.request ?? 20,
@@ -32,6 +33,14 @@ function endLine(input: {
 }
 
 describe("parseProxyLog", () => {
+  test("counts the lines of the new source idfx-cost-proxy and of the old source oc-sub-cost-proxy", () => {
+    const text = [
+      endLine({ session: MAIN, upstream: "deepinfra", cost: 0.001, source: "idfx-cost-proxy" }),
+      endLine({ session: MAIN, upstream: "deepinfra", cost: 0.002, source: "oc-sub-cost-proxy" }),
+    ].join("\n");
+    expect(parseProxyLog(text, IDS)).toMatchObject({ requests: 2, byUpstream: [{ name: "deepinfra", cost: 0.003, requests: 2 }] });
+  });
+
   test("sums the end lines of the tree sessions, per upstream", () => {
     const text = [
       endLine({ session: MAIN, upstream: "deepinfra", cost: 0.001 }),
@@ -119,9 +128,9 @@ describe("formatProxyLine", () => {
 });
 
 /** One proxy `start` line. */
-function startLine(input: { session: string; request: number; upstream?: string; time?: string }): string {
+function startLine(input: { session: string; request: number; upstream?: string; time?: string; source?: string }): string {
   return JSON.stringify({
-    source: "oc-sub-cost-proxy",
+    source: input.source ?? "idfx-cost-proxy",
     event: "start",
     time: input.time ?? "2026-10-01T21:07:55.094Z",
     request: input.request,
@@ -145,6 +154,15 @@ function listeningLine(): string {
 }
 
 describe("parseOpenRequests", () => {
+  test("finds open starts of the new and the old source", () => {
+    const text = [
+      startLine({ session: SUB, request: 2, source: "idfx-cost-proxy" }),
+      startLine({ session: MAIN, request: 3, source: "oc-sub-cost-proxy" }),
+      startLine({ session: MAIN, request: 4, source: "other-proxy" }),
+    ].join("\n");
+    expect(parseOpenRequests(text, IDS).map((r) => r.session).sort()).toEqual([MAIN, SUB]);
+  });
+
   test("finds an open start of a tree session", () => {
     const text = [
       listeningLine(),
@@ -199,7 +217,7 @@ describe("parseOpenRequests", () => {
 });
 
 const OPEN_TMP = "/tmp/opencode/proxycost-open-test";
-const OPEN_STATE = path.join(OPEN_TMP, "state", "oc-sub");
+const OPEN_STATE = path.join(OPEN_TMP, "state", "idfx");
 const OPEN_LOG = path.join(OPEN_STATE, "proxy-4097.log");
 
 describe("createOpenRequestReader", () => {
@@ -270,7 +288,7 @@ describe("createOpenRequestReader", () => {
 });
 
 const TMP = "/tmp/opencode/proxycost-test";
-const STATE = path.join(TMP, "state", "oc-sub");
+const STATE = path.join(TMP, "state", "idfx");
 
 describe("readProxyTotals", () => {
   test("sums the serve log and the proxy log of the state folder", async () => {

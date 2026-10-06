@@ -2,10 +2,12 @@
  * The real cost from the proxy log: `watch` and `log` sum the `end` lines of
  * the proxy (`src/proxy/`) for one session tree. One JSON log line per model
  * request goes into `serve-<port>.log` (sandbox mode, mixed with server
- * output) or `proxy-<port>.log` (host mode); all live in `stateDir`.
+ * output) or `proxy-<port>.log` (host mode); all live in `stateDir`. The
+ * readers accept the source `idfx-cost-proxy` and the old `oc-sub-cost-proxy`.
  */
 import { open, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { isProxyLogSource } from "./proxy/proxy";
 
 /** Cost and request totals of one session tree in the proxy log. */
 export type ProxyTotals = {
@@ -53,7 +55,7 @@ function countedEndLine(line: string, sessionIds: ReadonlySet<string>): EndLine 
     return null;
   }
   if (parsed === null || typeof parsed !== "object") return null;
-  if (parsed.source !== "oc-sub-cost-proxy" || parsed.event !== "end") return null;
+  if (!isProxyLogSource(parsed.source) || parsed.event !== "end") return null;
   if (typeof parsed.session !== "string" || !sessionIds.has(parsed.session)) return null;
   return parsed;
 }
@@ -161,7 +163,7 @@ function proxyLine(line: string): ProxyLine | null {
     return null;
   }
   if (parsed === null || typeof parsed !== "object") return null;
-  if (parsed.source !== "oc-sub-cost-proxy") return null;
+  if (!isProxyLogSource(parsed.source)) return null;
   return parsed;
 }
 

@@ -67,8 +67,8 @@ describe("serveEnv with the cost proxy (host mode)", () => {
 });
 
 const UNSET_LINES = [
-  "error: OC_SUB_SHARED_DIR is not set.",
-  "Set OC_SUB_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills).",
+  "error: IDFX_SHARED_DIR is not set.",
+  "Set IDFX_SHARED_DIR to the folder that holds AGENTS.md (your global rules) and skills/<name>/SKILL.md (your skills).",
 ];
 
 /** Runs up on the host and returns its exit code, its errors, and whether it started a process. */
@@ -319,7 +319,7 @@ describe("up stops the proxy group when the server does not start", () => {
 describe("stopStartedGroups", () => {
   test("kills the whole restart loop group, loop and child", async () => {
     const env = makeEnv();
-    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "idfx"), { recursive: true });
     // A real restart loop like the proxy loop: `sh` runs a child, and
     // starts it again when it exits. Detached, like spawnDetached.
     const loop = Bun.spawn(["sh", "-c", "while :; do sleep 30; sleep 1; done"], { detached: true });
@@ -338,7 +338,7 @@ describe("stopStartedGroups", () => {
 
   test("skips a PID that belongs to another process", async () => {
     const env = makeEnv();
-    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "idfx"), { recursive: true });
     const other = Bun.spawn(["sh", "-c", "sleep 30"], { detached: true });
     await Bun.write(proxyPidPath(env, 19790), `${other.pid}\n`);
     try {
@@ -366,7 +366,7 @@ describe("down stops the cost proxy", () => {
 
   test("signals the proxy process group and removes its PID file", async () => {
     const env = makeEnv();
-    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "idfx"), { recursive: true });
     // A real proxy process, so that the default kill and the wait see a real
     // exit. The server PID points to a nonexistent process (the fake
     // commandLineOf still names an opencode serve).
@@ -397,7 +397,7 @@ describe("down stops the cost proxy", () => {
 
   test("removes a stale proxy PID file without killing", async () => {
     const env = makeEnv();
-    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "idfx"), { recursive: true });
     // PID 2147483000 does not exist (and never will; pid_max is lower).
     await Bun.write(proxyPidPath(env, 19790), "2147483000\n");
     const killed: number[] = [];
@@ -410,7 +410,7 @@ describe("down stops the cost proxy", () => {
 
   test("a dead server: down still stops its proxy loop", async () => {
     const env = makeEnv();
-    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "idfx"), { recursive: true });
     const loop = Bun.spawn(["sh", "-c", "while :; do sleep 30; sleep 1; done"], { detached: true });
     await Bun.write(proxyPidPath(env, 19790), `${loop.pid}\n`);
     // The server PID file names a process that is gone.
@@ -441,7 +441,7 @@ describe("down stops the cost proxy", () => {
 
   test("a proxy PID that belongs to another process is not signaled", async () => {
     const env = makeEnv();
-    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "idfx"), { recursive: true });
     await Bun.write(proxyPidPath(env, 19790), `${process.pid}\n`);
     const killed: number[] = [];
     const deps = downDeps("opencode serve --port 19790 --hostname 127.0.0.1", killed);
@@ -453,7 +453,7 @@ describe("down stops the cost proxy", () => {
 
   test("removes the plugin digest of the stopped server", async () => {
     const env = makeEnv();
-    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "idfx"), { recursive: true });
     await Bun.write(servePidPath(env, 19790), "2147483000\n");
     await Bun.write(servePluginPath(env, 19790), "sha256:abc\n");
     const result = await down({ port: 19790, force: true }, env, downDeps("opencode serve --port 19790", []));
@@ -463,7 +463,7 @@ describe("down stops the cost proxy", () => {
 
   test("stops the idle watchdog of the server and removes its PID file", async () => {
     const env = makeEnv();
-    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "idfx"), { recursive: true });
     const watchdog = Bun.spawn(["sh", "-c", "sleep 30"], { detached: true });
     await Bun.write(servePidPath(env, 19790), "2147483000\n");
     await Bun.write(idlePidPath(env, 19790), `${watchdog.pid}\n`);
@@ -695,11 +695,14 @@ describe("up on the unit path", () => {
   });
 
   test("stops the units of a dead server of the same port before the start", async () => {
-    const { result, calls } = await upOnUnits({}, ["ocsub-serve-8790", "ocsub-proxy-8790", "ocsub-idle-8790"]);
+    const { result, calls } = await upOnUnits({}, ["idfx-serve-8790", "idfx-proxy-8790", "idfx-idle-8790"]);
     expect(result).toBe(0);
     expect(calls).toEqual([
+      "stop idfx-serve-8790",
       "stop ocsub-serve-8790",
+      "stop idfx-proxy-8790",
       "stop ocsub-proxy-8790",
+      "stop idfx-idle-8790",
       "stop ocsub-idle-8790",
       "start proxy",
       "start serve",
@@ -709,7 +712,7 @@ describe("up on the unit path", () => {
 
   test("a failed stop of an old unit stops up before any start", async () => {
     const env = makeEnv();
-    const units = fakeUnits({ failStop: "ocsub-proxy-8790" });
+    const units = fakeUnits({ failStop: "idfx-proxy-8790" });
     let started = 0;
     const count = () => {
       started += 1;
@@ -744,7 +747,7 @@ describe("up on the unit path", () => {
     }
     expect(outcome.result).toBe(1);
     expect(killed).toEqual([]);
-    expect(outcome.calls.slice(-1)).toEqual(["stop ocsub-proxy-8790"]);
+    expect(outcome.calls.slice(-1)).toEqual(["stop idfx-proxy-8790"]);
     expect(existsSync(proxyPidPath(outcome.env, 8790))).toBe(false);
   });
 
@@ -797,7 +800,7 @@ describe("down on the unit path", () => {
   /** A state with a running serve unit whose PID file still names the systemd executor. */
   async function unitState() {
     const env = makeEnv();
-    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "idfx"), { recursive: true });
     await Bun.write(servePidPath(env, 19790), "2147483000\n");
     await Bun.write(proxyPidPath(env, 19790), "2147483001\n");
     return env;
@@ -815,7 +818,7 @@ describe("down on the unit path", () => {
 
   test("stops the serve unit, then the proxy unit, then the idle unit", async () => {
     const env = await unitState();
-    const units = fakeUnits({ loaded: ["ocsub-serve-19790", "ocsub-proxy-19790", "ocsub-idle-19790"] });
+    const units = fakeUnits({ loaded: ["idfx-serve-19790", "idfx-proxy-19790", "idfx-idle-19790"] });
     const killed: number[] = [];
     const result = await quietDown(env, {
       // The window right after a start: the PID is still the executor.
@@ -825,8 +828,11 @@ describe("down on the unit path", () => {
     });
     expect(result).toBe(0);
     expect(units.calls.filter((call) => call.startsWith("stop"))).toEqual([
+      "stop idfx-serve-19790",
       "stop ocsub-serve-19790",
+      "stop idfx-proxy-19790",
       "stop ocsub-proxy-19790",
+      "stop idfx-idle-19790",
       "stop ocsub-idle-19790",
     ]);
     expect(units.loaded.size).toBe(0);
@@ -838,31 +844,42 @@ describe("down on the unit path", () => {
   test("the watchdog stops the server and the proxy, but never its own unit", async () => {
     const env = await unitState();
     const units = fakeUnits({
-      loaded: ["ocsub-serve-19790", "ocsub-proxy-19790", "ocsub-idle-19790"],
-      own: "ocsub-idle-19790",
+      loaded: ["idfx-serve-19790", "idfx-proxy-19790", "idfx-idle-19790"],
+      own: "idfx-idle-19790",
     });
     const result = await quietDown(env, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
     expect(result).toBe(0);
     expect(units.calls.filter((call) => call.startsWith("stop"))).toEqual([
+      "stop idfx-serve-19790",
       "stop ocsub-serve-19790",
+      "stop idfx-proxy-19790",
       "stop ocsub-proxy-19790",
+      "stop ocsub-idle-19790",
     ]);
     // The watchdog ends by itself after the stop; its unit stays until then.
-    expect([...units.loaded]).toEqual(["ocsub-idle-19790"]);
+    expect([...units.loaded]).toEqual(["idfx-idle-19790"]);
+  });
+
+  test("stops the units of older code with the prefix ocsub-", async () => {
+    const env = await unitState();
+    const units = fakeUnits({ loaded: ["ocsub-serve-19790", "ocsub-proxy-19790", "ocsub-idle-19790"] });
+    const result = await quietDown(env, { commandLineOf: () => "(sd-executor)", killGroup: () => {}, units: units.deps });
+    expect(result).toBe(0);
+    expect(units.loaded.size).toBe(0);
   });
 
   test("a dead server: down still stops the proxy unit", async () => {
     const env = await unitState();
-    const units = fakeUnits({ loaded: ["ocsub-proxy-19790"] });
+    const units = fakeUnits({ loaded: ["idfx-proxy-19790"] });
     const result = await quietDown(env, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
     expect(result).toBe(0);
-    expect(units.calls).toContain("stop ocsub-proxy-19790");
+    expect(units.calls).toContain("stop idfx-proxy-19790");
     expect(units.loaded.size).toBe(0);
   });
 
   test("a failed unit stop is an error", async () => {
     const env = await unitState();
-    const units = fakeUnits({ loaded: ["ocsub-serve-19790"], failStop: "ocsub-serve-19790" });
+    const units = fakeUnits({ loaded: ["idfx-serve-19790"], failStop: "idfx-serve-19790" });
     const original = console.error;
     console.error = () => {};
     let result: number;
@@ -876,13 +893,20 @@ describe("down on the unit path", () => {
 
   test("stopStartedGroups stops the units before it signals the groups", async () => {
     const env = await unitState();
-    const units = fakeUnits({ loaded: ["ocsub-serve-19790", "ocsub-proxy-19790"] });
+    const units = fakeUnits({ loaded: ["idfx-serve-19790", "idfx-proxy-19790"] });
     const signaled = await stopStartedGroups(env, 19790, "SIGKILL", {
       commandLineOf: () => null,
       killGroup: () => {},
       units: units.deps,
     });
     expect(signaled).toEqual([]);
-    expect(units.calls).toEqual(["stop ocsub-serve-19790", "stop ocsub-proxy-19790", "stop ocsub-idle-19790"]);
+    expect(units.calls).toEqual([
+      "stop idfx-serve-19790",
+      "stop ocsub-serve-19790",
+      "stop idfx-proxy-19790",
+      "stop ocsub-proxy-19790",
+      "stop idfx-idle-19790",
+      "stop ocsub-idle-19790",
+    ]);
   });
 });

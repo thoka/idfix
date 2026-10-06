@@ -198,7 +198,7 @@ describe("idfx run and the shared OpenRouter key", () => {
       expect(record.keyFingerprint).toBe(fingerprint(KEY_A));
       expect(record.usageAtStart).toBe(1.25);
       const stateRecord = JSON.parse(
-        readFileSync(path.join(STATE, "oc-sub", "runs", "ses_new.json"), "utf8"),
+        readFileSync(path.join(STATE, "idfx", "runs", "ses_new.json"), "utf8"),
       );
       expect(stateRecord.keyFingerprint).toBe(fingerprint(KEY_A));
       expect(captured.logs.join("\n")).not.toContain(KEY_A);

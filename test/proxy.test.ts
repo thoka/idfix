@@ -167,7 +167,7 @@ describe("startProxy", () => {
 
     expect(p.lines).toHaveLength(2);
     const start = p.lines[0] as LogLine;
-    expect(start.source).toBe("oc-sub-cost-proxy");
+    expect(start.source).toBe("idfx-cost-proxy");
     expect(start.event).toBe("start");
     expect(typeof start.time).toBe("string");
     expect(start.session).toBe("ses_main");
@@ -177,7 +177,7 @@ describe("startProxy", () => {
     expect(typeof start.request).toBe("number");
 
     const end = p.lines[1] as LogLine;
-    expect(end.source).toBe("oc-sub-cost-proxy");
+    expect(end.source).toBe("idfx-cost-proxy");
     expect(end.event).toBe("end");
     expect(end.request).toBe(start.request);
     expect(end.session).toBe("ses_main");

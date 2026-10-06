@@ -8,15 +8,20 @@
  * a tool could find it only with a guess. `startUnit` starts such a command
  * under the user manager with `systemd-run --user`:
  *
- * - The unit name `ocsub-<kind>-<name>.service` is the handle.
+ * - The unit name `idfx-<kind>-<name>.service` is the handle.
  * - The description `owner=<owner> reason=<reason>` carries the label as
- *   data, and the slice `ocsub.slice` groups all units.
+ *   data, and the slice `idfx.slice` groups all units.
+ * - Before step 24.3 the prefix was `ocsub-` and the slice `ocsub.slice`.
+ *   `stopPortUnits` and `listUnits` handle both names, so the units of older
+ *   code still stop.
  * - `--collect` unloads the unit after it ends, also after a failure.
  * - `systemctl --user stop <unit>` stops the whole cgroup, also a child that
  *   detached or double-forked (`stopUnit`).
  *
  * Every child also gets `OCSUB_OWNER` and `OCSUB_REASON` in its environment,
  * so a tool can read the label from `/proc/<pid>/environ` on both paths.
+ * These two names keep the old spelling on purpose: `IDFX_OWNER` is the
+ * input variable that sets the owner, and a label must not feed it back.
  *
  * The environment of the child can hold API keys, so no value goes on the
  * command line of `systemd-run`, where `ps` shows it. Each variable goes as
@@ -37,13 +42,22 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Env } from "./config";
+import { idfxEnv } from "./env-names";
 import type { RunnerResult } from "./sandbox";
 import { spawnDetached, type ServeProcess } from "./spawn";
 
 /** The prefix of every unit that idfx starts. */
-export const UNIT_PREFIX = "ocsub-";
+export const UNIT_PREFIX = "idfx-";
+/** The prefix of the units of older code (before step 24.3). */
+export const OLD_UNIT_PREFIX = "ocsub-";
+/** Both prefixes, the new one first. */
+export const UNIT_PREFIXES = [UNIT_PREFIX, OLD_UNIT_PREFIX] as const;
 /** The slice that holds every unit that idfx starts. */
-export const UNIT_SLICE = "ocsub.slice";
+export const UNIT_SLICE = "idfx.slice";
+/** The slice of the units of older code (before step 24.3). */
+export const OLD_UNIT_SLICE = "ocsub.slice";
+/** Both slices, the new one first. */
+export const UNIT_SLICES = [UNIT_SLICE, OLD_UNIT_SLICE] as const;
 /**
  * How long a stop of a server unit waits after SIGTERM before SIGKILL, in
  * seconds. `down` waits as long on the fallback path (`stopGroup`).
@@ -98,14 +112,22 @@ export type UnitOptions = {
 /**
  * The kinds of unit that `up` starts, one of each per port: the host
  * server, the cost proxy, the holder of sandbox mode, and the idle watchdog.
- * The name of each unit is the port of its server, so `ocsub-serve-4096`.
+ * The name of each unit is the port of its server, so `idfx-serve-4096`.
  */
 export const PORT_UNIT_KINDS = ["serve", "proxy", "holder", "idle"] as const;
 export type PortUnitKind = (typeof PORT_UNIT_KINDS)[number];
 
-/** The unit name of a process of the server on `port`, for example `ocsub-proxy-4096`. Pure. */
+/** The unit name of a process of the server on `port`, for example `idfx-proxy-4096`. Pure. */
 export function portUnitName(kind: PortUnitKind, port: number): string {
   return unitName(kind, String(port));
+}
+
+/**
+ * The new and the old unit name of a process of the server on `port`, for
+ * example `idfx-proxy-4096` and `ocsub-proxy-4096`. Pure.
+ */
+export function portUnitNames(kind: PortUnitKind, port: number): string[] {
+  return [portUnitName(kind, port), `${OLD_UNIT_PREFIX}${sanitizeUnitPart(kind)}-${port}`];
 }
 
 /**
@@ -140,7 +162,7 @@ export type UnitDeps = {
   /** Writes the PID file. */
   writePid: (pidPath: string, pid: number) => void;
   /**
-   * The `ocsub-*` unit that holds this process, without `.service`, or null.
+   * The `idfx-*` (or old `ocsub-*`) unit that holds this process, without `.service`, or null.
    * The idle watchdog uses it, so that it never stops its own unit.
    */
   ownUnit: () => string | null;
@@ -159,7 +181,7 @@ export function sanitizeUnitPart(part: string): string {
   return clean.length === 0 ? "_" : clean;
 }
 
-/** The unit name `ocsub-<kind>-<name>`, without `.service`, at most `MAX_UNIT_NAME` long. Pure. */
+/** The unit name `idfx-<kind>-<name>`, without `.service`, at most `MAX_UNIT_NAME` long. Pure. */
 export function unitName(kind: string, name: string): string {
   return `${UNIT_PREFIX}${sanitizeUnitPart(kind)}-${sanitizeUnitPart(name)}`.slice(0, MAX_UNIT_NAME);
 }
@@ -174,19 +196,17 @@ export function unitDescription(owner: string, reason: string): string {
   return `owner=${line(owner)} reason=${line(reason)}`;
 }
 
-/** The environment variable that overrides the owner of the units of `up` and the watchdog. */
-export const OWNER_ENV = "OC_SUB_OWNER";
-
 /**
  * The owner of the units that `up` and the watchdog start: the value of
- * `OC_SUB_OWNER` when it is set and not blank, else `project`. The tests
- * set `OC_SUB_OWNER=test`, and a session can put its own name there. The
+ * `IDFX_OWNER` (or the old `OC_SUB_OWNER`) when it is set and not blank,
+ * else `project`. The tests set `IDFX_OWNER=test`, and a session can put
+ * its own name there. The
  * owner is one word in the description `owner=<owner> reason=<reason>`, so
  * each run of white space or control characters in the value becomes one
  * `_`. Pure.
  */
 export function unitOwner(env: Env, project: string): string {
-  const value = (env[OWNER_ENV] ?? "").trim().replace(/[\s\u0000-\u001f\u007f]+/g, "_");
+  const value = (idfxEnv(env, "owner") ?? "").trim().replace(/[\s\u0000-\u001f\u007f]+/g, "_");
   return value.length === 0 ? project : value;
 }
 
@@ -283,20 +303,25 @@ export const defaultUnitRunner: UnitRunner = (cmd, opts = {}) => {
 };
 
 /**
- * The `ocsub-*` unit in the text of `/proc/<pid>/cgroup`, without
- * `.service`, or null. The cgroup v2 line is `0::/user.slice/.../ocsub.slice/ocsub-idle-4096.service`.
- * Pure.
+ * The unit of idfx in the text of `/proc/<pid>/cgroup`, without
+ * `.service`, or null. The cgroup v2 line is
+ * `0::/user.slice/.../idfx.slice/idfx-idle-4096.service`. The unit must lie
+ * in one of the two slices of idfx and carry one of the two prefixes, so
+ * another user unit such as `idfx-watch.service` does not count. Pure.
  */
 export function unitOfCgroup(text: string): string | null {
   for (const line of text.split("\n")) {
-    const last = line.trim().split("/").pop() ?? "";
-    const match = /^(ocsub-.+)\.service$/.exec(last);
+    const parts = line.trim().split("/");
+    const last = parts.pop() ?? "";
+    const slice = parts.pop() ?? "";
+    if (!(UNIT_SLICES as readonly string[]).includes(slice)) continue;
+    const match = /^((?:idfx|ocsub)-.+)\.service$/.exec(last);
     if (match !== null) return match[1] ?? null;
   }
   return null;
 }
 
-/** The `ocsub-*` unit of this process, from `/proc/self/cgroup`. Null without one or without `/proc`. */
+/** The unit of idfx of this process, from `/proc/self/cgroup`. Null without one or without `/proc`. */
 export function readOwnUnit(): string | null {
   try {
     return unitOfCgroup(readFileSync("/proc/self/cgroup", "utf8"));
@@ -366,7 +391,7 @@ export function unitExitCode(deps: UnitDeps, unit: string): number | null {
 }
 
 /**
- * Starts `opts.cmd` as the transient user service `ocsub-<kind>-<name>`, or
+ * Starts `opts.cmd` as the transient user service `idfx-<kind>-<name>`, or
  * detached without a unit when no user manager answers. Writes the main PID
  * into `opts.pidPath` on both paths, so the readers of PID files keep
  * working.
@@ -425,7 +450,9 @@ export function unitActive(unit: string, deps: UnitDeps = defaultUnitDeps): bool
 
 /**
  * Stops the units of the given kinds of the server on `port`, in the given
- * order, and gives the names of the units that stopped. A unit that is not
+ * order, and gives the names of the units that stopped. For each kind it
+ * stops the new name `idfx-<kind>-<port>` and the old name
+ * `ocsub-<kind>-<port>` of older code (`portUnitNames`). A unit that is not
  * loaded is no error. Without a user manager, it does nothing. It never
  * stops the unit of the calling process (`ownUnit`): a stop of the own
  * cgroup would end the caller in the middle of its work. Throws when
@@ -440,14 +467,15 @@ export function stopPortUnits(
   const own = deps.ownUnit();
   const stopped: string[] = [];
   for (const kind of kinds) {
-    const unit = portUnitName(kind, port);
-    if (unit === own) continue;
-    if (stopUnit(unit, deps)) stopped.push(unit);
+    for (const unit of portUnitNames(kind, port)) {
+      if (unit === own) continue;
+      if (stopUnit(unit, deps)) stopped.push(unit);
+    }
   }
   return stopped;
 }
 
-/** A loaded `ocsub-*` unit, as `systemctl --user show` gives it. */
+/** A loaded unit of idfx, as `systemctl --user show` gives it. */
 export type LoadedUnit = {
   /** The unit name without `.service`. */
   unit: string;
@@ -457,11 +485,13 @@ export type LoadedUnit = {
   workingDirectory: string;
   /** The active state, for example `active` or `failed`, or "" when the query did not ask for it. */
   activeState: string;
+  /** The slice, for example `idfx.slice`, or undefined when the query did not ask for it. */
+  slice?: string;
 };
 
 /**
- * The units in the output of `systemctl --user show 'ocsub-*'
- * --property=Id,Description,WorkingDirectory,ActiveState`: one block of
+ * The units in the output of `systemctl --user show 'idfx-*' 'ocsub-*'
+ * --property=Id,Description,WorkingDirectory,ActiveState,Slice`: one block of
  * `Key=value` lines per unit, and a blank line between two blocks. The unit
  * name has no `.service` suffix. A missing property gives "". Pure.
  */
@@ -480,6 +510,7 @@ export function parseUnitShow(text: string): LoadedUnit[] {
       description: fields.get("Description") ?? "",
       workingDirectory: fields.get("WorkingDirectory") ?? "",
       activeState: fields.get("ActiveState") ?? "",
+      ...(fields.has("Slice") ? { slice: fields.get("Slice") } : {}),
     });
   }
   return units;
@@ -498,21 +529,35 @@ export function parseUnitLabel(description: string): { owner: string; reason: st
 }
 
 /** The properties that `listUnits` asks for. */
-export const LIST_UNIT_PROPERTIES = ["Id", "Description", "WorkingDirectory", "ActiveState"] as const;
+export const LIST_UNIT_PROPERTIES = ["Id", "Description", "WorkingDirectory", "ActiveState", "Slice"] as const;
 
 /**
- * The loaded `ocsub-*` units, with one call `systemctl --user show
- * 'ocsub-*'`. Gives null when no user manager answers or the call fails, and
- * an empty list when no unit is loaded.
+ * Whether a listed unit is a unit of idfx: its name has one of the two
+ * prefixes, and its slice is one of the two slices of idfx. A unit without
+ * a known slice counts by its name alone. The slice keeps out another user
+ * unit with the prefix `idfx-`, for example the watcher `idfx-watch.service`
+ * in `contrib/systemd/`. Pure.
+ */
+export function isIdfixUnit(unit: LoadedUnit): boolean {
+  if (!UNIT_PREFIXES.some((prefix) => unit.unit.startsWith(prefix))) return false;
+  if (unit.slice === undefined || unit.slice.length === 0) return true;
+  return (UNIT_SLICES as readonly string[]).includes(unit.slice);
+}
+
+/**
+ * The loaded units of idfx, new and old prefix, with one call `systemctl
+ * --user show 'idfx-*' 'ocsub-*'` (`isIdfixUnit`). Gives null when no user
+ * manager answers or the call fails, and an empty list when no unit is
+ * loaded.
  */
 export function listUnits(deps: UnitDeps = defaultUnitDeps): LoadedUnit[] | null {
   if (!deps.available()) return null;
   const res = deps.run(
-    ["systemctl", "--user", "show", `${UNIT_PREFIX}*`, `--property=${LIST_UNIT_PROPERTIES.join(",")}`],
+    ["systemctl", "--user", "show", ...UNIT_PREFIXES.map((prefix) => `${prefix}*`), `--property=${LIST_UNIT_PROPERTIES.join(",")}`],
     { env: deps.busEnv() },
   );
   if (res.exitCode !== 0) return null;
-  return parseUnitShow(res.stdout);
+  return parseUnitShow(res.stdout).filter(isIdfixUnit);
 }
 
 /** An orphaned unit and the cause, as short text. */
@@ -523,8 +568,9 @@ export type OrphanedUnit = LoadedUnit & { cause: string };
  *
  * - its working folder does not exist (a removed worktree or a renamed
  *   project), or
- * - it is a helper unit (`proxy` or `idle`, name `ocsub-<kind>-<port>`) of a
- *   port where no server unit (`serve` or `holder`) is in the list.
+ * - it is a helper unit (`proxy` or `idle`, name `idfx-<kind>-<port>` or the
+ *   old `ocsub-<kind>-<port>`) of a port where no server unit (`serve` or
+ *   `holder`, with either prefix) is in the list.
  *
  * An empty working folder counts as unknown, not as missing. The check does
  * not ask whether a named owner session still lives. Pure apart from
@@ -532,7 +578,7 @@ export type OrphanedUnit = LoadedUnit & { cause: string };
  */
 export function orphanedUnits(units: readonly LoadedUnit[], exists: (dir: string) => boolean): OrphanedUnit[] {
   const portOf = (unit: string, kinds: readonly string[]): string | null => {
-    const match = /^ocsub-([a-z]+)-(\d+)$/.exec(unit);
+    const match = /^(?:idfx|ocsub)-([a-z]+)-(\d+)$/.exec(unit);
     if (match === null || !kinds.includes(match[1] ?? "")) return null;
     return match[2] ?? null;
   };

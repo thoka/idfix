@@ -339,7 +339,7 @@ describe("idleWatch", () => {
 
 function tempEnv(): Record<string, string> {
   const dir = mkdtempSync(path.join(tmpdir(), "oc-sub-idle-"));
-  mkdirSync(path.join(dir, "oc-sub"));
+  mkdirSync(path.join(dir, "idfx"));
   return { XDG_STATE_HOME: dir };
 }
 
@@ -360,7 +360,7 @@ describe("startIdleWatch", () => {
     expect(spawned[0]?.cwd).toBe(stateDir(env));
   });
 
-  test("labels the unit ocsub-idle-<port> with the owner and the reason", () => {
+  test("labels the unit idfx-idle-<port> with the owner and the reason", () => {
     const spawned: UnitOptions[] = [];
     startIdleWatch(tempEnv(), 8767, 5, (opts) => {
       spawned.push(opts);
@@ -436,24 +436,31 @@ describe("stopIdleWatch", () => {
     await stopIdleWatch(tempEnv(), 8767, { commandLineOf: () => null, killGroup: () => {}, units: noUnits() });
   });
 
-  test("stops the unit ocsub-idle-<port> before the PID file", async () => {
+  test("stops the unit idfx-idle-<port> before the PID file", async () => {
+    const units = fakeUnits({ loaded: ["idfx-idle-8767"] });
+    await stopIdleWatch(tempEnv(), 8767, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
+    expect(units.calls).toEqual(["stop idfx-idle-8767", "stop ocsub-idle-8767"]);
+    expect(units.loaded.size).toBe(0);
+  });
+
+  test("stops the unit ocsub-idle-<port> of older code", async () => {
     const units = fakeUnits({ loaded: ["ocsub-idle-8767"] });
     await stopIdleWatch(tempEnv(), 8767, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
-    expect(units.calls).toEqual(["stop ocsub-idle-8767"]);
     expect(units.loaded.size).toBe(0);
   });
 
   test("the watchdog never stops its own unit", async () => {
-    const units = fakeUnits({ loaded: ["ocsub-idle-8767"], own: "ocsub-idle-8767" });
+    const units = fakeUnits({ loaded: ["idfx-idle-8767"], own: "idfx-idle-8767" });
     await stopIdleWatch(tempEnv(), 8767, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
-    expect(units.calls).toEqual([]);
-    expect(units.loaded.has("ocsub-idle-8767")).toBe(true);
+    // The old name is not the own unit, so its stop is tried.
+    expect(units.calls).toEqual(["stop ocsub-idle-8767"]);
+    expect(units.loaded.has("idfx-idle-8767")).toBe(true);
   });
 
   test("a missing unit is no error", async () => {
     const units = fakeUnits();
     await stopIdleWatch(tempEnv(), 8767, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
-    expect(units.calls).toEqual(["stop ocsub-idle-8767"]);
+    expect(units.calls).toEqual(["stop idfx-idle-8767", "stop ocsub-idle-8767"]);
   });
 });
 

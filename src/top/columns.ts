@@ -11,7 +11,7 @@
  *   project `basename(folder)`, with the worktree `-`.
  * - The `where` column shows both in one cell: `project/worktree`, or only
  *   `project` for the main folder. The project is the configured
- *   `shortName` of the project (`.opencode/oc-sub.json`), else the full
+ *   `shortName` of the project (`.opencode/idfx.json`), else the full
  *   name; the caller injects the name resolver (see
  *   `makeProjectNameResolver`). Without `--all` the cell shows only the
  *   worktree, because all rows belong to one project.

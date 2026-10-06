@@ -5,7 +5,7 @@
  * `idfx up` starts the committed bundle of this entry
  * (`opencode/cost-proxy/cost-proxy.js`) next to the server.
  */
-import { DEFAULT_DEEPINFRA_UPSTREAM, DEFAULT_UPSTREAM, startProxy } from "./proxy";
+import { DEFAULT_DEEPINFRA_UPSTREAM, DEFAULT_UPSTREAM, LOG_SOURCE, startProxy } from "./proxy";
 
 function argOf(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -20,7 +20,7 @@ const deepinfraUpstream = argOf("--deepinfra-upstream");
 const server = startProxy({ port, hostname, upstream, deepinfraUpstream });
 console.log(
   JSON.stringify({
-    source: "oc-sub-cost-proxy",
+    source: LOG_SOURCE,
     event: "listening",
     time: new Date().toISOString(),
     hostname: server.hostname,

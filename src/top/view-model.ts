@@ -13,10 +13,10 @@
 import type { ClaudeRow } from "../claude/rows";
 import { formatRequest } from "../requests";
 import { formatCost } from "../summary";
-import { sessionCode } from "./columns";
+import { hasInactiveMark, sessionCode, stateText } from "./columns";
 import type { LiveServer } from "./live";
 import { treePending } from "./load";
-import type { SessionDetail, SessionRow, SessionRowState } from "./model";
+import { isActive, type SessionDetail, type SessionRow, type SessionRowState } from "./model";
 import { claudeAttachArgv, tmuxPaneOf, tmuxSwitchArgv } from "./tmux";
 
 /** The Ink color of each state. */
@@ -56,6 +56,25 @@ export function moveSelection(rows: readonly SessionRow[], selection: Selection,
 }
 
 /**
+ * The rows that the table shows: all rows, or with `hideInactive` only the
+ * rows with a process (see `isActive`).
+ */
+export function visibleRows<T extends SessionRow>(rows: readonly T[], hideInactive: boolean): T[] {
+  return hideInactive ? rows.filter((row) => isActive(row)) : [...rows];
+}
+
+/**
+ * The selection after the key `h` hides or shows the inactive rows. It
+ * stays on the same session when that row is still visible. A hidden
+ * session gives its place to the nearest visible row: the inactive rows
+ * come last, so that is the last active row. The new selection is stored,
+ * so that the next `h` does not jump back to the hidden session.
+ */
+export function selectionAfterHide(rows: readonly SessionRow[], selection: Selection, hideInactive: boolean): Selection {
+  return resolveSelection(visibleRows(rows, hideInactive), selection);
+}
+
+/**
  * The first visible row of a table with `count` rows in `height` lines, so
  * that the selected row is visible and stays near the middle.
  */
@@ -90,10 +109,18 @@ export type DetailTone = "head" | "section" | "pending" | "tree" | "log" | "erro
 /** One line of the detail pane. */
 export type DetailLine = { text: string; tone: DetailTone };
 
-/** The short line of one session: CODE, agent, state, and title. */
+/**
+ * The short line of one session: CODE, agent, state, and title. An
+ * inactive state has its mark, for example `waiting·`.
+ */
 function sessionLine(detail: SessionRow): string {
   const agent = detail.agent.length > 0 ? detail.agent : "-";
-  return `${sessionCode(detail.sessionId)}  ${agent}  ${detail.state}  ${detail.title}`;
+  return `${sessionCode(detail.sessionId)}  ${agent}  ${stateText(detail)}  ${detail.title}`;
+}
+
+/** The head line of the detail pane: the session line, and `no process` for an inactive session. */
+function headLine(detail: SessionRow): string {
+  return hasInactiveMark(detail) ? `${sessionLine(detail)}  (no process)` : sessionLine(detail);
 }
 
 /** The pending line of a waiting Claude session, on one line. */
@@ -131,7 +158,7 @@ export function detailLines(detail: SessionDetail | undefined, maxLines: number)
   if (maxLines <= 0) return [];
   if (detail === undefined) return [{ text: "no session selected", tone: "dim" }];
   const claude = detail.driver === "claude";
-  const fixed: DetailLine[] = [{ text: sessionLine(detail), tone: "head" }];
+  const fixed: DetailLine[] = [{ text: headLine(detail), tone: "head" }];
   if (claude) fixed.push({ text: claudeInfoLine(detail), tone: "dim" });
   const pending = treePending(detail);
   if (pending.length > 0 || detail.waitingFor !== undefined) {
@@ -233,8 +260,17 @@ export function serverLabel(server: LiveServer): string {
   return `${name} :${address} ${server.state}`;
 }
 
-/** The key help of the footer. */
-export const KEY_HELP = "j/k or arrows: move  o: open  a: all projects/this project  q: quit";
+/**
+ * The key help of the footer. `hiddenInactive` is the number of hidden
+ * inactive rows when the key `h` hides them, else undefined.
+ */
+export function keyHelp(hiddenInactive?: number): string {
+  const toggle = hiddenInactive === undefined ? "h: hide inactive" : `h: show ${hiddenInactive} inactive`;
+  return `j/k or arrows: move  o: open  ${toggle}  a: all projects/this project  q: quit`;
+}
+
+/** The key help of the footer while the inactive rows show (the default). */
+export const KEY_HELP = keyHelp();
 
 /** The input of the footer. */
 export type FooterInput = {
@@ -246,6 +282,8 @@ export type FooterInput = {
   scopeLabel: string;
   /** A message that replaces the key help, for example the attach command. */
   message?: string;
+  /** The number of hidden inactive rows when the key `h` hides them, else undefined. */
+  hiddenInactive?: number;
 };
 
 /**
@@ -262,5 +300,5 @@ export function footerLines(input: FooterInput): [string, string, string] {
   const api = input.rows.some((row) => row.costKind === "apiEquivalent") ? `  api ~${formatCost(sumOf("apiEquivalent"))}` : "";
   const count = input.rows.length === 1 ? "1 session" : `${input.rows.length} sessions`;
   const scope = input.all ? "all projects" : input.scopeLabel;
-  return [`servers: ${servers}`, `${count}  cost ${formatCost(cost)}${api}  scope: ${scope}`, input.message ?? KEY_HELP];
+  return [`servers: ${servers}`, `${count}  cost ${formatCost(cost)}${api}  scope: ${scope}`, input.message ?? keyHelp(input.hiddenInactive)];
 }

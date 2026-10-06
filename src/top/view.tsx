@@ -11,8 +11,12 @@
  *
  * Keys: `j`/`k` and the arrow keys move the selection, `o` opens the
  * selected session: an attach in a new tmux pane or a switch to its tmux
- * pane (without tmux it shows a note), `a` switches between the scope of `--dir`
- * and `--all`, and `q` or Ctrl-C quit.
+ * pane (without tmux it shows a note), `h` hides or shows the inactive
+ * rows (no process; shown by default), `a` switches between the scope of
+ * `--dir` and `--all`, and `q` or Ctrl-C quit.
+ *
+ * An inactive row (no process, only a job file or a transcript) is dim and
+ * has the mark `·` after its CODE. The rows come sorted: active first.
  *
  * Claude Code sessions show in the same table. An ended row is
  * gray, and the API price of a Claude session is gray, because it is not a
@@ -26,7 +30,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { makeProjectNameResolver } from "../project-config";
 import { GAP, padTable } from "./columns";
 import type { LiveHandle } from "./live";
-import type { SessionRow } from "./model";
+import { isActive, type SessionRow } from "./model";
 import { defaultOpenPane, defaultRunTmux, type PaneResult } from "./tmux";
 import {
   attachCommand,
@@ -38,6 +42,8 @@ import {
   moveSelection,
   resolveSelection,
   screenLayout,
+  selectionAfterHide,
+  visibleRows,
   STATE_COLORS,
   type DetailTone,
   type Selection,
@@ -93,7 +99,14 @@ const TONE_COLORS: Record<DetailTone, string | undefined> = {
  * state. An ended row is gray as a whole. The cell at `grayColumn` (the
  * API price of a Claude session) is gray.
  */
-function TableRow(props: { cells: string[]; state: SessionRow["state"]; selected: boolean; grayColumn?: number }) {
+function TableRow(props: {
+  cells: string[];
+  state: SessionRow["state"];
+  selected: boolean;
+  grayColumn?: number;
+  /** A row without a process shows dim. */
+  inactive?: boolean;
+}) {
   if (props.state === "ended") {
     return (
       <Text wrap="truncate" inverse={props.selected} color="gray">
@@ -103,7 +116,7 @@ function TableRow(props: { cells: string[]; state: SessionRow["state"]; selected
   }
   const [id = "", ...rest] = props.cells;
   return (
-    <Text wrap="truncate" inverse={props.selected}>
+    <Text wrap="truncate" inverse={props.selected} dimColor={props.inactive === true}>
       <Text color={STATE_COLORS[props.state]}>{id}</Text>
       {rest.map((cell, index) => (
         <React.Fragment key={index}>
@@ -130,6 +143,7 @@ export function TopView(props: TopViewProps) {
   const [, setVersion] = useState(0);
   const [selection, setSelection] = useState<Selection>({ id: undefined, index: 0 });
   const [message, setMessage] = useState<string | undefined>(undefined);
+  const [hideInactive, setHideInactive] = useState(false);
   // The key handler reads the rows and the selection of the last frame.
   const rowsRef = useRef<SessionRow[]>([]);
   const selectedRef = useRef<string | undefined>(undefined);
@@ -164,8 +178,15 @@ export function TopView(props: TopViewProps) {
   }, [redrawMs]);
 
   const now = nowMs();
-  const rows = source === undefined ? [] : source.model.rows(now);
+  const allRows = source === undefined ? [] : source.model.rows(now);
+  const rows = visibleRows(allRows, hideInactive);
+  const hiddenCount = allRows.length - rows.length;
   rowsRef.current = rows;
+  // The key handler needs all rows for `h`, because it changes which rows show.
+  const allRowsRef = useRef<SessionRow[]>([]);
+  allRowsRef.current = allRows;
+  const hideRef = useRef(hideInactive);
+  hideRef.current = hideInactive;
   const selected = resolveSelection(rows, selection);
   selectedRef.current = selected.id;
 
@@ -212,6 +233,11 @@ export function TopView(props: TopViewProps) {
           setMessage(`tmux error: ${result.error}  attach with: ${attachCommand(id)}`);
         }
       });
+    } else if (input === "h") {
+      const hide = !hideRef.current;
+      setHideInactive(hide);
+      setSelection((old) => selectionAfterHide(allRowsRef.current, old, hide));
+      setMessage(undefined);
     } else if (input === "a") {
       setAll((old) => !old);
       setMessage(undefined);
@@ -232,6 +258,7 @@ export function TopView(props: TopViewProps) {
     all,
     scopeLabel: props.scopeLabel,
     message,
+    hiddenInactive: hideInactive ? hiddenCount : undefined,
   });
 
   return (
@@ -243,7 +270,7 @@ export function TopView(props: TopViewProps) {
         {source === undefined ? (
           <Text color="gray">loading the servers ...</Text>
         ) : rows.length === 0 ? (
-          <Text color="gray">no sessions</Text>
+          <Text color="gray">{hiddenCount > 0 ? `no active sessions, ${hiddenCount} inactive hidden` : "no sessions"}</Text>
         ) : (
           visible.map((row, offset) => (
             <TableRow
@@ -252,6 +279,7 @@ export function TopView(props: TopViewProps) {
               state={row.state}
               selected={first + offset === selected.index}
               grayColumn={row.costKind === "apiEquivalent" ? costColumn : undefined}
+              inactive={!isActive(row)}
             />
           ))
         )}

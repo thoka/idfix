@@ -12,10 +12,13 @@ import {
   firstVisibleRow,
   footerLines,
   KEY_HELP,
+  keyHelp,
   moveSelection,
   resolveSelection,
   screenLayout,
+  selectionAfterHide,
   serverLabel,
+  visibleRows,
 } from "../src/top/view-model";
 import { claudeAttachArgv, splitFlag, tmuxAttachArgv, tmuxPaneOf, tmuxSwitchArgv } from "../src/top/tmux";
 
@@ -183,6 +186,55 @@ describe("footer", () => {
     expect(footer).toEqual(["servers: host :8767 up", "2 sessions  cost $0.0125  scope: ~/src/p", KEY_HELP]);
     const withMessage = footerLines({ servers: [], rows: [row("ses_a")], all: true, scopeLabel: "~/src/p", message: "hi" });
     expect(withMessage).toEqual(["servers: no known server", "1 session  cost $0.0000  scope: all projects", "hi"]);
+  });
+});
+
+describe("hide the inactive rows", () => {
+  const rows = [
+    row("ses_live1"),
+    row("ses_live2", { state: "waiting" }),
+    row("ses_gone1", { state: "waiting", active: false }),
+    row("ses_gone2", { state: "ended", active: false }),
+    // An ended row without process data still counts as inactive.
+    row("ses_gone3", { state: "ended" }),
+  ];
+
+  test("visibleRows keeps all rows by default and only the active rows when hidden", () => {
+    expect(visibleRows(rows, false).map((r) => r.sessionId)).toEqual(rows.map((r) => r.sessionId));
+    expect(visibleRows(rows, true).map((r) => r.sessionId)).toEqual(["ses_live1", "ses_live2"]);
+  });
+
+  test("the selection stays on a visible session", () => {
+    expect(selectionAfterHide(rows, { id: "ses_live1", index: 0 }, true)).toEqual({ id: "ses_live1", index: 0 });
+  });
+
+  test("a hidden selected session moves the selection to the nearest visible row", () => {
+    expect(selectionAfterHide(rows, { id: "ses_gone2", index: 3 }, true)).toEqual({ id: "ses_live2", index: 1 });
+  });
+
+  test("showing the rows again keeps the moved selection", () => {
+    const hidden = selectionAfterHide(rows, { id: "ses_gone2", index: 3 }, true);
+    expect(selectionAfterHide(rows, hidden, false)).toEqual({ id: "ses_live2", index: 1 });
+  });
+
+  test("without a visible row nothing is selected", () => {
+    expect(selectionAfterHide([row("ses_x", { active: false })], { id: "ses_x", index: 0 }, true)).toEqual({
+      id: undefined,
+      index: 0,
+    });
+  });
+
+  test("the key help names h: hide inactive, or h: show and the hidden count", () => {
+    expect(KEY_HELP).toContain("h: hide inactive");
+    expect(keyHelp(3)).toContain("h: show 3 inactive");
+    const footer = footerLines({ servers: [], rows: [row("ses_a")], all: true, scopeLabel: "", hiddenInactive: 3 });
+    expect(footer[2]).toBe(keyHelp(3));
+  });
+
+  test("the detail head line marks an inactive session with no process", () => {
+    const detail: SessionDetail = { ...row("ses_gone1", { state: "waiting", active: false }), log: [], pending: [], children: [] };
+    expect(detailLines(detail, 5)[0]?.text).toContain("waiting·");
+    expect(detailLines(detail, 5)[0]?.text).toContain("(no process)");
   });
 });
 

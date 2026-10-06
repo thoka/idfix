@@ -145,3 +145,51 @@ describe("the key o on a Claude row", () => {
     expect(frame).toContain("open: session ended");
   });
 });
+
+describe("the key h", () => {
+  test("hides and shows the inactive rows, and the selection moves to a visible row", async () => {
+    const live = claudeRowOf("sess-live01", { state: "busy", startTimeMs: 1 });
+    const gone = claudeRowOf("sess-gone01", { state: "waiting", active: false, startTimeMs: 2 });
+    const source: ViewSource = {
+      model: {
+        rows: () => [live, gone],
+        session: (id) => [live, gone].map(claudeDetail).find((detail) => detail.sessionId === id),
+      },
+      onChange: () => {},
+      servers: () => [],
+      stop: () => {},
+    };
+    const { lastFrame, stdin, unmount } = render(
+      <TopView start={async () => source} initialAll={false} scopeLabel="~/repo" nowMs={() => 0} redrawMs={60_000} />,
+    );
+    try {
+      await tick();
+      // Select the inactive row; its mark shows after the CODE.
+      stdin.write("j");
+      await tick();
+      let frame = lastFrame() ?? "";
+      expect(frame).toContain("gone01·");
+      expect(frame).toContain("h: hide inactive");
+      expect(frame).toContain("(no process)");
+
+      stdin.write("h");
+      await tick();
+      frame = lastFrame() ?? "";
+      expect(frame).not.toContain("gone01·");
+      expect(frame).toContain("live01");
+      expect(frame).toContain("h: show 1 inactive");
+      expect(frame).toContain("1 session ");
+      // The detail pane shows the remaining active row.
+      expect(frame).not.toContain("(no process)");
+
+      stdin.write("h");
+      await tick();
+      frame = lastFrame() ?? "";
+      expect(frame).toContain("gone01·");
+      expect(frame).toContain("h: hide inactive");
+      expect(frame).not.toContain("(no process)");
+    } finally {
+      unmount();
+    }
+  });
+});

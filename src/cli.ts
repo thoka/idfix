@@ -21,6 +21,7 @@ import { say } from "./say";
 import { doctor, gateForCommand } from "./doctor";
 import { fetch, worktree, worktreeRm } from "./clone";
 import { runIdleWatch } from "./idle";
+import { hostProxyCommand } from "./host-proxy";
 
 /** The command name when the launcher does not pass one. */
 export const DEFAULT_PROG = "idfx";
@@ -65,6 +66,7 @@ Usage:
   ${prog} worktree STEP [--dir ROOT] [--base BRANCH] [--no-setup]
   ${prog} worktree rm STEP [--dir ROOT]
   ${prog} fetch [--dir ROOT]
+  ${prog} proxy [--port 4090] [--hostname 127.0.0.1] [--log FILE] [--upstream URL] [--deepinfra-upstream URL]
   ${prog} doctor [--dir DIR] [--json]
   ${prog} doctor --fix [--force] [--dir DIR] [--json]
   ${prog} doctor --renovate [--dir DIR] [--json]
@@ -136,6 +138,15 @@ JSON output (tool protocol version 0):
                   and fixes with --fix. Exit code 0 pass or warn, 1 fail or
                   a failed fix, 2 usage error or a doctor that cannot run.
   In JSON mode, stdout holds only the object; all other text goes to stderr.
+
+Host cost proxy:
+  proxy           runs the cost proxy in the foreground until SIGTERM, on
+                  127.0.0.1:4090 by default. It appends a start marker and
+                  one JSON line per request to --log (default
+                  $XDG_STATE_HOME/idfx/proxy-host.log) and prints the
+                  listening line to stdout. The systemd user unit
+                  idfx-proxy.service runs it; idfx doctor --fix installs
+                  and starts that unit (check host-proxy).
 
 Doctor fixes:
   --fix           runs the safe fixes, then all checks again. It never
@@ -221,6 +232,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return runIdleWatch(args, process.env);
     case "doctor":
       return doctor(args);
+    case "proxy":
+      return hostProxyCommand(args, process.env);
   }
 }
 

@@ -212,6 +212,15 @@ export function proxyLogPath(env: Env, port: number): string {
 }
 
 /**
+ * The log file of the host cost proxy `idfx proxy` (the systemd user unit
+ * `idfx-proxy.service`): `<stateDir>/proxy-host.log`. One host proxy runs
+ * per user, so the name has no port.
+ */
+export function hostProxyLogPath(env: Env, home: string = homedir()): string {
+  return path.join(stateDir(env, home), "proxy-host.log");
+}
+
+/**
  * The marker line that every start of a server or proxy writes into its log
  * first. A reader sees from it where a new start begins; the proxy readers
  * skip the line, because it is not JSON. Pure.

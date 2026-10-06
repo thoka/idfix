@@ -3,6 +3,9 @@
 /** The default idle limit of the server watchdog, in minutes (`up --idle-minutes`). */
 export const DEFAULT_IDLE_MINUTES = 30;
 
+/** The default port of the host cost proxy (`idfx proxy`, the unit `idfx-proxy.service`). */
+export const DEFAULT_HOST_PROXY_PORT = 4090;
+
 export class UsageError extends Error {
   constructor(message: string) {
     super(message);
@@ -51,6 +54,8 @@ export type ParsedArgs =
   | { command: "say"; url?: string; session: string; dir?: string; agent?: string; model?: string; text: string }
   | { command: "worktree"; step: string; dir?: string; base?: string; noSetup: boolean; remove: boolean }
   | { command: "fetch"; dir?: string }
+  /** The host cost proxy in the foreground. */
+  | { command: "proxy"; port: number; hostname: string; log?: string; upstream?: string; deepinfraUpstream?: string }
   | { command: "doctor"; dir?: string; json: boolean; fix: boolean; force: boolean; fixAsRoot: boolean; renovate: boolean };
 
 /** The reply values of a permission request. */
@@ -478,6 +483,24 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         throw new UsageError(`fetch takes no positional arguments, got "${positionals.join(" ")}"`);
       }
       return { command: "fetch", dir: optionalString(flags, "dir") };
+    }
+    case "proxy": {
+      const { flags, positionals } = collectFlags(
+        rest,
+        new Set(["port", "hostname", "log", "upstream", "deepinfra-upstream"]),
+        new Set<string>(),
+      );
+      if (positionals.length > 0) {
+        throw new UsageError(`proxy takes no positional arguments, got "${positionals.join(" ")}"`);
+      }
+      return {
+        command: "proxy",
+        port: parsePort(flags) ?? DEFAULT_HOST_PROXY_PORT,
+        hostname: optionalString(flags, "hostname") ?? "127.0.0.1",
+        log: optionalString(flags, "log"),
+        upstream: optionalString(flags, "upstream"),
+        deepinfraUpstream: optionalString(flags, "deepinfra-upstream"),
+      };
     }
     case "doctor": {
       const { flags, positionals } = collectFlags(

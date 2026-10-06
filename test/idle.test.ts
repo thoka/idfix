@@ -126,13 +126,16 @@ function makeWorld(opts: {
   health?: ServerState["state"][];
   statuses?: Record<string, StatusMap>;
   stopCodes?: number[];
+  /** Whether a run holds the server lock at each try, in order; then free. */
+  locked?: boolean[];
   /** Runs before each sleep returns, with the number of the sleep (1, 2, ...). */
   onSleep?: (count: number, push: (item: GlobalItem) => void) => void;
 }) {
   let now = 0;
   let sleeps = 0;
   let onItem: ((item: GlobalItem) => void) | undefined;
-  const calls = { stop: 0, ended: false, status: [] as string[] };
+  const calls = { stop: 0, ended: false, status: [] as string[], lock: [] as string[] };
+  const locked = opts.locked ?? [];
   const lines: string[] = [];
   const pids = opts.pids ?? [];
   const health = opts.health ?? [];
@@ -168,7 +171,18 @@ function makeWorld(opts: {
         calls.ended = true;
       };
     },
+    tryLock: async () => {
+      if (locked.shift() === true) {
+        calls.lock.push("busy");
+        return null;
+      }
+      calls.lock.push("taken");
+      return async () => {
+        calls.lock.push("released");
+      };
+    },
     stopServer: async () => {
+      calls.lock.push("stop");
       calls.stop += 1;
       return stopCodes.length > 0 ? (stopCodes.shift() as number) : 0;
     },
@@ -278,6 +292,38 @@ describe("idleWatch", () => {
     expect(await idleWatch(8767, 30, world.deps)).toBe("stopped");
     // The seed at the start found a busy session, the reseed at minute 40 found none.
     expect(world.now()).toBe(70 * MINUTE);
+  });
+
+  test("holds the server lock through the final check and the stop, then releases it", async () => {
+    const world = makeWorld({ statuses: { "/w": {} } });
+    expect(await idleWatch(8767, 30, world.deps)).toBe("stopped");
+    expect(world.calls.lock).toEqual(["taken", "stop", "released"]);
+  });
+
+  test("a held server lock resets the timer with one log line, and the stop comes later", async () => {
+    const world = makeWorld({ statuses: { "/w": {} }, locked: [true] });
+    expect(await idleWatch(8767, 30, world.deps)).toBe("stopped");
+    expect(world.calls.lock).toEqual(["busy", "taken", "stop", "released"]);
+    // No final check ran while the lock was held.
+    expect(world.calls.status.filter((dir) => dir === "/w")).toHaveLength(2);
+    expect(world.now()).toBe(60 * MINUTE);
+    expect(world.lines).toEqual([
+      "idle-watch port=8767: a run holds the server lock, so the timer resets",
+      "idle-stop port=8767 idle=30m",
+    ]);
+  });
+
+  test("releases the server lock when the final check finds a busy session", async () => {
+    const world = makeWorld({
+      statuses: { "/w": {}, "/other": { ses_2: { type: "busy" } } },
+      onSleep: (count, push) => {
+        if (count === 1) push({ directory: "/other", payload: { type: "session.updated", properties: {} } });
+        if (count === 45) world.setStatuses({ "/w": {}, "/other": {} });
+      },
+    });
+    expect(await idleWatch(8767, 30, world.deps)).toBe("stopped");
+    expect(world.calls.lock.slice(0, 2)).toEqual(["taken", "released"]);
+    expect(world.calls.lock.slice(-3)).toEqual(["taken", "stop", "released"]);
   });
 
   test("keeps watching when the stop fails, and stops later", async () => {

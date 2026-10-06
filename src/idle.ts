@@ -19,6 +19,10 @@
  * also after each reconnect). Before a stop, it asks `GET /session/status`
  * of each known folder again, and a busy session resets the timer.
  *
+ * The final check and the stop hold the server lock (`lock.ts`). When
+ * `oc-sub run` holds it, the run starts a session now, so the watchdog
+ * resets its timer and does not stop the server.
+ *
  * The watchdog never outlives its server for long. It exits without a stop
  * when the server PID file changes or disappears, or when the server fails
  * the health check 3 times in a row.
@@ -29,6 +33,7 @@ import { makeClient, probeServer, unwrap, type ServerState } from "./client";
 import { commandLineOf, down, isAlive, signalGroup, stopGroup, type DownDeps } from "./down";
 import { readDirs, readPid, removeFiles, serveDirsPath, serveLogPath, servePidPath, stateDir } from "./state";
 import { readSandboxStates, stopSandbox, type ServeProcess } from "./sandbox";
+import { tryLockServer, type Release } from "./lock";
 
 export { DEFAULT_IDLE_MINUTES } from "./args";
 /** How many failed health checks in a row end the watchdog. */
@@ -154,6 +159,11 @@ export type IdleWatchDeps = {
    * ends the stream.
    */
   subscribe: (onItem: (item: GlobalItem) => void) => () => void;
+  /**
+   * Tries the server lock without a wait. Null means that a run holds it
+   * and starts a session now.
+   */
+  tryLock: () => Promise<Release | null>;
   /** Stops the server through the normal stop path. Returns its exit code. */
   stopServer: () => Promise<number>;
   /** Writes one line into the server log. */
@@ -229,22 +239,34 @@ export async function idleWatch(port: number, minutes: number, deps: IdleWatchDe
       healthFails = 0;
       if (!tracker.isIdle(deps.now(), limitMs)) continue;
 
-      // The final check: ask each known folder again. A busy session, or a
-      // folder that does not answer, resets the timer.
-      const maps = await statusMaps(deps, await knownDirectories());
-      const busy = maps === null || maps.some((map) => Object.values(map).some((state) => isBusyType(state.type)));
-      if (busy) {
-        // Only the timer resets. The busy set stays as the stream keeps it,
-        // so a lost idle event cannot hold the server forever: the next
-        // check after the limit asks the server again.
+      // The server lock guards the final check and the stop: while a run
+      // holds it, the run starts a session on this server.
+      const release = await deps.tryLock();
+      if (release === null) {
+        deps.log(`idle-watch port=${port}: a run holds the server lock, so the timer resets`);
         tracker.seed(null, deps.now());
         continue;
       }
-      deps.log(idleStopLine(port, minutes));
-      const code = await deps.stopServer();
-      if (code === 0) return "stopped";
-      deps.log(`idle-watch port=${port}: the stop failed with exit code ${code}, so the watchdog keeps watching`);
-      tracker.seed(null, deps.now());
+      try {
+        // The final check: ask each known folder again. A busy session, or a
+        // folder that does not answer, resets the timer.
+        const maps = await statusMaps(deps, await knownDirectories());
+        const busy = maps === null || maps.some((map) => Object.values(map).some((state) => isBusyType(state.type)));
+        if (busy) {
+          // Only the timer resets. The busy set stays as the stream keeps it,
+          // so a lost idle event cannot hold the server forever: the next
+          // check after the limit asks the server again.
+          tracker.seed(null, deps.now());
+          continue;
+        }
+        deps.log(idleStopLine(port, minutes));
+        const code = await deps.stopServer();
+        if (code === 0) return "stopped";
+        deps.log(`idle-watch port=${port}: the stop failed with exit code ${code}, so the watchdog keeps watching`);
+        tracker.seed(null, deps.now());
+      } finally {
+        await release();
+      }
     }
   } finally {
     endStream();
@@ -372,6 +394,7 @@ export function defaultIdleWatchDeps(
     sessionStatus: async (directory) =>
       unwrap(await client.session.status({ query: { directory } }), `session status of ${directory}`) as StatusMap,
     subscribe: globalEventStream(serveUrl, env),
+    tryLock: () => tryLockServer(env, port),
     stopServer,
     log: (line) => console.log(`${new Date().toISOString()} ${line}`),
   };

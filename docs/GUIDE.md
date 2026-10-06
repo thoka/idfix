@@ -185,7 +185,7 @@ A long model request is not a stall. While a session waits for the model, for ex
 - Below the table, the detail pane shows the selected run: a pending question or permission request, the subagent sessions as a tree, and the last events.
 - The footer shows each server and its state (`up`, `down`, or `reconnecting`), the number of runs, their cost, and the keys.
 
-Keys: `j`/`k` or the arrow keys select a run. `o` shows the attach command of the selected run. `a` switches between this project and all projects. `q` or Ctrl-C quit. The view only shows. Claude still answers, aborts, and follows up.
+Keys: `j`/`k` or the arrow keys select a run. `o` opens the selected run: inside tmux, a new pane attaches to it. Outside tmux, the footer shows the attach command. `a` switches between this project and all projects. `q` or Ctrl-C quit. The view only shows. Claude still answers, aborts, and follows up.
 
 With `--all`, the `where` column shows the full project name. A project can set a short name for it in the file `.opencode/oc-sub.json` of the project root: `{ "shortName": "opsub" }`. Without the file, the full name shows. The column is as wide as its longest value, like the other columns.
 
@@ -202,7 +202,11 @@ With `--all`, the `where` column shows the full project name. A project can set 
 - The detail pane shows the kind (`interactive` or `background`), the model, the pending text, and the subagents as a tree. It shows no log lines for a Claude session yet.
 - The footer counts only real charges in the cost total. The API price of the Claude sessions shows on its own, as `api ~$x`.
 - The live view reads the Claude files again on each 2-second tick. It reads only the new lines of each transcript, and it loads the prices once at the start.
-- The key `o` on a Claude session does not open it yet. The footer shows a note. Step 25g.3 adds it.
+- The key `o` opens a Claude session:
+  - A background session opens in a new tmux pane that runs `claude attach <id>`. The id is the short job id that `claude agents --json` shows. Outside tmux, the footer shows that command.
+  - An interactive session that runs in tmux: `top` runs `tmux switch-client -t %<pane>`, which moves your tmux client to the pane of the session. Outside tmux, the footer names the pane.
+  - An interactive session outside tmux, or an ended session, does not open. The footer says why: `no tmux pane` or `session ended`.
+  - A subagent has no terminal of its own, so `o` opens its parent session.
 
 ### Check what runs: `oc-sub status`
 

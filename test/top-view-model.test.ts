@@ -6,7 +6,8 @@ import { claudeDetail } from "../src/top/claude";
 import { claudeRowOf } from "./top-rows";
 import {
   attachCommand,
-  CLAUDE_OPEN_NOTE,
+  claudeOpenAction,
+  claudeRowFor,
   detailLines,
   firstVisibleRow,
   footerLines,
@@ -16,7 +17,7 @@ import {
   screenLayout,
   serverLabel,
 } from "../src/top/view-model";
-import { splitFlag, tmuxAttachArgv } from "../src/top/tmux";
+import { claudeAttachArgv, splitFlag, tmuxAttachArgv, tmuxPaneOf, tmuxSwitchArgv } from "../src/top/tmux";
 
 function row(sessionId: string, overrides: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -158,8 +159,8 @@ describe("footer", () => {
     expect(attachCommand("ses_2a3b4cABCDEF")).toBe("oc-sub attach ABCDEF");
   });
 
-  test("the key help names o: attach", () => {
-    expect(KEY_HELP).toContain("o: attach ");
+  test("the key help names o: open", () => {
+    expect(KEY_HELP).toContain("o: open ");
     expect(KEY_HELP).not.toContain("attach command");
   });
 
@@ -244,8 +245,73 @@ describe("Claude sessions (step 25g.2)", () => {
     const opencodeOnly = footerLines({ servers: [], rows: [row("ses_a", { cost: 0.5 })], all: true, scopeLabel: "" });
     expect(opencodeOnly[1]).toBe("1 session  cost $0.5000  scope: all projects");
   });
+});
 
-  test("the o note names step 25g.3", () => {
-    expect(CLAUDE_OPEN_NOTE).toContain("25g.3");
+describe("the key o on Claude sessions (step 25g.3)", () => {
+  const size = { columns: 200, rows: 50 };
+
+  test("claudeAttachArgv splits like the opencode attach and runs claude attach with the job ID", () => {
+    expect(claudeAttachArgv("b3e132e9", "/repo", size)).toEqual([
+      "tmux",
+      "split-window",
+      "-h",
+      "-c",
+      "/repo",
+      "claude",
+      "attach",
+      "b3e132e9",
+    ]);
+    expect(claudeAttachArgv("b3e132e9", "/repo", { columns: 80, rows: 60 })[2]).toBe("-v");
+  });
+
+  test("tmuxPaneOf reads the pane of the tmux field", () => {
+    expect(tmuxPaneOf("5:@5.%40")).toBe("%40");
+    expect(tmuxPaneOf("main:@12.%3")).toBe("%3");
+    expect(tmuxPaneOf(undefined)).toBeUndefined();
+    expect(tmuxPaneOf("")).toBeUndefined();
+    expect(tmuxPaneOf("%40")).toBeUndefined();
+  });
+
+  test("tmuxSwitchArgv switches the client to the pane", () => {
+    expect(tmuxSwitchArgv("%40")).toEqual(["tmux", "switch-client", "-t", "%40"]);
+  });
+
+  test("a background session with a job ID opens claude attach in a new pane", () => {
+    const row = claudeRowOf("sess-000001", { kind: "background", jobId: "b3e132e9" });
+    const action = claudeOpenAction(row, "/repo", size);
+    expect(action).toMatchObject({ kind: "run", argv: claudeAttachArgv("b3e132e9", "/repo", size) });
+    if (action.kind === "run") expect(action.outside).toBe("attach with: claude attach b3e132e9");
+  });
+
+  test("an interactive session with a tmux field switches to its pane", () => {
+    const row = claudeRowOf("sess-000002", { kind: "interactive", tmux: "5:@5.%40" });
+    const action = claudeOpenAction(row, "/repo", size);
+    expect(action).toMatchObject({ kind: "run", argv: ["tmux", "switch-client", "-t", "%40"] });
+    if (action.kind === "run") expect(action.outside).toContain("outside tmux");
+  });
+
+  test("the footer says why nothing opens", () => {
+    expect(claudeOpenAction(claudeRowOf("s1", { kind: "interactive" }), "/repo", size)).toEqual({
+      kind: "note",
+      text: "open: no tmux pane",
+    });
+    expect(claudeOpenAction(claudeRowOf("s2", { tmux: "5:@5.%40", state: "ended" }), "/repo", size)).toEqual({
+      kind: "note",
+      text: "open: session ended",
+    });
+    expect(claudeOpenAction(claudeRowOf("s3", { kind: "background", jobId: "j1", state: "ended" }), "/repo", size)).toEqual({
+      kind: "note",
+      text: "open: session ended",
+    });
+    expect(claudeOpenAction(claudeRowOf("s4", { kind: "background" }), "/repo", size)).toMatchObject({ kind: "note" });
+  });
+
+  test("claudeRowFor gives the parent session of a subagent, and nothing for an opencode row", () => {
+    const child = claudeRowOf("agent-a1");
+    const parent = claudeRowOf("sess-p", { children: [child] });
+    const rows = [row("ses_open"), parent];
+    expect(claudeRowFor(rows, "sess-p")).toBe(parent);
+    expect(claudeRowFor(rows, "agent-a1")).toBe(parent);
+    expect(claudeRowFor(rows, "ses_open")).toBeUndefined();
   });
 });

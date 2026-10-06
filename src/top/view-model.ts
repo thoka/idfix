@@ -7,14 +7,17 @@
  * A Claude Code session (step 25g.2) has its own detail: the kind and the
  * model, what it waits for, and its subagents. It has no log lines yet.
  * Its API price does not count in the cost total of the footer, because it
- * is not a real charge. The footer names it on its own.
+ * is not a real charge. The footer names it on its own. The key `o` on a
+ * Claude session (step 25g.3) attaches or switches to it in tmux.
  */
+import type { ClaudeRow } from "../claude/rows";
 import { formatRequest } from "../requests";
 import { formatCost } from "../summary";
 import { sessionCode } from "./columns";
 import type { LiveServer } from "./live";
 import { treePending } from "./load";
 import type { SessionDetail, SessionRow, SessionRowState } from "./model";
+import { claudeAttachArgv, tmuxPaneOf, tmuxSwitchArgv } from "./tmux";
 
 /** The Ink color of each state. */
 export const STATE_COLORS: Record<SessionRowState, string> = {
@@ -160,8 +163,63 @@ export function attachCommand(sessionId: string): string {
   return `oc-sub attach ${sessionCode(sessionId)}`;
 }
 
-/** The footer note of `o` on a Claude session, until step 25g.3 builds the key for it. */
-export const CLAUDE_OPEN_NOTE = "open: Claude sessions get the key o in step 25g.3";
+/**
+ * What the key `o` does on a Claude session (step 25g.3): run a tmux
+ * command, or only show a note in the footer. A `run` action carries the
+ * footer text for each result: `opened` when tmux succeeds, `outside` when
+ * `top` runs outside tmux, and `fallback`, which follows a tmux error.
+ */
+export type ClaudeOpenAction =
+  | { kind: "run"; argv: string[]; opened: string; outside: string; fallback: string }
+  | { kind: "note"; text: string };
+
+/**
+ * The Claude row of `id` among `rows`. A subagent ID gives its parent
+ * session, because a subagent has no terminal of its own.
+ */
+export function claudeRowFor(rows: readonly SessionRow[], id: string): ClaudeRow | undefined {
+  for (const row of rows) {
+    if (row.driver !== "claude") continue;
+    const claude = row as ClaudeRow;
+    if (claude.sessionId === id || (claude.children ?? []).some((child) => child.sessionId === id)) return claude;
+  }
+  return undefined;
+}
+
+/**
+ * The action of `o` on a Claude row. A background session with a job ID
+ * opens a new tmux pane with `claude attach <jobId>`. An interactive
+ * session with a tmux pane switches the tmux client of `top` to that pane.
+ * Otherwise the footer says why nothing opens: the session ended, it has
+ * no job ID, or it has no tmux pane.
+ */
+export function claudeOpenAction(
+  row: ClaudeRow,
+  cwd: string,
+  size: { columns: number; rows: number },
+): ClaudeOpenAction {
+  if (row.state === "ended") return { kind: "note", text: "open: session ended" };
+  if (row.kind === "background") {
+    if (row.jobId === undefined) return { kind: "note", text: "open: no job id for this background session" };
+    const command = `claude attach ${row.jobId}`;
+    return {
+      kind: "run",
+      argv: claudeAttachArgv(row.jobId, cwd, size),
+      opened: `attached ${sessionCode(row.sessionId)} in a new tmux pane`,
+      outside: `attach with: ${command}`,
+      fallback: `attach with: ${command}`,
+    };
+  }
+  const pane = tmuxPaneOf(row.tmux);
+  if (pane === undefined) return { kind: "note", text: "open: no tmux pane" };
+  return {
+    kind: "run",
+    argv: tmuxSwitchArgv(pane),
+    opened: `switched to tmux pane ${pane}`,
+    outside: `open: top runs outside tmux; the session is in tmux pane ${row.tmux}`,
+    fallback: `the session is in tmux pane ${row.tmux}`,
+  };
+}
 
 /** One server as the footer names it: the project (or `host`), the port, and the state. */
 export function serverLabel(server: LiveServer): string {
@@ -176,7 +234,7 @@ export function serverLabel(server: LiveServer): string {
 }
 
 /** The key help of the footer. */
-export const KEY_HELP = "j/k or arrows: move  o: attach  a: all projects/this project  q: quit";
+export const KEY_HELP = "j/k or arrows: move  o: open  a: all projects/this project  q: quit";
 
 /** The input of the footer. */
 export type FooterInput = {

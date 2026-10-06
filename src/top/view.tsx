@@ -9,15 +9,17 @@
  * second, so that the times age. The first version only shows: no key
  * answers, aborts, or sends a message.
  *
- * Keys: `j`/`k` and the arrow keys move the selection, `o` attaches to the
- * selected session in a new tmux pane (without tmux it shows the attach
- * command), `a` switches between the scope of `--dir`
+ * Keys: `j`/`k` and the arrow keys move the selection, `o` opens the
+ * selected session: an attach in a new tmux pane or a switch to its tmux
+ * pane (without tmux it shows a note), `a` switches between the scope of `--dir`
  * and `--all`, and `q` or Ctrl-C quit.
  *
  * Claude Code sessions (step 25g.2) show in the same table. An ended row is
  * gray, and the API price of a Claude session is gray, because it is not a
- * real charge. The key `o` on a Claude row only shows a footer note until
- * step 25g.3.
+ * real charge. The key `o` on a Claude row (step 25g.3) opens a background
+ * session with `claude attach` in a new tmux pane, or switches the tmux
+ * client to the pane of an interactive session. Otherwise the footer says
+ * why nothing opens.
  */
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import React, { useEffect, useRef, useState } from "react";
@@ -25,10 +27,11 @@ import { makeProjectNameResolver } from "../project-config";
 import { GAP, padTable } from "./columns";
 import type { LiveHandle } from "./live";
 import type { SessionRow } from "./model";
-import { defaultOpenPane, type PaneResult } from "./tmux";
+import { defaultOpenPane, defaultRunTmux, type PaneResult } from "./tmux";
 import {
   attachCommand,
-  CLAUDE_OPEN_NOTE,
+  claudeOpenAction,
+  claudeRowFor,
   detailLines,
   firstVisibleRow,
   footerLines,
@@ -66,6 +69,13 @@ export type TopViewProps = {
     sessionId: string,
     size: { columns: number; rows: number },
   ) => Promise<PaneResult | undefined>;
+  /**
+   * Run one tmux command for the key `o` on a Claude session: the attach
+   * pane of a background session, or the switch to the pane of an
+   * interactive one. Default: tmux when `$TMUX` is set, otherwise nothing
+   * (the footer shows a note).
+   */
+  runTmux?: (argv: string[]) => Promise<PaneResult | undefined>;
 };
 
 const TONE_COLORS: Record<DetailTone, string | undefined> = {
@@ -112,6 +122,7 @@ export function TopView(props: TopViewProps) {
   const nowMs = props.nowMs ?? Date.now;
   const redrawMs = props.redrawMs ?? 1000;
   const openPane = props.openPane ?? defaultOpenPane;
+  const runTmux = props.runTmux ?? defaultRunTmux;
   const { exit } = useApp();
   const { columns, rows: height } = useWindowSize();
   const [all, setAll] = useState(props.initialAll);
@@ -176,8 +187,18 @@ export function TopView(props: TopViewProps) {
         setMessage("no session selected");
         return;
       }
-      if (current.find((row) => row.sessionId === id)?.driver === "claude") {
-        setMessage(CLAUDE_OPEN_NOTE);
+      const claude = claudeRowFor(current, id);
+      if (claude !== undefined) {
+        const action = claudeOpenAction(claude, process.cwd(), { columns, rows: height });
+        if (action.kind === "note") {
+          setMessage(action.text);
+          return;
+        }
+        void runTmux(action.argv).then((result) => {
+          if (result === undefined) setMessage(action.outside);
+          else if (result.ok) setMessage(action.opened);
+          else setMessage(`tmux error: ${result.error}  ${action.fallback}`);
+        });
         return;
       }
       // The footer shows the result; the view stays usable while the pane

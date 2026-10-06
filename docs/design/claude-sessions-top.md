@@ -75,6 +75,11 @@ The key `o`:
 - background session: a new tmux pane runs `claude attach <short id>`, like the opencode attach of `src/top/tmux.ts`.
 - interactive session with a `tmux` field: the field has the form `<session>:@<window>.%<pane>`, for example `5:@5.%40`. `top` runs `tmux switch-client -t %40`, which also selects the window and the pane.
 - interactive session without tmux: the footer says "no tmux pane".
+- ended session: the footer says "session ended".
+- subagent: `o` opens its parent session.
+- `top` outside tmux: the footer shows the attach command, or names the pane of the interactive session.
+
+`claude attach --help` says `Usage: claude attach <id>`. The id is the short `id` of `claude agents --json`, the same as the job folder name under `~/.claude/jobs/`.
 
 ## 8. `status --json`
 

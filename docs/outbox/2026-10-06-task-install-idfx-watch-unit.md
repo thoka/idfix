@@ -18,4 +18,4 @@ Facts:
 - The unit runs `%h/.local/bin/idfx watch --all` with `Restart=on-failure` and `RestartSec=10`, `WantedBy=default.target`. It sets `PATH` to `%h/.local/bin:%h/dv/meta/dv/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin`, because a user service gets only `/usr/local/bin:/usr/bin`, and the watcher needs `notify-session` and `handover` from meta.
 - `systemd-analyze --user verify` accepts the file (2026-10-06).
 - The check: `idfx doctor` warns in the check `watch-running` while no watcher holds `~/.local/state/idfx/events.lock`. Its fix text names `systemctl --user enable --now idfx-watch.service`.
-- The unit is on the branch `feature/25g-w2-wake` of idfix until it merges into `alpha`.
+- The unit is on `alpha` of idfix since commit a085731 (2026-10-06).

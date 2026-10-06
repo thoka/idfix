@@ -17,11 +17,13 @@ else
   exit 1
 fi
 
-# A plugin that Claude Code copied into its cache has no node_modules yet.
-# Install the locked runtime dependencies once.
-if [ ! -d "$root/node_modules/@opencode-ai/sdk" ]; then
-  (cd "$root" && "${bun_cmd[@]}" install --frozen-lockfile --production >&2)
-fi
+# Install the locked runtime dependencies on each start. A plugin that Claude
+# Code copied into its cache has no node_modules yet, and an update can add a
+# package to bun.lock. A check for one folder misses the new package, so let
+# bun compare node_modules with the lockfile: with no change, this takes a few
+# milliseconds. Its output goes to stderr, so that stdout stays clean for the
+# commands that print JSON.
+(cd "$root" && "${bun_cmd[@]}" install --frozen-lockfile --production >&2)
 
 # Pass the name the user called, so that the help shows it. bin/idfx sets it
 # before it calls this script; else take the base name of $0, which keeps the

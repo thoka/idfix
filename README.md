@@ -34,7 +34,7 @@ To update at every start instead, open `/plugin`, select the marketplace, and en
 - `skills/oc-sub/reference.md` — the full command reference and the details
 - `opencode/agents/` — the agents of the plugin: `coder`, `researcher`, and its hidden subagent `reader`. `oc-sub up` serves them through `OPENCODE_CONFIG_DIR`.
 - `bin/idfx` — a second launcher with the short name of the project idfix. It calls `bin/oc-sub`. The link `~/.local/bin/idfix` also calls it.
-- `bin/oc-sub` — the launcher. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), installs the locked dependencies on the first call, and runs `src/cli.ts`.
+- `bin/oc-sub` — the launcher. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), runs `bun install --frozen-lockfile --production` on each call (a few milliseconds when nothing changed), and runs `src/cli.ts`.
 
 Check the plugin with `claude plugin validate .` and `claude --plugin-dir . plugin details idfix`.
 
@@ -53,10 +53,10 @@ The project gives only its start scripts `bin/oc-sub` and `bin/idfx`. Both run t
 `mise.toml` pins `bun`, `opencode`, and `lefthook`. Check the setup with:
 
 ```
-mise run test       # bun install if node_modules is missing, then typecheck and bun test
+mise run test       # bun install --frozen-lockfile, then typecheck and bun test
 ```
 
-`mise run test` is also the pre-push hook. `lefthook.yml` defines it, and `mise run hooks-install` (`lefthook install`) installs it into `.git/hooks`. A push runs the tests on your machine first, and a failed test stops the push. A fresh git worktree has no `node_modules`. The task installs the locked packages first in that case. Without this step, a test can leave a partial `node_modules`, and the Ink tests then fail with two copies of React.
+`mise run test` is also the pre-push hook. `lefthook.yml` defines it, and `mise run hooks-install` (`lefthook install`) installs it into `.git/hooks`. A push runs the tests on your machine first, and a failed test stops the push. The task first runs `bun install --frozen-lockfile` each time. A fresh git worktree has no `node_modules`, and a merge can add a package to `bun.lock`. With no change, the install takes a few milliseconds. Without this step, a test can leave a partial `node_modules`, and the Ink tests then fail with two copies of React.
 
 This repository is public, so its tracked files name no local path of a developer and no private project. The pre-commit hook runs `public-check` on the staged files when that tool is on your PATH, and else prints a note and passes. `test/public.test.ts` checks the paths of all tracked files in every test run, also without the tool. The file `.public-check-allow` lists the exact strings that both checks allow, for example the example home folder `/home/user` of the tests.
 

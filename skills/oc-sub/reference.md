@@ -24,7 +24,7 @@ This file holds the details for the skill `oc-sub`. [SKILL.md](SKILL.md) has the
 
 - `oc-sub` needs `bun` and `opencode` on the PATH. If `bun` is missing, the launcher uses mise, if mise is installed.
 - The plugin puts `oc-sub` on the PATH of the Bash tool. Outside Claude Code, run `bun run src/cli.ts` in the repository of the tool, or link `bin/oc-sub` into a folder on your PATH.
-- On the first call from a fresh plugin copy, the launcher runs `bun install --frozen-lockfile --production` once.
+- On each call, the launcher runs `bun install --frozen-lockfile --production`, with its output on stderr. It installs the packages of a fresh plugin copy and a package that an update added to `bun.lock`. With no change, it takes a few milliseconds.
 - Keep your global agent files in one shared folder, and set `OC_SUB_SHARED_DIR` to it. There is no default. Put your global rules into `AGENTS.md` and each skill into `skills/<name>/SKILL.md`. It is the only source. `oc-sub` never copies it.
 - `up` refuses to start when `OC_SUB_SHARED_DIR` is not set or blank, or when `<shared>/AGENTS.md` is missing. It names the variable, and the path when it has one.
 

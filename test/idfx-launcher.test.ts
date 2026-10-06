@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_PROG, helpExitHint, helpText, progName } from "../src/cli";
@@ -72,5 +72,45 @@ describe("progName", () => {
     expect(helpText().split("\n")[0]).toBe("oc-sub - drive an opencode server for subagent runs");
     expect(helpText()).toContain("\n  oc-sub up [--dir DIR] [--no-cost-proxy] [--idle-minutes N]\n");
     expect(helpExitHint()).toBe("run `oc-sub --help` for usage");
+  });
+});
+
+describe("the dependency install of bin/oc-sub", () => {
+  /**
+   * Builds a copy of the launcher next to a tiny package with one local
+   * dependency, so that bun installs it without the network.
+   */
+  function fakeProject(): string {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "idfx-install-"));
+    mkdirSync(path.join(dir, "bin"));
+    copyFileSync(path.join(ROOT, "bin", "oc-sub"), path.join(dir, "bin", "oc-sub"));
+    mkdirSync(path.join(dir, "src"));
+    writeFileSync(path.join(dir, "src", "cli.ts"), 'console.log(JSON.stringify({ ok: true }));\n');
+    mkdirSync(path.join(dir, "dep"));
+    writeFileSync(path.join(dir, "dep", "package.json"), '{ "name": "dep", "version": "1.0.0" }\n');
+    writeFileSync(
+      path.join(dir, "package.json"),
+      '{ "name": "fake", "private": true, "dependencies": { "dep": "file:./dep" } }\n',
+    );
+    // Write bun.lock with a first install.
+    const first = Bun.spawnSync([process.execPath, "install"], { cwd: dir });
+    expect(first.exitCode).toBe(0);
+    return dir;
+  }
+
+  test("installs a package of the lockfile that node_modules lacks, with a clean stdout", () => {
+    const dir = fakeProject();
+    try {
+      // The old guard looked only for this folder and skipped the install.
+      rmSync(path.join(dir, "node_modules", "dep"), { recursive: true, force: true });
+      mkdirSync(path.join(dir, "node_modules", "@opencode-ai", "sdk"), { recursive: true });
+      const env = { ...process.env, PATH: `${path.dirname(process.execPath)}:${process.env.PATH ?? ""}` };
+      const result = Bun.spawnSync([path.join(dir, "bin", "oc-sub")], { env });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(path.join(dir, "node_modules", "dep", "package.json"))).toBe(true);
+      expect(result.stdout.toString()).toBe('{"ok":true}\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

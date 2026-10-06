@@ -7,12 +7,14 @@ claude = { version = "latest", minimum_release_age = "0" }
 lefthook = "2.1.16"
 
 [tasks.test]
-description = "Install the packages if node_modules is missing, then type-check and run the tests"
-# A fresh worktree has no node_modules. Without this install, a test step
-# can leave a partial node_modules, and the Ink tests then fail with two
-# copies of React.
+description = "Install the locked packages, then type-check and run the tests"
+# A fresh worktree has no node_modules, and a merge can add a package to
+# bun.lock. So the install runs each time: bun compares node_modules with the
+# lockfile, and with no change it takes a few milliseconds. Without this
+# install, a test step can leave a partial node_modules, and the Ink tests
+# then fail with two copies of React.
 run = [
-  "test -d node_modules || bun install --frozen-lockfile",
+  "bun install --frozen-lockfile",
   "bun run typecheck",
   "bun test",
 ]

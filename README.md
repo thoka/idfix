@@ -2,7 +2,7 @@
 
 Status: experimental alpha. The tool and the skill were built in September 2026 and have few real runs so far. The command line and the file formats can change.
 
-This project makes cheap opencode subagents usable from Claude Code. Its name is idfix 🐕, after the dog Idefix in Asterix, because it will support clients other than opencode. Until 2026-10-05 its name was opencode-subagents. It contains a small command line tool `oc-sub` and a Claude Code skill `oc-sub`, packaged as a Claude Code plugin. The research of the design is in [docs/research/prior-art.md](docs/research/prior-art.md). The lessons from the first use are in [docs/EXPERIENCE.md](docs/EXPERIENCE.md).
+This project makes cheap opencode subagents usable from Claude Code. Its name is idfix 🐕, after the dog Idefix in Asterix, because it will support clients other than opencode. Until 2026-10-05 its name was opencode-subagents. It contains a small command line tool `oc-sub` and a Claude Code skill `oc-sub`, packaged as a Claude Code plugin. The research of the design is in [.plan/research/prior-art.md](.plan/research/prior-art.md). The lessons from the first use are in [.plan/EXPERIENCE.md](.plan/EXPERIENCE.md).
 
 ## Use it in another project
 
@@ -24,7 +24,7 @@ claude plugin marketplace update idfix
 claude plugin update idfix@idfix
 ```
 
-To update at every start instead, open `/plugin`, select the marketplace, and enable auto-update. On the machine where you develop the plugin, add the marketplace from the local folder (`claude plugin marketplace add ~/dv/idfix`). Claude Code then reads the files live, and `/reload-plugins` loads a change. [docs/research/plugin-updates.md](docs/research/plugin-updates.md) has the sources.
+To update at every start instead, open `/plugin`, select the marketplace, and enable auto-update. On the machine where you develop the plugin, add the marketplace from the local folder (`claude plugin marketplace add ~/dv/idfix`). Claude Code then reads the files live, and `/reload-plugins` loads a change. [.plan/research/plugin-updates.md](.plan/research/plugin-updates.md) has the sources.
 
 ## Plugin layout
 
@@ -75,9 +75,9 @@ Checks the health of the host server (`GET /global/health`). When nothing answer
 
 `up` sets `OPENCODE_CONFIG_DIR` in the environment of the child process to the `opencode/` folder of this repository (computed from the location of the source file, not from the working directory). opencode then loads the research agents of the plugin for every project, after the project `.opencode` folder, so its agent wins over a project agent with the same name. If the environment already sets `OPENCODE_CONFIG_DIR` to another value, `up` keeps that value and prints a warning to stderr, because the research agents are then not loaded. If `OPENCODE_CONFIG_DIR` already holds the folder of the plugin, `up` prints no warning.
 
-`up` also needs the shared agents folder: `OC_SUB_SHARED_DIR`, else `$HOME/dv/meta/agents`. It holds your global rules in `AGENTS.md` and your skills in `skills/<name>/SKILL.md`. It is the only source, and `up` never copies it. When `<shared>/AGENTS.md` is missing, `up` stops with an error that names the path and `OC_SUB_SHARED_DIR`. Otherwise `up` sets `OPENCODE_CONFIG_CONTENT` for the child, with the rules file under `instructions` and the skills folder under `skills.paths`. The reason: opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever `OPENCODE_CONFIG_DIR` is set, and `up` always sets it. An absolute path in `instructions` still loads (see `docs/research/opencode-rules.md`). If the environment already sets `OPENCODE_CONFIG_CONTENT`, `up` keeps it and prints a warning, because the shared entries are then not added.
+`up` also needs the shared agents folder: `OC_SUB_SHARED_DIR`, else `$HOME/dv/meta/agents`. It holds your global rules in `AGENTS.md` and your skills in `skills/<name>/SKILL.md`. It is the only source, and `up` never copies it. When `<shared>/AGENTS.md` is missing, `up` stops with an error that names the path and `OC_SUB_SHARED_DIR`. Otherwise `up` sets `OPENCODE_CONFIG_CONTENT` for the child, with the rules file under `instructions` and the skills folder under `skills.paths`. The reason: opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever `OPENCODE_CONFIG_DIR` is set, and `up` always sets it. An absolute path in `instructions` still loads (see `.plan/research/opencode-rules.md`). If the environment already sets `OPENCODE_CONFIG_CONTENT`, `up` keeps it and prints a warning, because the shared entries are then not added.
 
-DeepInfra is an optional second model provider. When the project has the key file `~/.config/<project>/deepinfra.key`, `up` sets it up: in sandbox mode the key stays on the host as a custom secret of `sbx`, and in host mode the server gets `DEEPINFRA_API_KEY` (the environment first, then the key file). A run picks it with `--model deepinfra/zai-org/GLM-5.3-Flash`. DeepInfra serves this model only in fp4 precision, see `docs/research/deepinfra.md`. The setup and the cost log are in `docs/GUIDE.md`, section "DeepInfra as a direct provider".
+DeepInfra is an optional second model provider. When the project has the key file `~/.config/<project>/deepinfra.key`, `up` sets it up: in sandbox mode the key stays on the host as a custom secret of `sbx`, and in host mode the server gets `DEEPINFRA_API_KEY` (the environment first, then the key file). A run picks it with `--model deepinfra/zai-org/GLM-5.3-Flash`. DeepInfra serves this model only in fp4 precision, see `.plan/research/deepinfra.md`. The setup and the cost log are in `docs/GUIDE.md`, section "DeepInfra as a direct provider".
 
 One server serves many project folders, so its state lives in one folder per user, `$XDG_STATE_HOME/oc-sub/` (default `~/.local/state/oc-sub/`):
 
@@ -313,7 +313,7 @@ what-it-checks: Every symlink in `~/.claude/skills/` and `~/.agents/skills/` res
 fail-means: A skill is gone. Remove the broken link or point it back.
 --
 check: `agent-copies`
-what-it-checks: `.opencode/agents/coder.md`, `researcher.md`, and `reader.md` are permission-only files or absent (see `docs/research/agent-merge.md`).
+what-it-checks: `.opencode/agents/coder.md`, `researcher.md`, and `reader.md` are permission-only files or absent (see `.plan/research/agent-merge.md`).
 fail-means: A project copy overrides the plugin agent. Delete it, or keep only a permission block.
 --
 check: `opencode-version`

@@ -1,6 +1,6 @@
 /**
  * The wake-up of the supervisor by `idfx watch --all`. Design:
- * docs/design/idfx-watch.md, section 5.
+ * .plan/design/idfx-watch.md, section 5.
  *
  * Each notice costs context in the supervisor, so the watcher sends few:
  *

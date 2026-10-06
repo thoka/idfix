@@ -2,5 +2,5 @@
   "reviewed": "1.18.33",
   "date": "2026-09-30",
   "decision": "stay on 1.18.32",
-  "notes": "docs/research/opencode-roadmap.md"
+  "notes": ".plan/research/opencode-roadmap.md"
 }

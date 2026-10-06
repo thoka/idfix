@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spike of step 32c (docs/design/runner-job-sandbox.md): an sbx daemon for
+# Spike of step 32c (.plan/design/runner-job-sandbox.md): an sbx daemon for
 # the user gh-runner next to the live runner of arch-helper fix 50, a check
 # run, and an undo.
 #

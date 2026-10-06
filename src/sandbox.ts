@@ -1,7 +1,7 @@
 /**
  * Sandbox mode: run `opencode serve` inside a Docker Sandbox (`sbx`) per
- * project, instead of on the host. See `docs/research/sandbox.md` and the
- * design of step 9a in `docs/PLAN.md`. Every `sbx` call goes through a
+ * project, instead of on the host. See `.plan/research/sandbox.md` and the
+ * design of step 9a in `.plan/PLAN.md`. Every `sbx` call goes through a
  * runner, so the tests replace it with a fake and never call the real `sbx`.
  */
 import { accessSync, constants as fsConstants, existsSync, openSync, closeSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -116,7 +116,7 @@ export function sandboxConfigContent(sharedDir: string, proxyUrl?: string, deepi
   // the sandbox. An agent could call its tools, so the sandbox turns it off.
   // The shared rules and skills load through the absolute paths, because the
   // `OPENCODE_CONFIG_DIR` of the sandbox drops the global AGENTS.md (see
-  // docs/research/opencode-rules.md).
+  // .plan/research/opencode-rules.md).
   return JSON.stringify({
     agent: agents,
     mcp: { "mcp-gateway": { enabled: false } },
@@ -497,7 +497,7 @@ export function parseBinPaths(stdout: string): string | null {
  * a trusted path, so the `mise.toml` of the project root also covers the
  * `mise.toml` of each worktree of the project. `MISE_EXPERIMENTAL` is not
  * needed: `shared_install_dirs` works without it (tested live, see
- * docs/research/sandbox-mise.md).
+ * .plan/research/sandbox-mise.md).
  */
 export function sandboxMiseEnv(installsDir: string, projectRoot: string): string[] {
   const homeData = `${SANDBOX_HOME}/.local/share/mise`;
@@ -596,7 +596,7 @@ export function bunBinFromInstalls(installsDir: string): string | null {
 /**
  * A shell loop that keeps the cost proxy running: when the proxy exits, it
  * starts again after one second, so a crash does not end the model calls of
- * the server (C7 in docs/research/cost-proxy.md). Every argument is quoted,
+ * the server (C7 in .plan/research/cost-proxy.md). Every argument is quoted,
  * so no string from the user reaches the shell unquoted.
  *
  * The loop never ends by itself. To stop it, signal its whole process group
@@ -1604,7 +1604,7 @@ export async function stopSandbox(
   // `sbx stop` keeps the clone and the sandbox, but it removes the
   // `sandbox-<name>` remote from the host repository. The next start of the
   // sandbox adds the remote again, with the new ephemeral port of the git
-  // daemon (docs/research/run-isolation.md section 2.4). `upSandbox`
+  // daemon (.plan/research/run-isolation.md section 2.4). `upSandbox`
   // therefore checks the remote only after its first `sbx exec`.
   const stop = deps.runner([sbxBin(env), "stop", name]);
   if (stop.exitCode !== 0) {

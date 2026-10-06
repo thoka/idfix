@@ -1,6 +1,6 @@
 /**
  * `idfx watch --all [--json] [--once]`: the watcher of all Claude Code
- * sessions of the machine. Design: docs/design/idfx-watch.md, sections 2
+ * sessions of the machine. Design: .plan/design/idfx-watch.md, sections 2
  * to 4.
  *
  * Every 15 seconds the watcher reads the Claude source of

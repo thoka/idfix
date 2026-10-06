@@ -3,7 +3,7 @@
  * TypeScript file of 11,656 lines with three interfaces at fixed lines, plus
  * `probe/expected.json` with the expected answer.
  *
- * The file reproduces the A/B test task from docs/EXPERIENCE.md: the probe
+ * The file reproduces the A/B test task from .plan/EXPERIENCE.md: the probe
  * agent must find the three interfaces with grep and paged reads and write
  * their field names into `answer.md`. The generated file is committed, so
  * regenerating it only matters when the layout changes.

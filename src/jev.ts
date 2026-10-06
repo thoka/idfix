@@ -1,6 +1,6 @@
 /**
  * Stage two of the trace analysis: tag each trace step with Jev through the
- * OpenRouter decisions endpoint (see `docs/research/jev-decisions-api.md`).
+ * OpenRouter decisions endpoint (see `.plan/research/jev-decisions-api.md`).
  *
  * One step becomes one decisions request with all three questions in one
  * call, because the state is billed once and all questions answer in

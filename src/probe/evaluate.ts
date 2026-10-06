@@ -36,7 +36,7 @@ export type ProbeResult = {
 /**
  * Readability heuristic 1: the share of non-ASCII characters among all
  * non-whitespace characters of the assistant text. The derailed runs of
- * 2026-09-28 (docs/EXPERIENCE.md) produced text with unrelated words,
+ * 2026-09-28 (.plan/EXPERIENCE.md) produced text with unrelated words,
  * symbols, and Greek letters, while normal answers of this task are prose and
  * code in plain ASCII. Non-ASCII prose, emoji, or one stray arrow stay far
  * below the limit; derailed output crosses it. The limit of 5 percent keeps

@@ -1,5 +1,5 @@
 /**
- * The conditions of `idfx watch --all`. Design: docs/design/idfx-watch.md,
+ * The conditions of `idfx watch --all`. Design: .plan/design/idfx-watch.md,
  * section 3.
  *
  * This module is pure. From the rows of one poll, the clock, and the state of
@@ -203,7 +203,7 @@ export type WaitReason = typeof INPUT_REQUIRED | typeof AUTH_REQUIRED;
 /**
  * The fixed `waitingFor` texts of an interactive session. Claude Code
  * 2.1.285 sets `waitingFor` to one of these, or to the title of a
- * permission dialog (research `docs/research/claude-session-sources.md`,
+ * permission dialog (research `.plan/research/claude-session-sources.md`,
  * section 2). All of them are `input_required`; the text goes into the
  * message as the kind of wait.
  */

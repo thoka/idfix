@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spike of step 32c (docs/design/runner-job-sandbox.md): the root setup for
+# Spike of step 32c (.plan/design/runner-job-sandbox.md): the root setup for
 # the user gh-runner and its own sbx daemon, a check run, and an undo.
 #
 #   sudo scripts/spike-32c-root.sh apply DOCKER_USER

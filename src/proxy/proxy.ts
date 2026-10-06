@@ -5,7 +5,7 @@
  * goes to OpenRouter. It forwards every request to the upstream base URL, streams the
  * response back without buffering, and writes one JSON log line per request
  * event to stdout (tagged with `"source":"oc-sub-cost-proxy"`). See
- * docs/research/cost-proxy.md.
+ * .plan/research/cost-proxy.md.
  *
  * Key safety: the proxy never logs the `Authorization` header or any other
  * header value except the two session headers, and never logs a body.
@@ -129,7 +129,7 @@ export function startProxy({
     hostname,
     // Bun's default idle timeout is 10 seconds. A model provider can send no
     // byte for much longer (Z.AI p99 time to first byte is about 21 s, see
-    // docs/research/provider-probe.md), so the default would cut the
+    // .plan/research/provider-probe.md), so the default would cut the
     // connection before the first chunk. 0 disables the timeout (the option
     // is in seconds; 255 is its maximum, 0 turns it off).
     idleTimeout: 0,

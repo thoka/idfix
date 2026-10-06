@@ -1,5 +1,5 @@
 # The watcher of all Claude Code sessions of this machine, as a systemd user
-# service. Design: docs/design/idfx-watch.md, section 7. idfix ships this file;
+# service. Design: .plan/design/idfx-watch.md, section 7. idfix ships this file;
 # arch-helper installs it through chezmoi from the stable clone of idfix and
 # enables it. `idfx doctor` reports in the check `watch-running` whether it runs.
 

@@ -11,7 +11,7 @@
  *  2. write `.opencode/opencode.json` with the model alias
  *     `glm-probe-<provider>` into the worktree, through `sbx exec`, before
  *     any server request touches the folder (a fresh directory loads its
- *     config on first use, see docs/research/probe-routing.md section 4),
+ *     config on first use, see .plan/research/probe-routing.md section 4),
  *  3. note the key usage of the project key, start the run with the agent
  *     `coder`, the probe task text, and the model alias, and wait until the
  *     session tree is settled (the logic of `oc-sub watch`, with its

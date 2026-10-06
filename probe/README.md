@@ -1,13 +1,13 @@
 # Provider probe: fixture and evaluator
 
 Parts of PLAN.md step 10 that need no server and no paid call. The design and
-the review are in `docs/research/provider-probe.md` (section 5).
+the review are in `.plan/research/provider-probe.md` (section 5).
 
 ## Fixture (`make-fixture.ts`, `fixture/types.ts`, `expected.json`, `task.md`)
 
 `make-fixture.ts` generates `fixture/types.ts`, a deterministic TypeScript
 file of 11,656 lines (the size of the A/B test file in
-`docs/EXPERIENCE.md`). It holds filler code and three interfaces at fixed
+`.plan/EXPERIENCE.md`). It holds filler code and three interfaces at fixed
 lines:
 
 | Interface | Line | Fields |
@@ -79,7 +79,7 @@ key belongs to exactly one run. One run does, in order:
    of an older batch is never reused.
 2. Write `.opencode/opencode.json` into the worktree, through `sbx exec`,
    **before** the first server request to the folder (a fresh directory
-   loads its config on first use, see `docs/research/probe-routing.md`
+   loads its config on first use, see `.plan/research/probe-routing.md`
    section 4). The file defines one model alias `glm-probe-<provider>` whose
    `id` is `z-ai/glm-5.3-flash` and whose `options.provider` pins the
    OpenRouter provider: `{ "only": ["<provider>"], "allow_fallbacks": false }`.
@@ -172,7 +172,7 @@ generation lookups, which cost nothing. The script makes no other paid call.
 
 **Decisions mode** (`--decisions`, PLAN.md step 18): sends exactly one
 request to `POST https://openrouter.ai/api/alpha/decisions`, the
-non-chat Jev endpoint (see `docs/research/jev-decisions-api.md`):
+non-chat Jev endpoint (see `.plan/research/jev-decisions-api.md`):
 
 ```
 bun probe/jev.ts --decisions [--model typesafe/jev-1.13]

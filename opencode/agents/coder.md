@@ -3,7 +3,7 @@
 # own bash rules, a project adds .opencode/agents/coder.md that holds only a
 # permission block whose bash map starts with "*": allow, and then its rules.
 # Same-name agent files merge field by field, and this plugin file wins every
-# field that it defines (see docs/research/agent-merge.md, case 2b). Because
+# field that it defines (see .plan/research/agent-merge.md, case 2b). Because
 # matching takes the last pattern, the project rules must come after the
 # catch-all, or the plugin "*": allow silently shadows them. The plugin
 # description, model, and prompt stay.

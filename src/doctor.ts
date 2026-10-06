@@ -3,7 +3,7 @@
  * only stat and list directories (except check 6, which reads the frontmatter
  * of a project agent file), so `up` and `run` run them on every invocation.
  * The slow checks need a git call, `sbx` calls, or the KVM device, so only
- * `oc-sub doctor` runs them. The design is in `docs/research/doctor.md`.
+ * `oc-sub doctor` runs them. The design is in `.plan/research/doctor.md`.
  * Every dependency is injected, so the tests use fakes like in
  * `test/sandbox.test.ts`.
  */
@@ -413,7 +413,7 @@ function result(name: string, status: CheckResult["status"], message: string, fi
 /**
  * Whether the file holds only a permission block: a frontmatter with the
  * `permission` key, none of `description`, `model`, or `prompt`, and an
- * empty body after the frontmatter (see `docs/research/agent-merge.md`).
+ * empty body after the frontmatter (see `.plan/research/agent-merge.md`).
  * Pure, so the tests use it directly.
  */
 export function isPermissionOnlyAgent(text: string): boolean {
@@ -590,7 +590,7 @@ function agentCopiesCheck(deps: DoctorDeps): CheckResult {
     "agent-copies",
     "fail",
     `project agent files with their own description, model, or prompt: ${bad.join(", ")}`,
-    "delete the file, the plugin serves the agent, or keep only a permission block (docs/research/agent-merge.md)",
+    "delete the file, the plugin serves the agent, or keep only a permission block (.plan/research/agent-merge.md)",
   );
 }
 
@@ -1481,7 +1481,7 @@ export const WATCH_SERVICE_FIX =
   "systemctl --user enable --now idfx-watch.service (the unit is contrib/systemd/idfx-watch.service; arch-helper installs it through chezmoi)";
 
 /**
- * The `watch-running` check (design docs/design/idfx-watch.md, section 6):
+ * The `watch-running` check (design .plan/design/idfx-watch.md, section 6):
  * a pass when the holder of `events.lock` lives (its PID exists and its
  * start time matches), else a warn. There is no automatic fix, because
  * arch-helper owns the install of the unit.

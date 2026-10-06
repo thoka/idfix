@@ -1,6 +1,6 @@
 /**
  * The join of the Claude Code files and the mapping to `SessionRow` of
- * `src/top/model.ts`. Design: docs/design/claude-sessions-top.md, sections
+ * `src/top/model.ts`. Design: .plan/design/claude-sessions-top.md, sections
  * 2, 5, and 6.
  *
  * The join: a live session file, then its job state through `jobId` (or the

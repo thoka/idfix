@@ -422,7 +422,7 @@ async function allServerRows(
  * `no server on ...` go to stderr.
  *
  * The Claude Code sessions follow the opencode sessions (design
- * docs/design/claude-sessions-top.md, sections 6 and 8): live and waiting
+ * .plan/design/claude-sessions-top.md, sections 6 and 8): live and waiting
  * sessions, and ended sessions for 60 minutes. Without `--all`, only the
  * sessions whose folder is inside the directories of the project show.
  * They show also when no opencode server runs.

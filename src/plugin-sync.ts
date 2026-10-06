@@ -34,7 +34,7 @@ export const OPENCODE_OWNED = new Set(["node_modules", "package.json", "package-
 /**
  * The exact content of the `.gitignore` that opencode writes into a config
  * folder. Source: opencode 1.18.32, `packages/opencode/src/config/config.ts:317`
- * (see `docs/research/opencode-config-writes.md`, short answers 1 and 2). The
+ * (see `.plan/research/opencode-config-writes.md`, short answers 1 and 2). The
  * sync writes this file when missing, because a sandbox server with a
  * read-only config folder fails every request with EROFS when opencode tries
  * to write it itself.

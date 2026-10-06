@@ -1,7 +1,7 @@
 /**
  * The event log of `idfx watch --all`: `$XDG_STATE_HOME/idfx/events.jsonl`
  * (default `~/.local/state/idfx/events.jsonl`). Design:
- * docs/design/idfx-watch.md, section 4. The envelope follows section 6 of
+ * .plan/design/idfx-watch.md, section 4. The envelope follows section 6 of
  * the meta report `docs/research/tool-protocol.md` (version 0).
  *
  * - One writer. The lock file `events.lock` holds the PID and the process

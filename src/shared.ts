@@ -1,8 +1,7 @@
 /**
  * The shared agent files of the user: one folder with `AGENTS.md` (the global
  * rules) and `skills/<name>/SKILL.md`. It is the only source; idfx never
- * copies it. The folder comes from `IDFX_SHARED_DIR` (the old name
- * `OC_SUB_SHARED_DIR` still works). Without the variable,
+ * copies it. The folder comes from `IDFX_SHARED_DIR`. Without the variable,
  * there is no shared folder: `up` and `ping --rules` stop, and doctor warns.
  */
 import path from "node:path";
@@ -10,8 +9,8 @@ import type { Env } from "./config";
 import { idfxEnv } from "./env-names";
 
 /**
- * The folder with the shared agent files, or undefined when neither
- * `IDFX_SHARED_DIR` nor the old `OC_SUB_SHARED_DIR` is set. Pure: it only
+ * The folder with the shared agent files, or undefined when
+ * `IDFX_SHARED_DIR` is not set. Pure: it only
  * reads the env object. A blank value counts as unset (`idfxEnv`).
  */
 export function sharedAgentsDir(env: Env): string | undefined {

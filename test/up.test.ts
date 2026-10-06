@@ -67,8 +67,8 @@ describe("serveEnv", () => {
     expect(warnings).toEqual([]);
   });
 
-  test("takes the shared folder from OC_SUB_SHARED_DIR, and adds no shared entries without it", () => {
-    const set = serveEnv({ OC_SUB_SHARED_DIR: "/srv/agents" }, `${PLUGIN_DIR}/opencode`).env;
+  test("takes the shared folder from IDFX_SHARED_DIR, and adds no shared entries without it", () => {
+    const set = serveEnv({ IDFX_SHARED_DIR: "/srv/agents" }, `${PLUGIN_DIR}/opencode`).env;
     expect(JSON.parse(set.OPENCODE_CONFIG_CONTENT as string).instructions).toEqual(["/srv/agents/AGENTS.md"]);
     const unset = serveEnv({ HOME: "/home/user" }, `${PLUGIN_DIR}/opencode`).env;
     expect(JSON.parse(unset.OPENCODE_CONFIG_CONTENT as string)).toEqual({});

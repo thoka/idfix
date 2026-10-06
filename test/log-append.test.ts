@@ -29,7 +29,7 @@ function tempDir(): string {
 function makeEnv(): Record<string, string> {
   const shared = tempDir();
   writeFileSync(path.join(shared, "AGENTS.md"), "# rules\n");
-  return { XDG_STATE_HOME: tempDir(), XDG_DATA_HOME: tempDir(), OC_SUB_SHARED_DIR: shared };
+  return { XDG_STATE_HOME: tempDir(), XDG_DATA_HOME: tempDir(), IDFX_SHARED_DIR: shared };
 }
 
 function makeDeps(overrides: Partial<UpDeps> = {}): UpDeps {

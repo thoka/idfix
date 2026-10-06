@@ -97,12 +97,12 @@ function fakeServer(trace: Trace, opts: { failCreate?: boolean } = {}) {
 }
 
 describe("sandboxTarget", () => {
-  test("is the sandbox state without --url and OC_SUB_URL, else null", () => {
+  test("is the sandbox state without --url and IDFX_URL, else null", () => {
     const env = makeEnv(18770);
     const name = () => PROJECT;
     expect(sandboxTarget({ dir: DIR }, env, name)?.port).toBe(18770);
     expect(sandboxTarget({ dir: DIR, url: "http://127.0.0.1:1" }, env, name)).toBeNull();
-    expect(sandboxTarget({ dir: DIR }, { ...env, OC_SUB_URL: "http://127.0.0.1:1" }, name)).toBeNull();
+    expect(sandboxTarget({ dir: DIR }, { ...env, IDFX_URL: "http://127.0.0.1:1" }, name)).toBeNull();
     expect(sandboxTarget({ dir: DIR }, makeEnv(), name)).toBeNull();
   });
 });
@@ -131,11 +131,11 @@ describe("startSandboxIfDown", () => {
     }
   });
 
-  test("never probes or starts with --url, with OC_SUB_URL, or without a sandbox state", async () => {
+  test("never probes or starts with --url, with IDFX_URL, or without a sandbox state", async () => {
     const trace: Trace = [];
     const deps = fakeDeps(trace, { health: "down" });
     expect(await startSandboxIfDown({ dir: DIR, url: URL }, makeEnv(18770), deps, URL)).toBe(0);
-    expect(await startSandboxIfDown({ dir: DIR }, { ...makeEnv(18770), OC_SUB_URL: URL }, deps, URL)).toBe(0);
+    expect(await startSandboxIfDown({ dir: DIR }, { ...makeEnv(18770), IDFX_URL: URL }, deps, URL)).toBe(0);
     expect(await startSandboxIfDown({ dir: DIR }, makeEnv(), deps, URL)).toBe(0);
     expect(trace).toEqual([]);
   });

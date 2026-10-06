@@ -21,7 +21,6 @@ import { LOCK_FILE, lockHolder, watchStateDir, type LockHolder } from "./watch/l
 import { pluginDataDir, pluginDigest, syncPluginDir } from "./plugin-sync";
 import { idfxVersion, TOOL } from "./protocol";
 import { defaultUnitDeps, listUnits, orphanedUnits, parseUnitLabel, stopUnit, type LoadedUnit, type UnitDeps } from "./units";
-import { oldOnlyEnvNames } from "./env-names";
 import { hostProxyLogPath, legacyStateDir, migrateStateDir, newStateDir, type StateMigration } from "./state";
 import { HOST_PROXY_PORT, HOST_PROXY_UNIT, HOST_PROXY_UNIT_SOURCE, probeHello, systemdUserDir } from "./host-proxy";
 import { oldProjectConfigFile, projectConfigFile } from "./project-config";
@@ -171,8 +170,6 @@ export type DoctorDeps = {
    * and its fix stops the orphaned ones. The tests pass a fake.
    */
   units: UnitDeps;
-  /** The environment of doctor, for the `env-names` check. */
-  env: Env;
   /** The old state folder `<base>/oc-sub` while it is a real folder, else null (`state-names`). */
   legacyStateDir: () => string | null;
   /** The new state folder `<base>/idfx`, named in the `state-names` message. */
@@ -408,7 +405,6 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     watchLock: () => lockHolder(watchStateDir(env)),
     toolVersion: idfxVersion,
     units: defaultUnitDeps,
-    env,
     legacyStateDir: () => legacyStateDir(env),
     newStateDir: newStateDir(env),
     migrateStateDir: () => migrateStateDir(env),
@@ -1827,23 +1823,6 @@ export function stateNamesFix(deps: DoctorDeps, _result: CheckResult, _ctx: { fo
   return { ok: outcome.ok, note: outcome.note };
 }
 
-/**
- * The `env-names` check (step 24.3): it warns for each variable that has
- * only its old name set (`OC_SUB_URL`, `OC_SUB_OWNER`, `OC_SUB_SHARED_DIR`)
- * and names the new name. The old names still work. There is no fix,
- * because the configuration of the machine sets the variables.
- */
-export function envNamesCheck(deps: DoctorDeps): CheckResult {
-  const old = oldOnlyEnvNames(deps.env);
-  if (old.length === 0) return result("env-names", "pass", "no variable uses only its old name");
-  return result(
-    "env-names",
-    "warn",
-    `only the old name is set: ${old.map((n) => `${n.old} (new name ${n.name})`).join(", ")}. The old names still work`,
-    `set ${old.map((n) => n.name).join(", ")} where ${old.map((n) => n.old).join(", ")} is set`,
-  );
-}
-
 /** The hint of the `project-config-name` check. */
 export const PROJECT_CONFIG_NAME_FIX = `run idfx doctor --fix: it renames the file, then commit the rename`;
 
@@ -1896,7 +1875,6 @@ export const SLOW_CHECKS: Check[] = [
   // The stored names of step 24.3. First, so the state folder moves before
   // any other fix reads or writes state.
   { name: "state-names", run: stateNamesCheck, fix: stateNamesFix },
-  { name: "env-names", run: envNamesCheck },
   { name: "project-config-name", run: projectConfigNameCheck, fix: projectConfigNameFix },
   // It only spawns mise, and no other check or fix depends on it.
   { name: "opencode-version", run: opencodeVersionCheck, fix: opencodeVersionFix },

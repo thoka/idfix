@@ -100,8 +100,6 @@ Environment:
                              (no default; up and ping --rules need it)
   IDFX_OWNER                 the owner of the units that up starts
                              (default: the project)
-                             The old names OC_SUB_URL, OC_SUB_SHARED_DIR, and
-                             OC_SUB_OWNER still work. The new name wins.
   OPENCODE_SERVER_PASSWORD   enables basic auth (never printed)
   OPENCODE_SERVER_USERNAME   basic-auth user (default: opencode)
   SBX_BIN                    the sbx binary (default: sbx on PATH)

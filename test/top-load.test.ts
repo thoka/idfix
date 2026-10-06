@@ -260,7 +260,7 @@ describe("top", () => {
       try {
         const code = await top(
           { all: true, once: true, json: true },
-          { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url },
+          { XDG_STATE_HOME: stateHome, IDFX_URL: host.url },
           testDeps,
         );
         expect(code).toBe(0);
@@ -330,7 +330,7 @@ describe("top", () => {
       try {
         const code = await top(
           { all: true, once: true, json: false },
-          { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url },
+          { XDG_STATE_HOME: stateHome, IDFX_URL: host.url },
           testDeps,
         );
         expect(code).toBe(0);
@@ -368,7 +368,7 @@ describe("top", () => {
       try {
         const code = await top(
           { all: true, once: true, json: false },
-          { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url },
+          { XDG_STATE_HOME: stateHome, IDFX_URL: host.url },
           testDeps,
         );
         expect(code).toBe(0);
@@ -388,7 +388,7 @@ describe("top", () => {
     try {
       const code = await top(
         { all: true, once: true, json: false },
-        { XDG_STATE_HOME: stateHome, OC_SUB_URL: "http://127.0.0.1:9" },
+        { XDG_STATE_HOME: stateHome, IDFX_URL: "http://127.0.0.1:9" },
         testDeps,
       );
       expect(code).toBe(0);
@@ -413,7 +413,7 @@ describe("top", () => {
     try {
       const code = await top(
         { all: false, once: false, json: false },
-        { XDG_STATE_HOME: stateHome, OC_SUB_URL: "http://127.0.0.1:9" },
+        { XDG_STATE_HOME: stateHome, IDFX_URL: "http://127.0.0.1:9" },
         testDeps,
         ui,
       );
@@ -437,7 +437,7 @@ describe("top", () => {
       },
     };
     const args = { all: true, once: false, json: false };
-    expect(await top(args, { OC_SUB_URL: "http://127.0.0.1:9" }, testDeps, ui)).toBe(0);
+    expect(await top(args, { IDFX_URL: "http://127.0.0.1:9" }, testDeps, ui)).toBe(0);
     expect(seen).toEqual([args]);
   });
 });
@@ -455,7 +455,7 @@ describe("top --once with Claude sessions", () => {
     try {
       const code = await top(
         { all: false, dir: HOST_DIR, once: true, json: false },
-        { XDG_STATE_HOME: stateHome, OC_SUB_URL: "http://127.0.0.1:9" },
+        { XDG_STATE_HOME: stateHome, IDFX_URL: "http://127.0.0.1:9" },
         testDeps,
         undefined,
         async (nowMs) => {
@@ -483,7 +483,7 @@ describe("top --once with Claude sessions", () => {
     try {
       const code = await top(
         { all: true, once: true, json: true },
-        { XDG_STATE_HOME: stateHome, OC_SUB_URL: "http://127.0.0.1:9" },
+        { XDG_STATE_HOME: stateHome, IDFX_URL: "http://127.0.0.1:9" },
         testDeps,
         undefined,
         async () => claudeRows(),
@@ -509,7 +509,7 @@ describe("top --once with Claude sessions", () => {
     try {
       const code = await top(
         { all: true, once: true, json: false },
-        { XDG_STATE_HOME: stateHome, OC_SUB_URL: "http://127.0.0.1:9" },
+        { XDG_STATE_HOME: stateHome, IDFX_URL: "http://127.0.0.1:9" },
         testDeps,
         undefined,
         async () => {

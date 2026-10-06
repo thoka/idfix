@@ -198,7 +198,7 @@ export function unitDescription(owner: string, reason: string): string {
 
 /**
  * The owner of the units that `up` and the watchdog start: the value of
- * `IDFX_OWNER` (or the old `OC_SUB_OWNER`) when it is set and not blank,
+ * `IDFX_OWNER` when it is set and not blank,
  * else `project`. The tests set `IDFX_OWNER=test`, and a session can put
  * its own name there. The
  * owner is one word in the description `owner=<owner> reason=<reason>`, so

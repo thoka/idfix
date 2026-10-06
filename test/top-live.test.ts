@@ -338,7 +338,7 @@ describe("top live", () => {
     });
     let live: LiveHandle | undefined;
     try {
-      live = await startLive({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url }, testDeps, clock.deps);
+      live = await startLive({ all: true }, { XDG_STATE_HOME: stateHome, IDFX_URL: host.url }, testDeps, clock.deps);
       await until(() => live!.model.rows(clock.now()).some((row) => row.sessionId === "ses_a"));
       const seeded = live.model.rows(clock.now()).find((row) => row.sessionId === "ses_a");
       expect(seeded?.cost).toBeCloseTo(0.004, 5);
@@ -378,7 +378,7 @@ describe("top live", () => {
     try {
       live = await startLive(
         { all: false, dir: HOST_DIR },
-        { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url },
+        { XDG_STATE_HOME: stateHome, IDFX_URL: host.url },
         testDeps,
         clock.deps,
       );
@@ -406,7 +406,7 @@ describe("top live", () => {
     });
     let live: LiveHandle | undefined;
     try {
-      live = await startLive({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url }, testDeps, clock.deps);
+      live = await startLive({ all: true }, { XDG_STATE_HOME: stateHome, IDFX_URL: host.url }, testDeps, clock.deps);
       // The state is `up` before the SSE fetch reaches the server; wait for
       // the open stream, or `closeStreams` would find nothing to close.
       await until(() => live!.servers()[0]?.state === "up" && host.openStreams() > 0);
@@ -437,7 +437,7 @@ describe("top live", () => {
     const port = 18971;
     const url = `http://127.0.0.1:${port}`;
     let host: FakeServer | undefined;
-    const live = await startLive({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: url }, testDeps, clock.deps);
+    const live = await startLive({ all: true }, { XDG_STATE_HOME: stateHome, IDFX_URL: url }, testDeps, clock.deps);
     try {
       expect(live.servers()).toEqual([{ project: null, url, sandbox: false, state: "down" }]);
 
@@ -467,7 +467,7 @@ describe("top live", () => {
     });
     const live = await startLive(
       { all: true },
-      { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url },
+      { XDG_STATE_HOME: stateHome, IDFX_URL: host.url },
       testDeps,
       clock.deps,
     );
@@ -525,7 +525,7 @@ describe("top live with Claude sessions", () => {
     };
     const live = await startLive(
       { all: false, dir: HOST_DIR },
-      { XDG_STATE_HOME: stateHome, OC_SUB_URL: DEAD_URL },
+      { XDG_STATE_HOME: stateHome, IDFX_URL: DEAD_URL },
       testDeps,
       clock.deps,
       loader,
@@ -555,7 +555,7 @@ describe("top live with Claude sessions", () => {
     const stateHome = emptyStateHome();
     const live = await startLive(
       { all: true },
-      { XDG_STATE_HOME: stateHome, OC_SUB_URL: DEAD_URL },
+      { XDG_STATE_HOME: stateHome, IDFX_URL: DEAD_URL },
       testDeps,
       clock.deps,
       async () => [claudeRowOf("a", { directory: HOST_DIR }), claudeRowOf("b", { directory: OTHER_DIR })],
@@ -588,7 +588,7 @@ describe("top live with Claude sessions", () => {
     const errorSpy = spyOn(console, "error").mockImplementation((message: unknown) => {
       errors.push(String(message));
     });
-    const live = await startLive({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: DEAD_URL }, testDeps, clock.deps, loader);
+    const live = await startLive({ all: true }, { XDG_STATE_HOME: stateHome, IDFX_URL: DEAD_URL }, testDeps, clock.deps, loader);
     try {
       clock.fire();
       clock.fire();

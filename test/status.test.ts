@@ -531,9 +531,9 @@ describe("status", () => {
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-sbx", root: "/sbxproj", port: sandbox.port }));
       const captured = captureLog();
       try {
-        // No --url: the host server comes from OC_SUB_URL, the sandbox from
+        // No --url: the host server comes from IDFX_URL, the sandbox from
         // its state file.
-        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url }, testDeps);
+        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome, IDFX_URL: host.url }, testDeps);
         expect(code).toBe(0);
         expect(captured.lines).toEqual(["ses_host busy Host run (/hostproj)", "ses_sbx busy Sandbox run (/sbxproj)"]);
       } finally {
@@ -564,7 +564,7 @@ describe("status", () => {
       try {
         const code = await status(
           { all: true },
-          { XDG_STATE_HOME: stateHome, OC_SUB_URL: broken.url },
+          { XDG_STATE_HOME: stateHome, IDFX_URL: broken.url },
           { ...testDeps, cloneDirectoriesOf: (project) => (project === "sbx" ? ["/sbxproj"] : []) },
         );
         expect(code).toBe(0);
@@ -593,7 +593,7 @@ describe("status", () => {
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-gone", root: "/gone", port: 18799 }));
       const captured = captureLog();
       try {
-        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url }, testDeps);
+        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome, IDFX_URL: host.url }, testDeps);
         expect(code).toBe(0);
         expect(captured.lines).toEqual(["ses_host busy Host run (/hostproj)"]);
         expect(captured.errors).toEqual([]);
@@ -624,7 +624,7 @@ describe("status", () => {
       writeFileSync(stateFile, JSON.stringify({ name: "oc-sub-dup", root: "/proj", port: sandbox.port }));
       const captured = captureLog();
       try {
-        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: host.url }, testDeps);
+        const code = await status({ all: true }, { XDG_STATE_HOME: stateHome, IDFX_URL: host.url }, testDeps);
         expect(code).toBe(0);
         expect(captured.lines).toEqual(["ses_shared busy Shared run (/proj)"]);
       } finally {
@@ -942,7 +942,7 @@ describe("Claude sessions in status", () => {
     const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-claude-"));
     try {
       const url = server?.url ?? "http://127.0.0.1:9";
-      const code = await status({ url, dir: args.dir, all: args.all, json: args.json }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: url }, claudeDeps, loader);
+      const code = await status({ url, dir: args.dir, all: args.all, json: args.json }, { XDG_STATE_HOME: stateHome, IDFX_URL: url }, claudeDeps, loader);
       return { code, lines: captured.lines, errors: captured.errors };
     } finally {
       captured.restore();
@@ -1027,7 +1027,7 @@ describe("Claude sessions in status", () => {
         const url = "http://127.0.0.1:9";
         const code = await status(
           { url, dir: args.dir, all: args.all, json: true },
-          { XDG_STATE_HOME: stateHome, OC_SUB_URL: url },
+          { XDG_STATE_HOME: stateHome, IDFX_URL: url },
           snapshotDeps,
           loaderAt(),
         );

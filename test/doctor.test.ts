@@ -45,7 +45,6 @@ import {
   STATE_NAMES_FIX,
   PROJECT_CONFIG_NAME_FIX,
   stateNamesCheck,
-  envNamesCheck,
   projectConfigNameCheck,
   projectConfigNameFix,
   orphanProcessesFix,
@@ -195,7 +194,6 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     // enabled, active host proxy unit, so host-proxy passes.
     units: fakeUnits({ show: "", states: { "idfx-proxy": { fileState: "enabled", active: "active" } } }).deps,
     // No old names by default, so the checks of step 24.3 pass.
-    env: {},
     legacyStateDir: () => null,
     newStateDir: "/home/user/.local/state/idfx",
     migrateStateDir: () => {
@@ -334,7 +332,7 @@ describe("global-rules", () => {
     expect(byName(results(deps), "global-rules")?.status).toBe("warn");
   });
 
-  test("warns and names the variable without OC_SUB_SHARED_DIR", () => {
+  test("warns and names the variable without IDFX_SHARED_DIR", () => {
     const deps = makeDeps({ files: map({ ...links, [sharedFile]: { content: "# rules" } }) }, { sharedDir: undefined });
     const check = byName(results(deps), "global-rules");
     expect(check?.status).toBe("warn");
@@ -848,7 +846,7 @@ describe("the global-rules fix", () => {
   const codexMd = "/home/user/.codex/AGENTS.md";
   const base = map({ [sharedFile]: { content: "# rules" } });
 
-  test("changes nothing without OC_SUB_SHARED_DIR", () => {
+  test("changes nothing without IDFX_SHARED_DIR", () => {
     const deps = makeDeps({ files: map({ ...Object.fromEntries(base), [codexMd]: { content: "# rules" } }) }, { sharedDir: undefined });
     const outcome = globalRulesFix(deps, {} as CheckResult, { force: false });
     expect(outcome).toEqual({ ok: false, note: "IDFX_SHARED_DIR is not set. Nothing changed" });
@@ -3352,9 +3350,9 @@ describe("host-proxy", () => {
 describe("the stored names of step 24.3", () => {
   const SLOW = SLOW_CHECKS.map((c) => c.name);
 
-  test("the three checks come first in the slow checks, so the state folder moves before other fixes", () => {
-    expect(SLOW.slice(0, 3)).toEqual(["state-names", "env-names", "project-config-name"]);
-    expect(SLOW_CHECKS.find((c) => c.name === "env-names")?.fix).toBeUndefined();
+  test("the two checks come first in the slow checks, so the state folder moves before other fixes", () => {
+    expect(SLOW.slice(0, 2)).toEqual(["state-names", "project-config-name"]);
+    expect(SLOW).not.toContain("env-names");
   });
 
   describe("state-names", () => {
@@ -3396,22 +3394,6 @@ describe("the stored names of step 24.3", () => {
       expect(fixes[0]).toMatchObject({ name: "state-names", ok: false, note: expect.stringContaining("serve-8767.lock") });
       expect(runChecks(checks, deps)[0]?.status).toBe("warn");
       rmSync(base, { recursive: true, force: true });
-    });
-  });
-
-  describe("env-names", () => {
-    test("passes with new names or no names", () => {
-      expect(envNamesCheck(makeDeps()).status).toBe("pass");
-      expect(envNamesCheck(makeDeps({}, { env: { IDFX_SHARED_DIR: "/a", OC_SUB_SHARED_DIR: "/a" } })).status).toBe("pass");
-    });
-
-    test("warns for each variable with only the old name and names the new name", () => {
-      const check = envNamesCheck(makeDeps({}, { env: { OC_SUB_SHARED_DIR: "/a", OC_SUB_OWNER: "me", IDFX_URL: "http://x" } }));
-      expect(check.status).toBe("warn");
-      expect(check.message).toBe(
-        "only the old name is set: OC_SUB_OWNER (new name IDFX_OWNER), OC_SUB_SHARED_DIR (new name IDFX_SHARED_DIR). The old names still work",
-      );
-      expect(check.fix).toBe("set IDFX_OWNER, IDFX_SHARED_DIR where OC_SUB_OWNER, OC_SUB_SHARED_DIR is set");
     });
   });
 

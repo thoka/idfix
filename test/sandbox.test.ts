@@ -87,7 +87,7 @@ function makeEnv(): Record<string, string> {
   const bunBin = path.join(home, ".local/share/mise/installs/bun/1.4.2/bin/bun");
   mkdirSync(path.dirname(bunBin), { recursive: true });
   writeFileSync(bunBin, "");
-  return { XDG_STATE_HOME: tempDir(), XDG_CONFIG_HOME: tempDir(), HOME: home, OC_SUB_SHARED_DIR: path.join(home, "agents") };
+  return { XDG_STATE_HOME: tempDir(), XDG_CONFIG_HOME: tempDir(), HOME: home, IDFX_SHARED_DIR: path.join(home, "agents") };
 }
 
 /** The absolute bun path that the tests hand to the holder command. */
@@ -105,7 +105,7 @@ function pluginMount(env: Record<string, string>): string {
 /** The shared folder of a test env; the tests always set it. */
 function sharedDirOf(env: Record<string, string | undefined>): string {
   const dir = sharedAgentsDir(env);
-  if (dir === undefined) throw new Error("the test env sets no OC_SUB_SHARED_DIR");
+  if (dir === undefined) throw new Error("the test env sets no IDFX_SHARED_DIR");
   return dir;
 }
 
@@ -244,10 +244,10 @@ describe("sandboxUrlFor and resolveCommandUrl", () => {
     expect(resolveCommandUrl("http://127.0.0.1:9000", env, "/d", () => "test")).toBe("http://127.0.0.1:9000");
   });
 
-  test("resolveCommandUrl: OC_SUB_URL wins over the state file", async () => {
+  test("resolveCommandUrl: IDFX_URL wins over the state file", async () => {
     const env = makeEnv();
     await writeState(env, "test", 18783);
-    expect(resolveCommandUrl(undefined, { ...env, OC_SUB_URL: "http://127.0.0.1:9001" }, "/d", () => "test")).toBe(
+    expect(resolveCommandUrl(undefined, { ...env, IDFX_URL: "http://127.0.0.1:9001" }, "/d", () => "test")).toBe(
       "http://127.0.0.1:9001",
     );
   });
@@ -745,8 +745,8 @@ describe("sandboxConfigContent", () => {
     expect(started[0]?.pidPath).toBe(servePidPath(env, 18768));
   });
 
-  test("OC_SUB_OWNER overrides the owner of the holder and the watchdog units", async () => {
-    const env = { ...makeEnv(), OC_SUB_OWNER: "session-7" };
+  test("IDFX_OWNER overrides the owner of the holder and the watchdog units", async () => {
+    const env = { ...makeEnv(), IDFX_OWNER: "session-7" };
     const { runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
@@ -925,7 +925,7 @@ describe("cost proxy wiring (sandbox mode)", () => {
 
   test("without any bun in the installs folder, up stops and names --no-cost-proxy", async () => {
     // A plain env without the fake bun of makeEnv.
-    const env = { XDG_STATE_HOME: tempDir(), XDG_CONFIG_HOME: tempDir(), HOME: tempDir(), OC_SUB_SHARED_DIR: tempDir() };
+    const env = { XDG_STATE_HOME: tempDir(), XDG_CONFIG_HOME: tempDir(), HOME: tempDir(), IDFX_SHARED_DIR: tempDir() };
     const { calls, runner } = fakeRunner((cmd) => {
       if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
       if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
@@ -953,11 +953,11 @@ describe("upSandbox", () => {
   const PORTS_HEADER = "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n";
 
   for (const [label, shared] of [["unset", undefined], ["blank", ""]] as const) {
-    test(`stops before any call when OC_SUB_SHARED_DIR is ${label}`, async () => {
+    test(`stops before any call when IDFX_SHARED_DIR is ${label}`, async () => {
       const { calls, runner } = fakeRunner(() => ({ stdout: "" }));
       const env: Record<string, string> = { ...makeEnv() };
-      delete env.OC_SUB_SHARED_DIR;
-      if (shared !== undefined) env.OC_SUB_SHARED_DIR = shared;
+      delete env.IDFX_SHARED_DIR;
+      if (shared !== undefined) env.IDFX_SHARED_DIR = shared;
       const errors: string[] = [];
       const err = console.error;
       console.error = (line: string) => errors.push(line);
@@ -1506,7 +1506,7 @@ describe("upSandbox", () => {
     }
     expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "exec", "git", "secret", "exec", "ports", "policy", "policy", "exec"]);
     expect(output).toContain("http://127.0.0.1:18799 version 1.18.32");
-    expect(output.join("\n")).not.toContain("OC_SUB_URL");
+    expect(output.join("\n")).not.toContain("IDFX_URL");
     expect(output.join("\n")).toContain("sandbox: oc-sub-test");
     expect(output.join("\n")).toContain("log: ");
   });

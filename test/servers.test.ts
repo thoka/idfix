@@ -72,10 +72,10 @@ describe("listServers", () => {
     }
   });
 
-  test("uses OC_SUB_URL for the host server", () => {
+  test("uses IDFX_URL for the host server", () => {
     const stateHome = tempStateHome();
     try {
-      expect(listServers({ XDG_STATE_HOME: stateHome, OC_SUB_URL: "http://127.0.0.1:9000" })).toEqual([
+      expect(listServers({ XDG_STATE_HOME: stateHome, IDFX_URL: "http://127.0.0.1:9000" })).toEqual([
         { project: null, url: "http://127.0.0.1:9000", sandbox: false },
       ]);
     } finally {

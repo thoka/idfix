@@ -2,16 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { firstHeading, sharedAgentsDir, sharedAgentsFile, sharedConfigEntries } from "../src/shared";
 
 describe("sharedAgentsDir", () => {
-  test("comes from OC_SUB_SHARED_DIR", () => {
-    expect(sharedAgentsDir({ OC_SUB_SHARED_DIR: "/srv/agents" })).toBe("/srv/agents");
+  test("comes from IDFX_SHARED_DIR", () => {
+    expect(sharedAgentsDir({ IDFX_SHARED_DIR: "/srv/agents" })).toBe("/srv/agents");
   });
 
-  test("an empty OC_SUB_SHARED_DIR counts as unset", () => {
-    expect(sharedAgentsDir({ OC_SUB_SHARED_DIR: "  ", HOME: "/home/user" })).toBeUndefined();
-    expect(sharedAgentsDir({ OC_SUB_SHARED_DIR: "", HOME: "/home/user" })).toBeUndefined();
+  test("an empty IDFX_SHARED_DIR counts as unset", () => {
+    expect(sharedAgentsDir({ IDFX_SHARED_DIR: "  ", HOME: "/home/user" })).toBeUndefined();
+    expect(sharedAgentsDir({ IDFX_SHARED_DIR: "", HOME: "/home/user" })).toBeUndefined();
   });
 
-  test("without OC_SUB_SHARED_DIR there is no shared folder, not even under HOME", () => {
+  test("without IDFX_SHARED_DIR there is no shared folder, not even under HOME", () => {
     expect(sharedAgentsDir({ HOME: "/home/user" })).toBeUndefined();
     expect(sharedAgentsDir({})).toBeUndefined();
   });
@@ -19,12 +19,12 @@ describe("sharedAgentsDir", () => {
 
 describe("sharedAgentsFile", () => {
   test("is AGENTS.md inside the shared folder", () => {
-    expect(sharedAgentsFile({ OC_SUB_SHARED_DIR: "/srv/agents" })).toBe("/srv/agents/AGENTS.md");
+    expect(sharedAgentsFile({ IDFX_SHARED_DIR: "/srv/agents" })).toBe("/srv/agents/AGENTS.md");
   });
 
-  test("is undefined without OC_SUB_SHARED_DIR", () => {
+  test("is undefined without IDFX_SHARED_DIR", () => {
     expect(sharedAgentsFile({ HOME: "/home/user" })).toBeUndefined();
-    expect(sharedAgentsFile({ OC_SUB_SHARED_DIR: " " })).toBeUndefined();
+    expect(sharedAgentsFile({ IDFX_SHARED_DIR: " " })).toBeUndefined();
   });
 });
 

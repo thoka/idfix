@@ -7,7 +7,7 @@ export const DEFAULT_SERVER_URL = `http://127.0.0.1:${DEFAULT_PORT}`;
 
 export type Env = Record<string, string | undefined>;
 
-/** Resolve the server URL from a CLI flag, `IDFX_URL` (or the old `OC_SUB_URL`), or the default. */
+/** Resolve the server URL from a CLI flag, `IDFX_URL`, or the default. */
 export function resolveServerUrl(flag: string | undefined, env: Env): string {
   const raw = flag ?? idfxEnv(env, "url") ?? DEFAULT_SERVER_URL;
   const trimmed = raw.trim();

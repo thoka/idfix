@@ -36,7 +36,7 @@ const SKILL = [
 
 const BASE = "/tmp/opencode/critical-footer-test";
 const SHARED = path.join(BASE, "shared");
-const ENV = { OC_SUB_SHARED_DIR: SHARED };
+const ENV = { IDFX_SHARED_DIR: SHARED };
 
 beforeAll(() => {
   rmSync(BASE, { recursive: true, force: true });
@@ -66,13 +66,13 @@ describe("readCriticalFooter", () => {
   });
 
   test("a missing file names the file", () => {
-    const env = { OC_SUB_SHARED_DIR: path.join(BASE, "missing") };
+    const env = { IDFX_SHARED_DIR: path.join(BASE, "missing") };
     expect(() => readCriticalFooter(env)).toThrow(path.join(BASE, "missing", "skills", "critical-research", "SKILL.md"));
   });
 
-  test("without OC_SUB_SHARED_DIR there is no file, and the error names the variable", () => {
+  test("without IDFX_SHARED_DIR there is no file, and the error names the variable", () => {
     expect(criticalFooterFile({ HOME: "/home/user" })).toBeUndefined();
-    expect(criticalFooterFile({ OC_SUB_SHARED_DIR: " " })).toBeUndefined();
+    expect(criticalFooterFile({ IDFX_SHARED_DIR: " " })).toBeUndefined();
     expect(() => readCriticalFooter({ HOME: "/home/user" })).toThrow(
       "cannot read the critical-research footer: IDFX_SHARED_DIR is not set.",
     );
@@ -85,10 +85,10 @@ describe("readCriticalFooter", () => {
   });
 
   test("the real skill file in the shared folder of this machine has the footer", () => {
-    const env = { OC_SUB_SHARED_DIR: process.env.OC_SUB_SHARED_DIR };
+    const env = { IDFX_SHARED_DIR: process.env.IDFX_SHARED_DIR };
     const file = criticalFooterFile(env);
     if (file === undefined || !existsSync(file)) {
-      console.log(`skip: ${file ?? "OC_SUB_SHARED_DIR is not set, so the skill file"} does not exist`);
+      console.log(`skip: ${file ?? "IDFX_SHARED_DIR is not set, so the skill file"} does not exist`);
       return;
     }
     const footer = readCriticalFooter(env);
@@ -157,11 +157,11 @@ describe("idfx run and the critical-research footer", () => {
   });
 
   test("gives the coder no footer and needs no skill file", async () => {
-    expect(await sentText("coder", "Do it.", { OC_SUB_SHARED_DIR: path.join(BASE, "missing") })).toBe("Do it.");
+    expect(await sentText("coder", "Do it.", { IDFX_SHARED_DIR: path.join(BASE, "missing") })).toBe("Do it.");
   });
 
   test("stops a researcher run when the skill file is missing", async () => {
-    const env = { OC_SUB_SHARED_DIR: path.join(BASE, "missing"), XDG_STATE_HOME: path.join(BASE, "state") };
+    const env = { IDFX_SHARED_DIR: path.join(BASE, "missing"), XDG_STATE_HOME: path.join(BASE, "state") };
     const deps: RunDeps = {
       fetch: async () => Response.json({ data: {} }),
       projectName: (d) => d,

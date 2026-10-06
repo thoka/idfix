@@ -4,11 +4,11 @@ import { UsageError } from "../src/args";
 
 describe("resolveServerUrl", () => {
   test("prefers the flag over the environment and the default", () => {
-    expect(resolveServerUrl("http://127.0.0.1:9000", { OC_SUB_URL: "http://10.0.0.1:1" })).toBe("http://127.0.0.1:9000");
+    expect(resolveServerUrl("http://127.0.0.1:9000", { IDFX_URL: "http://10.0.0.1:1" })).toBe("http://127.0.0.1:9000");
   });
 
-  test("uses OC_SUB_URL when no flag is given", () => {
-    expect(resolveServerUrl(undefined, { OC_SUB_URL: "http://10.0.0.1:1" })).toBe("http://10.0.0.1:1");
+  test("uses IDFX_URL when no flag is given", () => {
+    expect(resolveServerUrl(undefined, { IDFX_URL: "http://10.0.0.1:1" })).toBe("http://10.0.0.1:1");
   });
 
   test("falls back to the default", () => {
@@ -68,9 +68,9 @@ describe("resolvePort", () => {
 });
 
 describe("resolveTarget", () => {
-  test("--port replaces the port and keeps the host, also from OC_SUB_URL", () => {
+  test("--port replaces the port and keeps the host, also from IDFX_URL", () => {
     expect(resolveTarget(undefined, 8799, {})).toEqual({ url: "http://127.0.0.1:8799", port: 8799 });
-    expect(resolveTarget(undefined, 8799, { OC_SUB_URL: "http://10.0.0.7:8767" })).toEqual({
+    expect(resolveTarget(undefined, 8799, { IDFX_URL: "http://10.0.0.7:8767" })).toEqual({
       url: "http://10.0.0.7:8799",
       port: 8799,
     });
@@ -85,8 +85,8 @@ describe("resolveTarget", () => {
     expect(resolveTarget("http://10.0.0.7", 8799, {})).toEqual({ url: "http://10.0.0.7:8799", port: 8799 });
   });
 
-  test("--port keeps a path of OC_SUB_URL", () => {
-    expect(resolveTarget(undefined, 8799, { OC_SUB_URL: "http://10.0.0.7:8767/opencode" })).toEqual({
+  test("--port keeps a path of IDFX_URL", () => {
+    expect(resolveTarget(undefined, 8799, { IDFX_URL: "http://10.0.0.7:8767/opencode" })).toEqual({
       url: "http://10.0.0.7:8799/opencode",
       port: 8799,
     });
@@ -98,7 +98,7 @@ describe("resolveTarget", () => {
 
   test("without --port nothing changes", () => {
     expect(resolveTarget(undefined, undefined, {})).toEqual({ url: DEFAULT_SERVER_URL, port: DEFAULT_PORT });
-    expect(resolveTarget(undefined, undefined, { OC_SUB_URL: "http://10.0.0.7:9000" })).toEqual({
+    expect(resolveTarget(undefined, undefined, { IDFX_URL: "http://10.0.0.7:9000" })).toEqual({
       url: "http://10.0.0.7:9000",
       port: 9000,
     });

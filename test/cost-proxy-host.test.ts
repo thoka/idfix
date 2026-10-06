@@ -23,7 +23,7 @@ function tempDir(): string {
 function makeEnv(): Record<string, string> {
   const shared = tempDir();
   writeFileSync(path.join(shared, "AGENTS.md"), "# rules\n");
-  return { XDG_STATE_HOME: tempDir(), XDG_DATA_HOME: tempDir(), OC_SUB_SHARED_DIR: shared };
+  return { XDG_STATE_HOME: tempDir(), XDG_DATA_HOME: tempDir(), IDFX_SHARED_DIR: shared };
 }
 
 function makeDeps(overrides: Partial<UpDeps> = {}): UpDeps {
@@ -96,9 +96,9 @@ async function upWithErrors(env: Record<string, string>): Promise<{ result: numb
 
 describe("up on the host needs the shared folder", () => {
   for (const [label, shared] of [["unset", undefined], ["blank", "  "]] as const) {
-    test(`stops before it starts anything when OC_SUB_SHARED_DIR is ${label}`, async () => {
+    test(`stops before it starts anything when IDFX_SHARED_DIR is ${label}`, async () => {
       const env: Record<string, string> = { XDG_STATE_HOME: tempDir(), XDG_DATA_HOME: tempDir() };
-      if (shared !== undefined) env.OC_SUB_SHARED_DIR = shared;
+      if (shared !== undefined) env.IDFX_SHARED_DIR = shared;
       const { result, errors, started } = await upWithErrors(env);
       expect(result).toBe(1);
       expect(started).toBe(false);
@@ -111,7 +111,7 @@ describe("up on the host needs the shared folder", () => {
     const { result, errors, started } = await upWithErrors({
       XDG_STATE_HOME: tempDir(),
       XDG_DATA_HOME: tempDir(),
-      OC_SUB_SHARED_DIR: shared,
+      IDFX_SHARED_DIR: shared,
     });
     expect(result).toBe(1);
     expect(started).toBe(false);
@@ -678,13 +678,13 @@ describe("up on the unit path", () => {
     expect(started.find((opts) => opts.kind === "serve")?.timeoutStopSec).toBe(UNIT_STOP_TIMEOUT_SEC);
   });
 
-  test("OC_SUB_OWNER overrides the owner of each unit, but not the project of the key file", async () => {
+  test("IDFX_OWNER overrides the owner of each unit, but not the project of the key file", async () => {
     const keyFiles: string[] = [];
     const readKeyFile = (file: string) => {
       keyFiles.push(file);
       return null;
     };
-    const { result, started, env } = await upOnUnits({ readKeyFile }, [], { OC_SUB_OWNER: " session 7\n" });
+    const { result, started, env } = await upOnUnits({ readKeyFile }, [], { IDFX_OWNER: " session 7\n" });
     expect(result).toBe(0);
     expect(started.map((opts) => [opts.kind, opts.owner])).toEqual([
       ["proxy", "session_7"],

@@ -37,13 +37,13 @@ describe("missingSandboxFolder", () => {
     expect(missingSandboxFolder({ dir: DIR }, ENV, { projectName, existsInSandbox: () => true })).toBeNull();
   });
 
-  test("never asks the sandbox with --url, with OC_SUB_URL, or without a sandbox state", () => {
+  test("never asks the sandbox with --url, with IDFX_URL, or without a sandbox state", () => {
     const never = () => {
       throw new Error("must not ask the sandbox");
     };
     expect(missingSandboxFolder({ dir: DIR, url: "http://127.0.0.1:8767" }, ENV, { projectName, existsInSandbox: never })).toBeNull();
     expect(
-      missingSandboxFolder({ dir: DIR }, { ...ENV, OC_SUB_URL: "http://127.0.0.1:8767" }, { projectName, existsInSandbox: never }),
+      missingSandboxFolder({ dir: DIR }, { ...ENV, IDFX_URL: "http://127.0.0.1:8767" }, { projectName, existsInSandbox: never }),
     ).toBeNull();
     expect(missingSandboxFolder({ dir: DIR }, ENV, { projectName: () => "other", existsInSandbox: never })).toBeNull();
   });

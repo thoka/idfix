@@ -5,7 +5,7 @@ import type { MessageEntry } from "../src/summary";
 const HEADING = "# ZEPHYR-8817 scratch rules";
 const SHARED_DIR = "/home/user/agents";
 const SHARED_FILE = `${SHARED_DIR}/AGENTS.md`;
-const ENV = { HOME: "/home/user", OC_SUB_SHARED_DIR: SHARED_DIR };
+const ENV = { HOME: "/home/user", IDFX_SHARED_DIR: SHARED_DIR };
 const DIR = "/repo";
 
 /** A message entry with one text part, in the shape of the SDK. */
@@ -172,14 +172,14 @@ describe("pingRules", () => {
     expect(printed.err[0]).toContain('starts with "# "');
   });
 
-  test("reads the shared file from OC_SUB_SHARED_DIR", async () => {
+  test("reads the shared file from IDFX_SHARED_DIR", async () => {
     const { client } = fakeClient(HEADING);
     const printed = capturePrint();
     let code: number;
     try {
       code = await pingRules(
         { dir: DIR },
-        { HOME: "/home/user", OC_SUB_SHARED_DIR: "/srv/agents" },
+        { HOME: "/home/user", IDFX_SHARED_DIR: "/srv/agents" },
         makeDeps({ "/srv/agents/AGENTS.md": `${HEADING}\n` }, client),
       );
     } finally {
@@ -190,9 +190,9 @@ describe("pingRules", () => {
 
   for (const [label, env] of [
     ["unset", { HOME: "/home/user" }],
-    ["blank", { HOME: "/home/user", OC_SUB_SHARED_DIR: "  " }],
+    ["blank", { HOME: "/home/user", IDFX_SHARED_DIR: "  " }],
   ] as const) {
-    test(`stops with an error that names the variable when OC_SUB_SHARED_DIR is ${label}`, async () => {
+    test(`stops with an error that names the variable when IDFX_SHARED_DIR is ${label}`, async () => {
       const { client, calls } = fakeClient(HEADING);
       const printed = capturePrint();
       let code: number;

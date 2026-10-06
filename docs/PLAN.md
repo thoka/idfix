@@ -2,17 +2,17 @@
 
 ## Hand-off
 
-2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5). Step 25g is done and merged into `alpha` (see HISTORY): Claude sessions in `status`, `top`, and the key `o`, and `idfx watch --all` with the wake-up of the supervisor and the protocol form of `status --json` and `doctor --json`. Step 24/4b and the cost-proxy leak fix are done too. The user renamed this session to `idfix`.
+Next step: 36. Stable names for workers: idfix starts every Claude worker with `-n <name>`.
+Waits for: nothing
+New context: yes. The context is long and held five topics (two flaky tests, steps 35, 37, 38).
 
-State: the suite has 1244 tests. `test/integration.test.ts` fails about one run in three, also alone and at low load: `restart` reports "opencode serve (PID ...) did not stop within 15s". `test/watch-guards.test.ts` times out under load. The watcher does not run yet: arch-helper must install `contrib/systemd/idfx-watch.service` (outbox task, imported by the supervisor). The user has not yet tried the key `o` in real tmux.
+2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5).
 
-Next step: find the root cause of the flaky `restart` in `test/integration.test.ts` (opencode serve does not stop within 15s), with the skill `diagnosing-bugs`, in a subagent worktree. Then step 35 (pre-push hook), because a flaky suite blocks a pre-push hook. Then step 36 (worker names in the starts of idfix).
+State: done and on `alpha`, see HISTORY: the flaky `restart` (8ae2dff, repeated SIGTERM, then SIGKILL), the flaky `watch-guards` (21c0db2, `watch` opens the event stream before its first check), the help under the called name (`idfix --help`), step 37 (wait reasons `input_required` and `auth_required` of protocol v0), step 38 (`SessionHandedOff` for Severin), and step 35 (pre-push hook with lefthook; `mise run hooks-install` ran in the main checkout). The suite has 1275 tests and passed twice in a row and once through the hook. Known risk: integration timeouts under heavy load (see Later). The watcher does not run yet: arch-helper must install `contrib/systemd/idfx-watch.service`.
 
-Next context: this context is long. A new context is better for the next step, because it has a new topic.
+The next step is step 36 below. Read its section, then the start paths of Claude workers (grep `claude` spawns in `src/`), and hand the work to a subagent in `.worktrees/36-worker-names`. A fresh worktree needs `bun install --frozen-lockfile` (or `mise run test` does it).
 
-Open tasks of the user: section "Open tasks of the user" below.
-
-Next context: this context is short, so the session continues here with the answers to Q6 and Q7. The scan of step 24 4b has a new topic and can run in a new session.
+Open tasks of the user: section "Open tasks of the user" below, if any; the user has not yet tried the key `o` of `top` in real tmux.
 
 This file holds only the open work. Finished steps, their root causes, and their details are in [HISTORY.md](HISTORY.md), under the same step numbers. Measured runs and costs are in [EXPERIENCE.md](EXPERIENCE.md). How to use the tool is in [GUIDE.md](GUIDE.md).
 
@@ -186,34 +186,14 @@ Research: [process-labels.md](research/process-labels.md), with the review of th
 3. 31c: the integration tests use the same path with a test owner, and the teardown stops their units (this also closes the follow-up of step 30).
 4. 31d: `doctor` lists the `ocsub-*` units with owner and reason, and warns for a unit whose owner is gone. `--fix --force` stops it.
 
-### 17. Step 35: a pre-push hook that runs the tests
-
-Task from the supervisor, 2026-10-06. `mise run pre-push-scan` in meta lists idfix as a project without a pre-push hook. The global rule (section Git) asks that the tests run locally before each push. Add lefthook through `mise.toml`, and a `lefthook.yml` with one pre-push job `mise run test`, like `~/dv/meta/lefthook.yml`. Give `mise.toml` a task `test` that runs `bun test` and `bun run typecheck`, if it has none, and a task `hooks-install`. Install the hook in the main checkout. The flaky `test/watch-guards.test.ts` (see Later) must not block a push, so fix it or mark it first.
-
 ### 18. Step 36: stable names for workers
 
 User decision 2026-10-06 (meta plan, step 26). Each worker gets a stable name: its project folder, plus its step if a project runs more than one worker, for example `idfix-25g`. idfix starts every Claude worker with `-n <name>`. `idfx watch` (the watch slice of step 25g) reports a session without a name as an event. The user renamed the idfix main session to `idfix` on 2026-10-06, and each restart of it uses `-n idfix`.
 
-### 19. Step 37: align the watch conditions with MCP tasks and A2A before protocol v0 settles
-
-Input from the supervisor, 2026-10-06 (meta step 4e, `~/dv/meta/docs/research/deep-research-eval/comparison-tool-protocol.md`; meta folds it into `tool-protocol.md`). No change is required now. Do it when meta settles protocol v0.
-
-1. MCP 2025-11-25 tasks use the status `input_required` and the notification `notifications/tasks/status`. A2A has `TASK_STATE_INPUT_REQUIRED` and `TASK_STATE_AUTH_REQUIRED`. Our conditions `SessionWaitsForUser` and `ApiError` (`src/watch/conditions.ts`) map to these. Use the same words, or document the mapping in `docs/design/idfx-watch.md` and `docs/GUIDE.md`.
-2. The OTel GenAI conventions (own repository since 2026-05, status Development, prefix `gen_ai`) serve only as a mapping for now.
-3. The OTel filelog receiver keeps offsets only with a storage extension, and it identifies a file by its first 1000 bytes. If `events.jsonl` is ever rotated or read by a collector, keep its first line stable and unique, or use the storage extension.
-
-### 20. Step 38: the condition SessionHandedOff in `idfx watch --all`
-
-Task from Severin, routed by the supervisor on 2026-10-06 (`~/dv/severin/.worktrees/step4-decide/docs/outbox/2026-10-06-task-idfix-session-handed-off.md`; background `~/dv/severin/docs/research/driver-loop-inputs.md`, section 1). Severin acts when a session ends a step with a clean hand-off. Severin does not wait for it: until it exists, the supervisor calls `severin tick <project>` itself.
-
-1. Edge: the state of a session changes from `busy` or `waiting` to `idle` or `ended`. Today `handover check` runs only at the edge to `ended`, and only exit code 1 writes an event (`src/watch/conditions.ts`).
-2. At that edge, run `handover check <cwd>` once. Exit code 1 keeps `HandoverCheckFailed`. Exit code 0 goes on.
-3. Read `git log -1 --format=%H -- docs/PLAN.md` in the cwd. If the hash differs from `data.planCommit` of the last True event of this session, write a True event of `SessionHandedOff` (type `dv.idfx.session.handed-off`, severity INFO 9) with `data.planCommit`. A session goes `idle` after each turn, also after a question, so this filter is necessary.
-4. Log only: not in `NOTIFY_CONDITIONS`. Tests and docs (`docs/design/idfx-watch.md`, `docs/GUIDE.md`).
-
 ### Later
 
-- Flaky test: `test/watch-guards.test.ts` ("watch with a guard finding") times out after 20 seconds in some runs, with or without the temp folder fix of 2026-10-05. It was seen at a load average of about 10. The fake server likely pushes events before `watch` subscribes.
+- Integration timeouts under load: at a load average of about 20, one full run failed three tests of `test/integration.test.ts` on timeouts ("up, create session ... stop the server", "pending question and permission lists", "a server with a password"). The rerun passed. A push through the pre-push hook can fail on them under load. Each test server also downloads the plugin dependencies from npm.
+- `watch` never closes the early pending `next()` of the event stream when it ends (open since before 21c0db2).
 - Log rotation: the server and proxy logs grow without limit since step 16d.
 - `oc-sub say --file FILE`: a message from a file. The guard of Claude Code refuses a `say` text that names git commands.
 - `oc-sub fetch` prints `+N over alpha` and `git diff alpha...` also in a repository without `alpha`. It needs the same base fallback as `oc-sub worktree` (step 19).

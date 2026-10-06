@@ -5,6 +5,45 @@ This file holds the plan as it stood on 2026-10-01, with every finished step and
 
 ## Steps after 2026-10-01
 
+## Step 38: the condition SessionHandedOff
+
+Done on 2026-10-06 (01d7b11). Details: `docs/design/idfx-watch.md` and `docs/review-queue.md`.
+
+#### Step 38: the condition SessionHandedOff in `idfx watch --all`
+
+Task from Severin, routed by the supervisor on 2026-10-06 (`~/dv/severin/.worktrees/step4-decide/docs/outbox/2026-10-06-task-idfix-session-handed-off.md`; background `~/dv/severin/docs/research/driver-loop-inputs.md`, section 1). Severin acts when a session ends a step with a clean hand-off. Severin does not wait for it: until it exists, the supervisor calls `severin tick <project>` itself.
+
+1. Edge: the state of a session changes from `busy` or `waiting` to `idle` or `ended`. Today `handover check` runs only at the edge to `ended`, and only exit code 1 writes an event (`src/watch/conditions.ts`).
+2. At that edge, run `handover check <cwd>` once. Exit code 1 keeps `HandoverCheckFailed`. Exit code 0 goes on.
+3. Read `git log -1 --format=%H -- docs/PLAN.md` in the cwd. If the hash differs from `data.planCommit` of the last True event of this session, write a True event of `SessionHandedOff` (type `dv.idfx.session.handed-off`, severity INFO 9) with `data.planCommit`. A session goes `idle` after each turn, also after a question, so this filter is necessary.
+4. Log only: not in `NOTIFY_CONDITIONS`. Tests and docs (`docs/design/idfx-watch.md`, `docs/GUIDE.md`).
+
+## Step 37: wait reasons of protocol v0
+
+Done on 2026-10-06 (dc15170). The event type is now `dv.idfx.session.waiting`.
+
+#### Step 37: align the watch conditions with MCP tasks and A2A before protocol v0 settles
+
+Input from the supervisor, 2026-10-06 (meta step 4e, `~/dv/meta/docs/research/deep-research-eval/comparison-tool-protocol.md`; meta folds it into `tool-protocol.md`). No change is required now. Do it when meta settles protocol v0.
+
+1. MCP 2025-11-25 tasks use the status `input_required` and the notification `notifications/tasks/status`. A2A has `TASK_STATE_INPUT_REQUIRED` and `TASK_STATE_AUTH_REQUIRED`. Our conditions `SessionWaitsForUser` and `ApiError` (`src/watch/conditions.ts`) map to these. Use the same words, or document the mapping in `docs/design/idfx-watch.md` and `docs/GUIDE.md`.
+2. The OTel GenAI conventions (own repository since 2026-05, status Development, prefix `gen_ai`) serve only as a mapping for now.
+3. The OTel filelog receiver keeps offsets only with a storage extension, and it identifies a file by its first 1000 bytes. If `events.jsonl` is ever rotated or read by a collector, keep its first line stable and unique, or use the storage extension.
+
+## Step 35: pre-push hook
+
+Done on 2026-10-06 (7e98386). The test preload clears the local git variables and wraps `Bun.spawn`, because Bun 1.4 passes the start environment to a child without `env`.
+
+#### Step 35: a pre-push hook that runs the tests
+
+Task from the supervisor, 2026-10-06. `mise run pre-push-scan` in meta lists idfix as a project without a pre-push hook. The global rule (section Git) asks that the tests run locally before each push. Add lefthook through `mise.toml`, and a `lefthook.yml` with one pre-push job `mise run test`, like `~/dv/meta/lefthook.yml`. Give `mise.toml` a task `test` that runs `bun test` and `bun run typecheck`, if it has none, and a task `hooks-install`. Install the hook in the main checkout. The flaky `test/watch-guards.test.ts` (see Later) must not block a push, so fix it or mark it first.
+
+## Flaky tests, 2026-10-06
+
+- `restart` in `test/integration.test.ts` (8ae2dff): during the npm install of its config folder, opencode serve has a `signal-exit` handler of arborist that catches one SIGTERM and keeps the server alive. `stopGroup` in `src/down.ts` repeats SIGTERM every second and sends SIGKILL to the group at 15 s.
+- `watch-guards` (21c0db2): the SDK opens the event stream on the first `next()`, and `watch` called it only after its first status check, so early events were lost. `watch` now waits for `server.connected` (at most 2 s) before the check.
+- Help under the called name (help-prog-name): the launchers pass the base name of `$0` in `IDFX_PROG`.
+
 ## Step 25g: Claude Code sessions in `top`, `status`, and `idfx watch --all`
 
 Done on 2026-10-06. The grill with the user settled the sources and the display (Q1 to Q7). Q6: the `¢` column shows the API price of the tokens in gray. Q7: an ended session shows for 60 minutes, a live session always, and a waiting session always and first. Designs: [claude-sessions-top.md](design/claude-sessions-top.md) and [idfx-watch.md](design/idfx-watch.md). Decisions on the open points: `docs/review-queue.md`, entries of 2026-10-06.

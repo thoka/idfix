@@ -16,7 +16,8 @@ import { createOpencodeClient, type Event, type OpencodeClient } from "@opencode
 import { mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { stopStartedGroups } from "../src/down";
-import { proxyPidPath, servePidPath } from "../src/state";
+import { proxyPidPath, serveLogPath, servePidPath } from "../src/state";
+import { idlePidPath } from "../src/idle";
 import net from "node:net";
 import path from "node:path";
 
@@ -49,9 +50,9 @@ async function findFreePort(): Promise<number> {
 /** The process groups (server and proxy loop) that the tests started. */
 const startedGroups = new Set<number>();
 
-/** Records the groups of the server on `port` and of its proxy, as their PID files name them. */
+/** Records the groups of the server on `port`, of its proxy, and of its idle watchdog, as their PID files name them. */
 function recordGroups(env: Record<string, string>, port: number): void {
-  for (const file of [servePidPath(env, port), proxyPidPath(env, port)]) {
+  for (const file of [servePidPath(env, port), proxyPidPath(env, port), idlePidPath(env, port)]) {
     if (!existsSync(file)) continue;
     const pid = Number(readFileSync(file, "utf8").trim());
     if (Number.isInteger(pid) && pid > 0) startedGroups.add(pid);
@@ -423,6 +424,43 @@ test.skipIf(!hasOpencode)(
     }
   },
   { timeout: 120_000 },
+);
+
+test.skipIf(!hasOpencode)(
+  "an idle server stops by itself after the idle limit",
+  async () => {
+    const port = await findFreePort();
+    const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-idle-"));
+    const { OPENCODE_CONFIG_DIR: _outer, ...baseEnv } = process.env as Record<string, string | undefined>;
+    const env = {
+      ...baseEnv,
+      XDG_DATA_HOME: path.join(workDir, "data"),
+      XDG_STATE_HOME: path.join(workDir, "state"),
+    } as Record<string, string>;
+    const url = `http://127.0.0.1:${port}`;
+    try {
+      // 0.02 minutes are 1.2 seconds; the watchdog then checks each second.
+      const started = runCli(workDir, ["up", "--url", url, "--no-cost-proxy", "--idle-minutes", "0.02"], env);
+      expect(started.code).toBe(0);
+      expect(existsSync(idlePidPath(env, port))).toBe(true);
+      const pid = Number(readFileSync(servePidPath(env, port), "utf8").trim());
+      const watchdog = Number(readFileSync(idlePidPath(env, port), "utf8").trim());
+      recordGroups(env, port);
+
+      // The watchdog stops the server through `down` and then exits.
+      expect(await waitUntilGone(pid, 20_000)).toBe(true);
+      expect(await waitUntilGone(watchdog, 5_000)).toBe(true);
+      const log = readFileSync(serveLogPath(env, port), "utf8");
+      expect(log).toContain(`idle-stop port=${port} idle=0.02m`);
+      expect(log).toContain(`stopped ${url} (PID ${pid})`);
+      expect(existsSync(servePidPath(env, port))).toBe(false);
+      expect(existsSync(idlePidPath(env, port))).toBe(false);
+    } finally {
+      await killStarted(env, port);
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  },
+  { timeout: 60_000 },
 );
 
 // Runs last: bun runs the tests of a file in order.

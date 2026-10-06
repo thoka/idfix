@@ -5,6 +5,3 @@
 /home/agent
 # until step 39e (the default of OC_SUB_SHARED_DIR)
 ~/dv/meta/agents
-# OPEN (step 39c report): the default sbx source path of the spike scripts in
-# scripts/ is code; it stays until the owner decides how to change it.
-/home/${SUDO_USER:-toka}/

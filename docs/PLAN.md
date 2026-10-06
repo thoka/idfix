@@ -8,7 +8,7 @@ New context: yes. Step 39 has a new topic, and this context holds steps 29d and 
 
 2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5).
 
-State: steps 29d and 29e are done and on `alpha` (see HISTORY). `top` loads the production build of React, because `bin/oc-sub` sets `NODE_ENV=production` at start. The leak of about 1.5 MB per minute is gone in a live check, and `top` works from any folder again. Meta corrected the lesson `react-cli-needs-node-env-production` after 29e. The suite has 1286 tests and passes. A `top` view that started before 48cc99c still runs the old code and still leaks: quit it with `q` and start it again. The lesson of step 29d (`react-cli-needs-node-env-production`) is imported into meta.
+State: steps 29d and 29e are done and on `alpha` (see HISTORY). `top` loads the production build of React, because `bin/oc-sub` sets `NODE_ENV=production` at start. The leak of about 1.5 MB per minute is gone in a live check, and `top` works from any folder again. Meta corrected the lesson `react-cli-needs-node-env-production` after 29e. The suite has 1286 tests and passes. A `top` view that started before 48cc99c still runs the old code and still leaks: quit it with `q` and start it again. Severin reported a test failure on 9b743d0 at 11:47. It was flaky: four Severin runs before it and one run of this session after it passed. The outbox holds a task for meta: Severin must keep the test output, so that a failing test has a name.
 
 The next step is 39 in section 17 below: the planning files move to the private repository `thoka/idfix-plan`, by the new rule `public-repo-no-private-context`. Meta step 44 is merged (44a 25ab4ab, 44b fad5cb7, rule `plan-folder` in meta `agents/AGENTS.md`), so 39a is done.
 

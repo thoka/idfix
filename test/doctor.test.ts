@@ -39,6 +39,9 @@ import {
   HOST_PROXY_PROBES,
   hostProxyCheck,
   hostProxyFix,
+  HOST_PROXY_ENABLE,
+  HOST_PROXY_MANAGED_FIX,
+  unitsManagedElsewhere,
   STATE_NAMES_FIX,
   PROJECT_CONFIG_NAME_FIX,
   stateNamesCheck,
@@ -3065,11 +3068,16 @@ describe("host-proxy", () => {
       available?: boolean;
       fail?: string;
       probes?: boolean[];
+      proxyLink?: boolean;
+      watchLink?: boolean;
     } = {},
   ) {
-    const files = new Map<string, { content?: string }>();
+    const files = new Map<string, { link?: string; content?: string }>();
     const installed = opts.installed === undefined ? PROXY_UNIT_TEXT : opts.installed;
-    if (installed !== null) files.set(PROXY_UNIT_FILE, { content: installed });
+    if (installed !== null) {
+      files.set(PROXY_UNIT_FILE, opts.proxyLink === true ? { link: "/repo/contrib/systemd/idfx-proxy.service", content: installed } : { content: installed });
+    }
+    if (opts.watchLink === true) files.set(`${UNIT_DIR}/idfx-watch.service`, { link: "/repo/contrib/systemd/idfx-watch.service" });
     const state = opts.state === undefined ? { fileState: "enabled", active: "active" } : opts.state;
     const fake = fakeUnits({
       show: "",
@@ -3237,6 +3245,93 @@ describe("host-proxy", () => {
       expect(fake.calls[fake.calls.length - 1]).toBe(fail);
       expect(probeCount()).toBe(0);
     }
+  });
+
+  describe("when the user units are managed by links", () => {
+    test("unitsManagedElsewhere sees a link of either unit, and nothing else", () => {
+      expect(unitsManagedElsewhere(proxyDeps().deps)).toBe(false);
+      expect(unitsManagedElsewhere(proxyDeps({ installed: null }).deps)).toBe(false);
+      expect(unitsManagedElsewhere(proxyDeps({ proxyLink: true }).deps)).toBe(true);
+      expect(unitsManagedElsewhere(proxyDeps({ installed: null, watchLink: true }).deps)).toBe(true);
+    });
+
+    test("passes when the linked unit equals the shipped one and runs enabled", () => {
+      const check = hostProxyCheck(proxyDeps({ proxyLink: true, watchLink: true }).deps);
+      expect(check.status).toBe("pass");
+    });
+
+    test("warns on a missing unit and names the managing tool, not the fix", () => {
+      const { deps, fake } = proxyDeps({ installed: null, watchLink: true });
+      const check = hostProxyCheck(deps);
+      expect(check.status).toBe("warn");
+      expect(check.message).toBe(`not installed: no ${UNIT_DIR}/idfx-proxy.service; the user units are managed by links`);
+      expect(check.fix).toBe(HOST_PROXY_MANAGED_FIX);
+      expect(check.fix).toContain("contrib/systemd/idfx-proxy.service");
+      expect(check.fix).toContain("systemctl --user enable --now idfx-proxy.service");
+      expect(check.fix).not.toContain("run idfx doctor --fix");
+      expect(fake.calls).toEqual([]);
+    });
+
+    test("warns on a plain copy next to a linked unit", () => {
+      const check = hostProxyCheck(proxyDeps({ watchLink: true }).deps);
+      expect(check.status).toBe("warn");
+      expect(check.message).toContain("is a plain copy, but the user units are managed by links");
+      expect(check.fix).toBe(HOST_PROXY_MANAGED_FIX);
+    });
+
+    test("warns on an outdated link with the managed hint", () => {
+      const check = hostProxyCheck(proxyDeps({ installed: "old", proxyLink: true }).deps);
+      expect(check.status).toBe("warn");
+      expect(check.message).toContain("outdated");
+      expect(check.fix).toBe(HOST_PROXY_MANAGED_FIX);
+    });
+
+    test("names systemctl enable --now when the linked unit is not enabled, not active, or show fails", () => {
+      for (const opts of [
+        { state: { fileState: "disabled", active: "active" } },
+        { state: { fileState: "enabled", active: "failed" } },
+        { fail: "show-state idfx-proxy" },
+      ]) {
+        const check = hostProxyCheck(proxyDeps({ proxyLink: true, ...opts }).deps);
+        expect(check.status).toBe("warn");
+        expect(check.fix).toBe(HOST_PROXY_ENABLE);
+        expect(check.fix).toBe("run systemctl --user enable --now idfx-proxy.service");
+      }
+    });
+
+    test("the fix changes nothing, runs no systemctl, and is not ok", async () => {
+      for (const opts of [
+        { installed: null, watchLink: true },
+        { watchLink: true },
+        { installed: "old", proxyLink: true },
+        { proxyLink: true, state: { fileState: "disabled", active: "inactive" } },
+      ]) {
+        const { deps, fake, files, made, probeCount } = proxyDeps(opts);
+        const before = JSON.stringify([...files]);
+        const outcome = await hostProxyFix(deps, hostProxyCheck(deps), { force: true });
+        expect(outcome.ok).toBe(false);
+        expect(outcome.note).toBe(`changed nothing: ${HOST_PROXY_MANAGED_FIX}`);
+        expect(JSON.stringify([...files])).toBe(before);
+        expect(made).toEqual([]);
+        expect(fake.calls.filter((call) => !call.startsWith("show-state"))).toEqual([]);
+        expect(probeCount()).toBe(0);
+      }
+    });
+
+    test("doctor --fix reports the fix as failed, not as fixed", async () => {
+      const { deps, fake, files } = proxyDeps({ installed: null, watchLink: true });
+      const lines: string[] = [];
+      const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+      try {
+        await doctor({ fix: true }, { HOME: "/home/user" } as Record<string, string>, deps);
+      } finally {
+        logSpy.mockRestore();
+      }
+      expect(lines.some((line) => line.startsWith("fixed host-proxy"))).toBe(false);
+      expect(lines.some((line) => line.startsWith("fix failed (host-proxy): changed nothing"))).toBe(true);
+      expect(files.has(PROXY_UNIT_FILE)).toBe(false);
+      expect(fake.calls.filter((call) => call.includes("idfx-proxy"))).toEqual([]);
+    });
   });
 
   test("doctor --fix runs the fix and the re-run passes", async () => {

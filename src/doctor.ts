@@ -1644,6 +1644,34 @@ export const HOST_PROXY_FIX = "run idfx doctor --fix: it installs, enables, and 
 export const HOST_PROXY_PROBES = 10;
 export const HOST_PROXY_PROBE_WAIT_MS = 500;
 
+/** The hint of the `host-proxy` check for an installed unit that is not enabled or not active. */
+export const HOST_PROXY_ENABLE = `run systemctl --user enable --now ${HOST_PROXY_UNIT}.service`;
+
+/**
+ * The hint of the `host-proxy` check when another tool manages the user
+ * units. idfx doctor does not install the unit then. That tool links the
+ * shipped file.
+ */
+export const HOST_PROXY_MANAGED_FIX =
+  `the user units are managed by links, so install ${HOST_PROXY_UNIT_SOURCE} with the tool that makes the links, ` +
+  `then ${HOST_PROXY_ENABLE}. idfx doctor --fix does not install it`;
+
+/** The user units of idfix whose links show that another tool manages the user units. */
+export const MANAGED_UNIT_FILES = [`${HOST_PROXY_UNIT}.service`, "idfx-watch.service"] as const;
+
+/**
+ * True when another tool, for example a configuration manager, manages the
+ * user units of idfix: `idfx-proxy.service` or `idfx-watch.service` in
+ * `systemdUserDir` is a symbolic link. Then `idfx doctor` only reports and
+ * never writes a unit file. Pure, apart from `deps.lstat`.
+ *
+ * Known gap: no setting can say this. A machine that manages the units with
+ * plain copies, not links, looks like a machine without such a tool.
+ */
+export function unitsManagedElsewhere(deps: Pick<DoctorDeps, "lstat" | "systemdUserDir">): boolean {
+  return MANAGED_UNIT_FILES.some((name) => deps.lstat(path.join(deps.systemdUserDir, name))?.isSymbolicLink === true);
+}
+
 /** The unit file states that start the unit with the session of the user. */
 const ENABLED_STATES = new Set(["enabled", "enabled-runtime"]);
 
@@ -1678,34 +1706,50 @@ function hostProxyState(deps: DoctorDeps): { fileState: string; active: string }
  * skips without a user manager. It warns when the installed unit file is
  * missing or differs from the shipped file, when the unit is not enabled,
  * and when it is not active. It does not probe the port, so the check stays
- * synchronous; the fix probes.
+ * synchronous; the fix probes. When another tool manages the user units
+ * (`unitsManagedElsewhere`), it also warns on a plain copy, and its hints
+ * name that tool and `systemctl --user enable --now`, never the fix.
  */
 export function hostProxyCheck(deps: DoctorDeps): CheckResult {
   if (!deps.units.available()) return result("host-proxy", "skip", "no systemd user manager");
   const file = hostProxyUnitFile(deps);
   const shipped = deps.shippedProxyUnit();
   if (shipped === null) return result("host-proxy", "fail", `the shipped unit ${HOST_PROXY_UNIT_SOURCE} is missing`, "reinstall idfix");
+  const managed = unitsManagedElsewhere(deps);
+  const installHint = managed ? HOST_PROXY_MANAGED_FIX : HOST_PROXY_FIX;
+  const stateHint = managed ? HOST_PROXY_ENABLE : HOST_PROXY_FIX;
   const installed = deps.readText(file);
-  if (installed === null) return result("host-proxy", "warn", `not installed: no ${file}`, HOST_PROXY_FIX);
+  if (installed === null) {
+    const why = managed ? "; the user units are managed by links" : "";
+    return result("host-proxy", "warn", `not installed: no ${file}${why}`, installHint);
+  }
+  if (managed && deps.lstat(file)?.isSymbolicLink !== true) {
+    return result(
+      "host-proxy",
+      "warn",
+      `${file} is a plain copy, but the user units are managed by links; the tool that makes the links should take it over`,
+      installHint,
+    );
+  }
   if (installed !== shipped) {
     return result(
       "host-proxy",
       "warn",
       `outdated: ${file} differs from the shipped unit; put local changes into ${file}.d/`,
-      HOST_PROXY_FIX,
+      installHint,
     );
   }
   const state = hostProxyState(deps);
-  if ("error" in state) return result("host-proxy", "warn", `systemctl --user show failed: ${state.error}`, HOST_PROXY_FIX);
+  if ("error" in state) return result("host-proxy", "warn", `systemctl --user show failed: ${state.error}`, stateHint);
   if (!ENABLED_STATES.has(state.fileState)) {
-    return result("host-proxy", "warn", `${HOST_PROXY_UNIT}.service is not enabled (${state.fileState || "unknown"})`, HOST_PROXY_FIX);
+    return result("host-proxy", "warn", `${HOST_PROXY_UNIT}.service is not enabled (${state.fileState || "unknown"})`, stateHint);
   }
   if (state.active !== "active") {
     return result(
       "host-proxy",
       "warn",
       `${HOST_PROXY_UNIT}.service is not active (${state.active || "unknown"}); see ${deps.hostProxyLog} and journalctl --user -u ${HOST_PROXY_UNIT}`,
-      HOST_PROXY_FIX,
+      stateHint,
     );
   }
   return result("host-proxy", "pass", `${HOST_PROXY_UNIT}.service runs on 127.0.0.1:${HOST_PROXY_PORT}, log ${deps.hostProxyLog}`);
@@ -1717,11 +1761,14 @@ export function hostProxyCheck(deps: DoctorDeps): CheckResult {
  * daemon-reload` and `enable`, then `restart` when the file changed or the
  * unit is active, else `start`. Then it probes `HEAD /api/hello` up to
  * `HOST_PROXY_PROBES` times. The fix is ok only when the proxy answers.
+ * When another tool manages the user units (`unitsManagedElsewhere`), it
+ * changes nothing, runs no systemctl, and is not ok.
  */
 export async function hostProxyFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): Promise<FixOutcome> {
   if (!deps.units.available()) return { ok: true, note: "no systemd user manager" };
   const shipped = deps.shippedProxyUnit();
   if (shipped === null) return { ok: false, note: `the shipped unit ${HOST_PROXY_UNIT_SOURCE} is missing` };
+  if (unitsManagedElsewhere(deps)) return { ok: false, note: `changed nothing: ${HOST_PROXY_MANAGED_FIX}` };
   const file = hostProxyUnitFile(deps);
   const changed = deps.readText(file) !== shipped;
   if (changed) {

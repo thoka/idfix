@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { makeDoctorDeps } from "../src/doctor";
+import { HOST_PROXY_UNIT_SOURCE } from "../src/host-proxy";
 
 const UNIT = path.join(import.meta.dir, "..", "contrib", "systemd", "idfx-watch.service");
+const PROXY_UNIT = path.join(import.meta.dir, "..", "contrib", "systemd", "idfx-proxy.service");
 
 /** A small INI reader for a systemd unit: sections, `key=value` lines, and `#` or `;` comments. */
 function parseUnit(text: string): Record<string, Record<string, string[]>> {
@@ -51,6 +54,48 @@ describe("contrib/systemd/idfx-watch.service", () => {
   const analyze = Bun.which("systemd-analyze");
   test.skipIf(analyze === null)("systemd-analyze --user verify accepts it", () => {
     const result = Bun.spawnSync([analyze as string, "--user", "verify", UNIT]);
+    expect(result.stderr.toString()).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+});
+
+describe("contrib/systemd/idfx-proxy.service", () => {
+  const text = readFileSync(PROXY_UNIT, "utf8");
+  const unit = parseUnit(text);
+
+  test("parses as an INI file with the keys of the host proxy", () => {
+    expect(Object.keys(unit)).toEqual(["Unit", "Service", "Install"]);
+    expect(unit.Unit?.Description?.[0]).toMatch(/host cost proxy/);
+    expect(unit.Service?.Type).toEqual(["simple"]);
+    expect(unit.Service?.ExecStart).toEqual(["%h/.local/bin/idfx proxy --port 4090"]);
+    expect(unit.Service?.Restart).toEqual(["on-failure"]);
+    expect(unit.Service?.RestartSec).toEqual(["5"]);
+    expect(unit.Install?.WantedBy).toEqual(["default.target"]);
+  });
+
+  test("has the same generic PATH as the watcher", () => {
+    const watch = parseUnit(readFileSync(UNIT, "utf8"));
+    expect(unit.Service?.Environment).toEqual(watch.Service?.Environment);
+  });
+
+  test("has no Slice= line, so it stays out of idfx.slice", () => {
+    expect(unit.Unit?.Slice).toBeUndefined();
+    expect(unit.Service?.Slice).toBeUndefined();
+  });
+
+  test("the header names doctor --fix and the drop-in folder for local changes", () => {
+    expect(text).toContain("idfx doctor --fix");
+    expect(text).toContain("idfx-proxy.service.d/");
+  });
+
+  test("is the file that doctor installs", () => {
+    expect(HOST_PROXY_UNIT_SOURCE).toBe(PROXY_UNIT);
+    expect(makeDoctorDeps({ HOME: "/h" }, "/h").shippedProxyUnit()).toBe(text);
+  });
+
+  const analyze = Bun.which("systemd-analyze");
+  test.skipIf(analyze === null)("systemd-analyze --user verify accepts it", () => {
+    const result = Bun.spawnSync([analyze as string, "--user", "verify", PROXY_UNIT]);
     expect(result.stderr.toString()).toBe("");
     expect(result.exitCode).toBe(0);
   });

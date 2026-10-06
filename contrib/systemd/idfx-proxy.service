@@ -1,0 +1,28 @@
+# The host cost proxy of idfx, as a systemd user service: one proxy per user
+# on 127.0.0.1:4090. It logs one JSON line per model request to
+# $XDG_STATE_HOME/idfx/proxy-host.log (default ~/.local/state/idfx/).
+#
+# idfix ships this file. `idfx doctor --fix` copies it to
+# ~/.config/systemd/user/idfx-proxy.service, enables it, and starts it, and the
+# check `host-proxy` of `idfx doctor` reports whether it runs. The fix
+# overwrites a copy that differs from this file, so put local changes into a
+# drop-in, for example ~/.config/systemd/user/idfx-proxy.service.d/local.conf.
+#
+# The unit has no Slice= line on purpose: it stays out of idfx.slice, which
+# holds only the transient units of `idfx up`.
+
+[Unit]
+Description=idfx proxy: the host cost proxy on 127.0.0.1:4090
+
+[Service]
+Type=simple
+# A user service gets a short PATH. idfx needs bun (or mise). This PATH names
+# only generic folders. When bun lives elsewhere, add a drop-in with its own
+# [Service] and Environment=PATH=... line.
+Environment=PATH=%h/.local/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin
+ExecStart=%h/.local/bin/idfx proxy --port 4090
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

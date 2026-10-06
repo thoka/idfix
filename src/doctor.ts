@@ -7,7 +7,7 @@
  * Every dependency is injected, so the tests use fakes like in
  * `test/sandbox.test.ts`.
  */
-import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Env } from "./config";
@@ -22,7 +22,8 @@ import { pluginDataDir, pluginDigest, syncPluginDir } from "./plugin-sync";
 import { idfxVersion, TOOL } from "./protocol";
 import { defaultUnitDeps, listUnits, orphanedUnits, parseUnitLabel, stopUnit, type LoadedUnit, type UnitDeps } from "./units";
 import { oldOnlyEnvNames } from "./env-names";
-import { legacyStateDir, migrateStateDir, newStateDir, type StateMigration } from "./state";
+import { hostProxyLogPath, legacyStateDir, migrateStateDir, newStateDir, type StateMigration } from "./state";
+import { HOST_PROXY_PORT, HOST_PROXY_UNIT, HOST_PROXY_UNIT_SOURCE, probeHello, systemdUserDir } from "./host-proxy";
 import { oldProjectConfigFile, projectConfigFile } from "./project-config";
 import { busyCheck, busyCheckNote, findRunningServers, restartServer, serverLabel, type BusyCheck, type RunningServer } from "./server-plugin";
 
@@ -180,6 +181,16 @@ export type DoctorDeps = {
   migrateStateDir: () => StateMigration;
   /** Renames a file in the project (the fix of `project-config-name`). */
   renameFile: (from: string, to: string) => void;
+  /** The folder of the user units: `$XDG_CONFIG_HOME/systemd/user`, else `~/.config/systemd/user` (`host-proxy`). */
+  systemdUserDir: string;
+  /** The text of the shipped unit `contrib/systemd/idfx-proxy.service`, or null when it is missing. */
+  shippedProxyUnit: () => string | null;
+  /** The log file of the host proxy, named in the `host-proxy` messages. */
+  hostProxyLog: string;
+  /** Creates a folder with its parents (the fix of `host-proxy`). */
+  makeDir: (dir: string) => void;
+  /** Whether the host proxy on `port` answers `HEAD /api/hello`. */
+  probeHello: (port: number) => Promise<boolean>;
 };
 
 /** One process of the host, as the process checks see it. */
@@ -402,6 +413,17 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     newStateDir: newStateDir(env),
     migrateStateDir: () => migrateStateDir(env),
     renameFile: (from, to) => renameSync(from, to),
+    systemdUserDir: systemdUserDir(env, env.HOME ?? homedir()),
+    shippedProxyUnit: () => {
+      try {
+        return readFileSync(HOST_PROXY_UNIT_SOURCE, "utf8");
+      } catch {
+        return null;
+      }
+    },
+    hostProxyLog: hostProxyLogPath(env, env.HOME ?? homedir()),
+    makeDir: (dir) => mkdirSync(dir, { recursive: true }),
+    probeHello: (port) => probeHello(port),
   };
   return { ...deps, ...overrides };
 }
@@ -1615,6 +1637,124 @@ export function watchRunningCheck(deps: DoctorDeps): CheckResult {
   return result("watch-running", "warn", `no idfx watch --all runs: ${why}; the supervisor gets no wake-up`, WATCH_SERVICE_FIX);
 }
 
+/** The hint of the `host-proxy` check. */
+export const HOST_PROXY_FIX = "run idfx doctor --fix: it installs, enables, and starts idfx-proxy.service";
+
+/** How often the fix of `host-proxy` probes the proxy after the start, and the wait between two probes. */
+export const HOST_PROXY_PROBES = 10;
+export const HOST_PROXY_PROBE_WAIT_MS = 500;
+
+/** The unit file states that start the unit with the session of the user. */
+const ENABLED_STATES = new Set(["enabled", "enabled-runtime"]);
+
+/** The installed unit file of the host proxy. Pure. */
+export function hostProxyUnitFile(deps: DoctorDeps): string {
+  return path.join(deps.systemdUserDir, `${HOST_PROXY_UNIT}.service`);
+}
+
+/** `UnitFileState` and `ActiveState` of the host proxy unit, or the error text of `systemctl`. */
+function hostProxyState(deps: DoctorDeps): { fileState: string; active: string } | { error: string } {
+  const res = deps.units.run(
+    ["systemctl", "--user", "show", `${HOST_PROXY_UNIT}.service`, "--property=UnitFileState,ActiveState"],
+    { env: deps.units.busEnv() },
+  );
+  if (res.exitCode !== 0) {
+    const text = (res.stderr ?? "").trim() || res.stdout.trim();
+    return { error: text.length > 0 ? text : `exit code ${res.exitCode}` };
+  }
+  // Key=value lines, not `--value`: systemd prints the properties in its own
+  // order (ActiveState before UnitFileState), not in the order of the flag.
+  const values = new Map<string, string>();
+  for (const line of res.stdout.split("\n")) {
+    const eq = line.indexOf("=");
+    if (eq > 0) values.set(line.slice(0, eq).trim(), line.slice(eq + 1).trim());
+  }
+  return { fileState: values.get("UnitFileState") ?? "", active: values.get("ActiveState") ?? "" };
+}
+
+/**
+ * The `host-proxy` check (design `.plan/design/driver-layer.md`, section
+ * 2.4): the host cost proxy runs as the user unit `idfx-proxy.service`. It
+ * skips without a user manager. It warns when the installed unit file is
+ * missing or differs from the shipped file, when the unit is not enabled,
+ * and when it is not active. It does not probe the port, so the check stays
+ * synchronous; the fix probes.
+ */
+export function hostProxyCheck(deps: DoctorDeps): CheckResult {
+  if (!deps.units.available()) return result("host-proxy", "skip", "no systemd user manager");
+  const file = hostProxyUnitFile(deps);
+  const shipped = deps.shippedProxyUnit();
+  if (shipped === null) return result("host-proxy", "fail", `the shipped unit ${HOST_PROXY_UNIT_SOURCE} is missing`, "reinstall idfix");
+  const installed = deps.readText(file);
+  if (installed === null) return result("host-proxy", "warn", `not installed: no ${file}`, HOST_PROXY_FIX);
+  if (installed !== shipped) {
+    return result(
+      "host-proxy",
+      "warn",
+      `outdated: ${file} differs from the shipped unit; put local changes into ${file}.d/`,
+      HOST_PROXY_FIX,
+    );
+  }
+  const state = hostProxyState(deps);
+  if ("error" in state) return result("host-proxy", "warn", `systemctl --user show failed: ${state.error}`, HOST_PROXY_FIX);
+  if (!ENABLED_STATES.has(state.fileState)) {
+    return result("host-proxy", "warn", `${HOST_PROXY_UNIT}.service is not enabled (${state.fileState || "unknown"})`, HOST_PROXY_FIX);
+  }
+  if (state.active !== "active") {
+    return result(
+      "host-proxy",
+      "warn",
+      `${HOST_PROXY_UNIT}.service is not active (${state.active || "unknown"}); see ${deps.hostProxyLog} and journalctl --user -u ${HOST_PROXY_UNIT}`,
+      HOST_PROXY_FIX,
+    );
+  }
+  return result("host-proxy", "pass", `${HOST_PROXY_UNIT}.service runs on 127.0.0.1:${HOST_PROXY_PORT}, log ${deps.hostProxyLog}`);
+}
+
+/**
+ * The fix of `host-proxy`: it writes the shipped unit file when the
+ * installed copy is missing or differs, runs `systemctl --user
+ * daemon-reload` and `enable`, then `restart` when the file changed or the
+ * unit is active, else `start`. Then it probes `HEAD /api/hello` up to
+ * `HOST_PROXY_PROBES` times. The fix is ok only when the proxy answers.
+ */
+export async function hostProxyFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): Promise<FixOutcome> {
+  if (!deps.units.available()) return { ok: true, note: "no systemd user manager" };
+  const shipped = deps.shippedProxyUnit();
+  if (shipped === null) return { ok: false, note: `the shipped unit ${HOST_PROXY_UNIT_SOURCE} is missing` };
+  const file = hostProxyUnitFile(deps);
+  const changed = deps.readText(file) !== shipped;
+  if (changed) {
+    deps.makeDir(deps.systemdUserDir);
+    deps.writeText(file, shipped);
+  }
+  const systemctl = (...args: string[]): string | null => {
+    const res = deps.units.run(["systemctl", "--user", ...args], { env: deps.units.busEnv() });
+    if (res.exitCode === 0) return null;
+    const text = (res.stderr ?? "").trim() || res.stdout.trim();
+    return `systemctl --user ${args.join(" ")} failed: ${text.length > 0 ? text : `exit code ${res.exitCode}`}`;
+  };
+  const unit = `${HOST_PROXY_UNIT}.service`;
+  const reload = systemctl("daemon-reload");
+  if (reload !== null) return { ok: false, note: reload };
+  const enable = systemctl("enable", unit);
+  if (enable !== null) return { ok: false, note: enable };
+  const state = hostProxyState(deps);
+  const active = !("error" in state) && state.active === "active";
+  const verb = changed || active ? "restart" : "start";
+  const started = systemctl(verb, unit);
+  if (started !== null) return { ok: false, note: started };
+  const done = `${changed ? "installed " + file + ", " : ""}enabled and ${verb}ed ${unit}`;
+  for (let i = 0; i < HOST_PROXY_PROBES; i++) {
+    if (await deps.probeHello(HOST_PROXY_PORT)) return { ok: true, note: `${done}; it answers on 127.0.0.1:${HOST_PROXY_PORT}` };
+    if (i < HOST_PROXY_PROBES - 1) await deps.wait(HOST_PROXY_PROBE_WAIT_MS);
+  }
+  return {
+    ok: false,
+    note: `${done}, but it does not answer on 127.0.0.1:${HOST_PROXY_PORT}; see ${deps.hostProxyLog} and journalctl --user -u ${HOST_PROXY_UNIT}`,
+  };
+}
+
 /** The hint of the `state-names` check. */
 export const STATE_NAMES_FIX = "run idfx doctor --fix: it moves the old state folder into the new one and links the old path to it";
 
@@ -1723,6 +1863,8 @@ export const SLOW_CHECKS: Check[] = [
   { name: "deepinfra-key", run: deepinfraKeyCheck },
   { name: "research-due", run: researchDueCheck },
   { name: "watch-running", run: watchRunningCheck },
+  // Before units: its fix starts the host proxy unit, which stays out of idfx.slice.
+  { name: "host-proxy", run: hostProxyCheck, fix: hostProxyFix },
   // Last: they scan /proc, and a fix must run after the plugin and sandbox fixes.
   { name: "top-memory", run: topMemoryCheck, fix: topMemoryFix },
   { name: "orphan-processes", run: orphanProcessesCheck, fix: orphanProcessesFix },

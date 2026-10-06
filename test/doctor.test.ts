@@ -35,6 +35,10 @@ import {
   TOP_RSS_LIMIT,
   WATCH_SERVICE_FIX,
   watchRunningCheck,
+  HOST_PROXY_FIX,
+  HOST_PROXY_PROBES,
+  hostProxyCheck,
+  hostProxyFix,
   STATE_NAMES_FIX,
   PROJECT_CONFIG_NAME_FIX,
   stateNamesCheck,
@@ -73,6 +77,10 @@ import {
   type KvmDeps,
 } from "../src/sandbox";
 
+/** The shipped and, by default, the installed host proxy unit of the fake deps. */
+const PROXY_UNIT_TEXT = "[Service]\nExecStart=%h/.local/bin/idfx proxy --port 4090\n";
+const PROXY_UNIT_FILE = "/home/user/.config/systemd/user/idfx-proxy.service";
+
 /** The synced plugin folder of the fake deps. */
 const PLUGIN_DIR = "/home/user/.local/share/oc-sub/opencode";
 
@@ -98,7 +106,8 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     readlink: (file) => files.get(file)?.link ?? null,
     readdir: (folder) => folders.get(folder) ?? null,
     exists: (file) => files.has(file),
-    readText: (file) => files.get(file)?.content ?? null,
+    // The host proxy unit is installed by default, so host-proxy passes.
+    readText: (file) => files.get(file)?.content ?? (file === PROXY_UNIT_FILE ? PROXY_UNIT_TEXT : null),
     realpath: (file) => {
       // Resolve one level of symlink into a canonical fake path.
       const entry = files.get(file);
@@ -179,8 +188,9 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
       throw new Error("no process may be killed in this test");
     },
     wait: async () => {},
-    // A user manager with no idfx unit by default, so units passes.
-    units: fakeUnits({ show: "" }).deps,
+    // A user manager with no idfx unit by default, so units passes, and an
+    // enabled, active host proxy unit, so host-proxy passes.
+    units: fakeUnits({ show: "", states: { "idfx-proxy": { fileState: "enabled", active: "active" } } }).deps,
     // No old names by default, so the checks of step 24.3 pass.
     env: {},
     legacyStateDir: () => null,
@@ -193,6 +203,13 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
       if (entry === undefined) throw new Error(`no file ${from}`);
       files.delete(from);
       files.set(to, entry);
+    },
+    systemdUserDir: "/home/user/.config/systemd/user",
+    shippedProxyUnit: () => PROXY_UNIT_TEXT,
+    hostProxyLog: "/home/user/.local/state/idfx/proxy-host.log",
+    makeDir: () => {},
+    probeHello: async () => {
+      throw new Error("no host proxy may be probed in this test");
     },
     ...overrides,
   };
@@ -2837,7 +2854,7 @@ describe("the process checks", () => {
     ]);
     // The shared rules file exists, so the global-rules fix succeeds and
     // does not fail the fix pass (see the kvm root fix tests above).
-    deps.readText = (file) => (file.endsWith("AGENTS.md") ? "# rules" : null);
+    deps.readText = (file) => (file.endsWith("AGENTS.md") ? "# rules" : file === PROXY_UNIT_FILE ? PROXY_UNIT_TEXT : null);
     deps.realpath = (file) => (file.endsWith("AGENTS.md") ? path.resolve(file) : null);
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
@@ -3029,6 +3046,211 @@ describe("watch-running", () => {
     expect(entry).toBeDefined();
     expect(entry?.fix).toBeUndefined();
     expect(entry?.rootFix).toBeUndefined();
+  });
+});
+
+describe("host-proxy", () => {
+  const UNIT_DIR = "/home/user/.config/systemd/user";
+  const LOG = "/home/user/.local/state/idfx/proxy-host.log";
+
+  /**
+   * Fake deps: `installed` is the content of the installed unit file (null
+   * for none), `state` the unit state in the fake manager. `probes` gives
+   * the answers of probeHello in order; the last one repeats.
+   */
+  function proxyDeps(
+    opts: {
+      installed?: string | null;
+      state?: { fileState: string; active: string } | null;
+      available?: boolean;
+      fail?: string;
+      probes?: boolean[];
+    } = {},
+  ) {
+    const files = new Map<string, { content?: string }>();
+    const installed = opts.installed === undefined ? PROXY_UNIT_TEXT : opts.installed;
+    if (installed !== null) files.set(PROXY_UNIT_FILE, { content: installed });
+    const state = opts.state === undefined ? { fileState: "enabled", active: "active" } : opts.state;
+    const fake = fakeUnits({
+      show: "",
+      available: opts.available,
+      fail: opts.fail,
+      states: state === null ? {} : { "idfx-proxy": state },
+    });
+    const made: string[] = [];
+    const waits: number[] = [];
+    const probes = opts.probes ?? [true];
+    let probed = 0;
+    const deps = makeDeps(
+      { files },
+      {
+        readText: (file) => files.get(file)?.content ?? null,
+        units: fake.deps,
+        makeDir: (dir) => {
+          made.push(dir);
+        },
+        wait: async (ms) => {
+          waits.push(ms);
+        },
+        probeHello: async (port) => {
+          expect(port).toBe(4090);
+          const answer = probes[Math.min(probed, probes.length - 1)] as boolean;
+          probed++;
+          return answer;
+        },
+      },
+    );
+    return { deps, fake, files, made, waits, probeCount: () => probed };
+  }
+
+  test("is a slow check before units, with a fix", () => {
+    const names = SLOW_CHECKS.map((c) => c.name);
+    expect(names).toContain("host-proxy");
+    expect(names.indexOf("host-proxy")).toBeLessThan(names.indexOf("units"));
+    expect(FAST_CHECKS.map((c) => c.name)).not.toContain("host-proxy");
+    expect(SLOW_CHECKS.find((c) => c.name === "host-proxy")?.fix).toBe(hostProxyFix);
+  });
+
+  test("passes when the installed unit equals the shipped one and runs enabled", () => {
+    const { deps, fake } = proxyDeps();
+    expect(hostProxyCheck(deps)).toEqual({
+      name: "host-proxy",
+      status: "pass",
+      message: `idfx-proxy.service runs on 127.0.0.1:4090, log ${LOG}`,
+      fix: undefined,
+    });
+    expect(fake.calls).toEqual(["show-state idfx-proxy"]);
+  });
+
+  test("skips without a user manager and calls nothing", () => {
+    const { deps, fake } = proxyDeps({ available: false });
+    expect(hostProxyCheck(deps)).toMatchObject({ status: "skip", message: "no systemd user manager" });
+    expect(fake.calls).toEqual([]);
+  });
+
+  test("warns when the unit is not installed", () => {
+    const check = hostProxyCheck(proxyDeps({ installed: null }).deps);
+    expect(check.status).toBe("warn");
+    expect(check.message).toBe(`not installed: no ${UNIT_DIR}/idfx-proxy.service`);
+    expect(check.fix).toBe(HOST_PROXY_FIX);
+    expect(check.fix).toContain("idfx doctor --fix");
+  });
+
+  test("warns when the installed unit differs from the shipped one, and names the drop-in folder", () => {
+    const check = hostProxyCheck(proxyDeps({ installed: "[Service]\nExecStart=old\n" }).deps);
+    expect(check.status).toBe("warn");
+    expect(check.message).toContain("outdated");
+    expect(check.message).toContain(`${UNIT_DIR}/idfx-proxy.service.d/`);
+  });
+
+  test("warns when the unit is not enabled", () => {
+    const check = hostProxyCheck(proxyDeps({ state: { fileState: "disabled", active: "active" } }).deps);
+    expect(check.status).toBe("warn");
+    expect(check.message).toBe("idfx-proxy.service is not enabled (disabled)");
+  });
+
+  test("accepts enabled-runtime as enabled", () => {
+    expect(hostProxyCheck(proxyDeps({ state: { fileState: "enabled-runtime", active: "active" } }).deps).status).toBe("pass");
+  });
+
+  test("warns when the unit is not active, and names the log and the journal", () => {
+    const check = hostProxyCheck(proxyDeps({ state: { fileState: "enabled", active: "failed" } }).deps);
+    expect(check.status).toBe("warn");
+    expect(check.message).toContain("is not active (failed)");
+    expect(check.message).toContain(LOG);
+    expect(check.message).toContain("journalctl --user -u idfx-proxy");
+  });
+
+  test("warns when systemctl show fails", () => {
+    const check = hostProxyCheck(proxyDeps({ fail: "show-state idfx-proxy" }).deps);
+    expect(check.status).toBe("warn");
+    expect(check.message).toContain("systemctl --user show failed: fake failure");
+  });
+
+  test("fails when the shipped unit is missing", () => {
+    const { deps } = proxyDeps();
+    const check = hostProxyCheck({ ...deps, shippedProxyUnit: () => null });
+    expect(check.status).toBe("fail");
+  });
+
+  test("the fix installs a missing unit, reloads, enables, and restarts it, then probes", async () => {
+    const { deps, fake, files, made } = proxyDeps({ installed: null, state: null });
+    const outcome = await hostProxyFix(deps, hostProxyCheck(deps), { force: false });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.note).toBe(
+      `installed ${PROXY_UNIT_FILE}, enabled and restarted idfx-proxy.service; it answers on 127.0.0.1:4090`,
+    );
+    expect(files.get(PROXY_UNIT_FILE)?.content).toBe(PROXY_UNIT_TEXT);
+    expect(made).toEqual([UNIT_DIR]);
+    // The check stops at the missing file, so the first call is the reload of the fix.
+    expect(fake.calls).toEqual(["daemon-reload", "enable idfx-proxy", "show-state idfx-proxy", "restart idfx-proxy"]);
+    // After the fix, the check passes.
+    expect(hostProxyCheck(deps).status).toBe("pass");
+  });
+
+  test("the fix overwrites an outdated unit and restarts it", async () => {
+    const { deps, fake, files } = proxyDeps({ installed: "old", state: { fileState: "enabled", active: "active" } });
+    const outcome = await hostProxyFix(deps, hostProxyCheck(deps), { force: false });
+    expect(outcome.ok).toBe(true);
+    expect(files.get(PROXY_UNIT_FILE)?.content).toBe(PROXY_UNIT_TEXT);
+    expect(fake.calls.slice(-1)).toEqual(["restart idfx-proxy"]);
+  });
+
+  test("the fix starts an unchanged, inactive unit and writes no file", async () => {
+    const { deps, fake, made } = proxyDeps({ state: { fileState: "disabled", active: "inactive" } });
+    const outcome = await hostProxyFix(deps, hostProxyCheck(deps), { force: false });
+    expect(outcome).toEqual({ ok: true, note: "enabled and started idfx-proxy.service; it answers on 127.0.0.1:4090" });
+    expect(made).toEqual([]);
+    expect(fake.calls).toEqual(["show-state idfx-proxy", "daemon-reload", "enable idfx-proxy", "show-state idfx-proxy", "start idfx-proxy"]);
+  });
+
+  test("the fix restarts an unchanged unit that is active but not enabled", async () => {
+    const { deps, fake } = proxyDeps({ state: { fileState: "disabled", active: "active" } });
+    expect((await hostProxyFix(deps, hostProxyCheck(deps), { force: false })).ok).toBe(true);
+    expect(fake.calls.slice(-1)).toEqual(["restart idfx-proxy"]);
+  });
+
+  test("the fix polls the probe until the proxy answers", async () => {
+    const { deps, waits, probeCount } = proxyDeps({ installed: null, probes: [false, false, true] });
+    expect((await hostProxyFix(deps, hostProxyCheck(deps), { force: false })).ok).toBe(true);
+    expect(probeCount()).toBe(3);
+    expect(waits).toEqual([500, 500]);
+  });
+
+  test("the fix fails with the log path when the proxy never answers", async () => {
+    const { deps, waits, probeCount } = proxyDeps({ installed: null, probes: [false] });
+    const outcome = await hostProxyFix(deps, hostProxyCheck(deps), { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("does not answer on 127.0.0.1:4090");
+    expect(outcome.note).toContain(LOG);
+    expect(probeCount()).toBe(HOST_PROXY_PROBES);
+    // About 5 seconds in all.
+    expect(waits.reduce((a, b) => a + b, 0)).toBe((HOST_PROXY_PROBES - 1) * 500);
+  });
+
+  test("the fix stops at the first failed systemctl call and names it", async () => {
+    for (const fail of ["daemon-reload", "enable idfx-proxy", "restart idfx-proxy"]) {
+      const { deps, fake, probeCount } = proxyDeps({ installed: null, fail });
+      const outcome = await hostProxyFix(deps, hostProxyCheck(deps), { force: false });
+      expect(outcome.ok).toBe(false);
+      expect(outcome.note).toContain("failed: fake failure");
+      expect(fake.calls[fake.calls.length - 1]).toBe(fail);
+      expect(probeCount()).toBe(0);
+    }
+  });
+
+  test("doctor --fix runs the fix and the re-run passes", async () => {
+    const { deps, fake } = proxyDeps({ installed: null, state: null });
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    try {
+      await doctor({ fix: true }, { HOME: "/home/user" } as Record<string, string>, deps);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(lines.some((line) => line.startsWith("fixed host-proxy: installed"))).toBe(true);
+    expect(lines.some((line) => line.startsWith("pass  host-proxy:"))).toBe(true);
+    expect(fake.calls).toContain("restart idfx-proxy");
   });
 });
 

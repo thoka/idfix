@@ -4,7 +4,7 @@
 
 2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5). Step 25g is done and merged into `alpha` (see HISTORY): Claude sessions in `status`, `top`, and the key `o`, and `idfx watch --all` with the wake-up of the supervisor and the protocol form of `status --json` and `doctor --json`. Step 24/4b and the cost-proxy leak fix are done too. The user renamed this session to `idfix`.
 
-State: the suite has 1244 tests. `test/integration.test.ts` fails about one run in three, also alone and at low load: `restart` reports "opencode serve (PID ...) did not stop within 15s". `test/watch-guards.test.ts` times out under load. The watcher does not run yet: arch-helper must install `contrib/systemd/idfx-watch.service` (outbox task, imported by the supervisor or pending). The user has not yet tried the key `o` in real tmux.
+State: the suite has 1244 tests. `test/integration.test.ts` fails about one run in three, also alone and at low load: `restart` reports "opencode serve (PID ...) did not stop within 15s". `test/watch-guards.test.ts` times out under load. The watcher does not run yet: arch-helper must install `contrib/systemd/idfx-watch.service` (outbox task, imported by the supervisor). The user has not yet tried the key `o` in real tmux.
 
 Next step: find the root cause of the flaky `restart` in `test/integration.test.ts` (opencode serve does not stop within 15s), with the skill `diagnosing-bugs`, in a subagent worktree. Then step 35 (pre-push hook), because a flaky suite blocks a pre-push hook. Then step 36 (worker names in the starts of idfix).
 

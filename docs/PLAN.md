@@ -2,15 +2,15 @@
 
 ## Hand-off
 
-Next step: 29d. Find the memory leak of `top --all` with a heap snapshot, fix it, and add a test that memory stays flat.
-Waits for: nothing
-New context: yes. Step 29d has a new topic, and this context holds step 36.
+Next step: 39a. Agree the order of the move of the planning files with the supervisor and meta.
+Waits for: meta builds plan_dir for handover check and the outbox scan
+New context: yes. Step 39 has a new topic, and this context holds the measurements of step 29d.
 
 2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5).
 
-State: step 36 is done and on `alpha` (ed0af5c, 5d20604, see HISTORY). `SessionUnnamed` now also reports a live session whose name is neither its project nor `<project>-<step>` (reason `NameOffRule`). The suite has 1284 tests and passes. The watcher `idfx-watch.service` runs since 2026-10-06 10:38 (installed by arch-helper). The outbox holds a task for meta (the check of meta step 26 is live) and a lesson (an optional parameter breaks `.map(fn)`).
+State: step 29d is done and on `alpha` (48cc99c, see HISTORY). `top` now loads the production build of React, and the leak of about 1.5 MB per minute is gone in a live check. The suite has 1286 tests and passes. A `top` view that started before 48cc99c still runs the old code and still leaks: quit it with `q` and start it again. The outbox holds a lesson (a React or Ink terminal app needs `NODE_ENV=production`).
 
-The next step is 29d in section 14 below. On 2026-10-04, `oc-sub top --all` used 7 GB RSS after 2 days in a tmux pane. `top` changed a lot since then (step 25g added Claude sessions), so first measure whether the leak still exists: run `idfx top --all` in a tmux pane for some minutes and sample its RSS, or take heap snapshots after many refreshes. Then hand the fix to a subagent in `.worktrees/29d-top-leak`. A fresh worktree needs `bun install --frozen-lockfile`.
+The next step is 39 in section 17 below: the planning files move to the private repository `thoka/idfix-plan`, by the new rule `public-repo-no-private-context`. The move waits until meta reads `.plan/` in `handover check` and in `mise run outbox scan`. Ask the supervisor for that state first.
 
 Open tasks of the user: none from idfix. The user has not yet tried the key `o` of `top` in real tmux.
 
@@ -168,14 +168,14 @@ Paused on 2026-10-04: it does not serve the runner goal (see Direction).
 
 Task from the supervisor, 2026-10-03 (meta plan, step 9). A new global rule (meta df5ba4a) says that a research report follows ASD-STE100, with the skill `simple-english` in strict mode. That skill is a Claude Code plugin in `~/.claude/plugins/cache/simple-english/simple-english/<version>/`, and the folder changes with each plugin version (2.1.0 and 2.1.1 exist now). opencode in the sandbox loads skills only from `OC_SUB_SHARED_DIR` (`meta/agents/skills/`). Find a fix that survives plugin updates, for example a copy of the newest version at `oc-sub up` or a stable path. Research first: how others give opencode a skill of a Claude Code plugin.
 
-### 14. Step 29: idle servers stop by themselves, and `top` stops its leak
+### 14. Step 29: idle servers stop by themselves
 
 On 2026-10-04 five sandbox servers ran for up to 1.8 days with no session. `oc-sub top --all` used 7 GB RSS after 2 days in a tmux pane. Root cause of the servers: `up` starts a detached holder that runs until `down`, and `run` never starts a server, so nobody stops one. The user agreed on 2026-10-04 to this fix. It starts after the `down --all` work of the other session is on `alpha`.
 
 1. 29a, research (a Claude research agent, because GLM rests): does `opencode serve` or `sbx` 0.45.1 have an idle timeout that oc-sub can use?
 2. 29b: an idle watchdog. If `GET /session/status` shows no busy session for 30 minutes, the server stops through the `down` path.
 3. 29c: if the sandbox server of the project is down, `run` starts it.
-4. 29d: find the leak of `top --all` with a heap snapshot, fix it, and add a test that memory stays flat over many refreshes.
+29d (the leak of `top`) is done, see HISTORY.
 
 ### 16. Step 31: label long-lived processes with systemd user units
 
@@ -185,6 +185,14 @@ Research: [process-labels.md](research/process-labels.md), with the review of th
 2. 31b: `up` starts the host server, the cost proxy (with `Restart=on-failure` instead of the `sh` loop), and the holder through it. `down` stops the unit, so the whole tree stops.
 3. 31c: the integration tests use the same path with a test owner, and the teardown stops their units (this also closes the follow-up of step 30).
 4. 31d: `doctor` lists the `ocsub-*` units with owner and reason, and warns for a unit whose owner is gone. `--fix --force` stops it.
+
+### 17. Step 39: the planning files move to the private repository idfix-plan
+
+The supervisor sent the rule `public-repo-no-private-context` on 2026-10-06 (user, meta `agents/AGENTS.md`, section Git). A public repository names no local path, no private project, and no private decision of the user. idfix is public. Its planning files live in the private companion repository `thoka/idfix-plan` (exists, empty), cloned into the git-ignored folder `.plan/`.
+
+1. 39a: coordinate the order with meta. Meta builds `plan_dir` for `handover check` and for `mise run outbox scan`. Do not move before both read `.plan/`, or the hand-off check and the outbox scan break.
+2. 39b: a plain move, no history rewrite (the user decides on a rewrite later). Move `docs/PLAN.md`, `docs/HISTORY.md`, `docs/review-queue.md`, `docs/EXPERIENCE.md`, `docs/research/`, `docs/design/`, `docs/reports/`, and `docs/outbox/` into the clone in `.plan/`, add `.plan/` to `.gitignore`, and fix the links in `README.md`, `docs/GUIDE.md`, `AGENTS.md`, and the code comments that name these files.
+3. 39c: search the public files that stay (code, tests, `docs/GUIDE.md`, the skill) for local paths (`/home/toka`, `~/dv/...`), names of private projects, and private decisions, and remove them. Open question for the supervisor: which projects are public.
 
 ### Later
 

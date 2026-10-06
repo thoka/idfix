@@ -5,6 +5,14 @@ This file holds the plan as it stood on 2026-10-01, with every finished step and
 
 ## Steps after 2026-10-01
 
+## Step 29d: `top` loads the production build of React
+
+Done on 2026-10-06 (48cc99c). Root cause: `bin/oc-sub` starts bun without `NODE_ENV`, so `react` 19.3.0 (through Ink 7.1.1) loaded its development build, which keeps data of every render. The live view redraws once per second, so it grew about 1.5 MB per minute (7 GB after 2 days on 2026-10-04).
+
+Measurement. A real `idfx top --all` in tmux, with only Claude rows (no opencode server ran), grew from about 110 to 250 MB RSS in 20 minutes, with a large noise. Its JS heap after a forced GC stayed at about 46 MB, so the leak sat outside the heap of bun. 300 ticks of the Claude loader alone stayed flat. A probe that renders a 200x50 Ink frame every 25 ms grew about 60 MB per minute under bun 1.4.2 and reached 1.9 GB in 12 minutes under Node 24. With `NODE_ENV=production` it stayed at 140 to 190 MB. Plain terminal writes without Ink stayed at 30 MB.
+
+Fix. `loadView` in `src/top/load.ts` calls `preferReactProduction` (`NODE_ENV ??= "production"`, a value of the user stays) and then imports `./app`. `test/top-react-build.test.ts` spawns a child bun without `NODE_ENV` and makes sure that `react.production.js` is in `require.cache`, and that `NODE_ENV=development` of the user stays. The test fails without the fix. Live check: the fixed `top --all` stayed at 105 to 146 MB over 10 minutes, the old one drifted from 110 to 177 MB. The opencode event path was not measured, because no server ran.
+
 ## Step 36: stable names for workers
 
 Done on 2026-10-06 (ed0af5c, 5d20604). `SessionUnnamed` also turns True with reason `NameOffRule` for a live session whose name is neither its project nor `<project>-<step>`. Details: `docs/design/idfx-watch.md` and `docs/review-queue.md`.

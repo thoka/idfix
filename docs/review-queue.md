@@ -2,6 +2,12 @@
 
 Decisions that a session made from the canon of values. Newest entry first.
 
+## 2026-10-06: step 29d, where `top` sets NODE_ENV
+
+- Decision: `top` sets `NODE_ENV=production` in code, in `loadView` directly before the dynamic import of the view, and not in the start scripts in `bin/`. A value that the user set stays. So every way to start `top` (the start script, `bun src/cli.ts`, a test) gets the production build of React, and the `--once` path still loads no React.
+- Values: fix the structure (the root cause is the build choice of React, measured). Deliver first (one function, no new dependency).
+- Conditions: React picks its build from `process.env.NODE_ENV` at its first import, and bun 1.4.2 does not inline the value at run time. If a bundled or compiled `idfx` binary comes, the bundler must set `NODE_ENV` instead.
+
 ## 2026-10-06: step 36, the check of the naming rule
 
 - Decision: idfix starts no Claude worker itself, so step 36 checks the rule instead of a start path. `SessionUnnamed` turns True with reason `NameOffRule` for a live session whose name is neither its project (`projectNameOfRun` of its folder) nor `<project>-<step>`. The name `supervisor` is valid in every folder. The message names the expected form. A True condition that changes its reason from `NoName` to `NameOffRule` gives no new event, the same as every condition that stays True. The event stays in the log and gives no notice. The fixture session `bg-worker` in folder `w2` now shows the condition in `status --json`.

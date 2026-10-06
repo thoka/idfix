@@ -356,6 +356,7 @@ Which checks have a fix action:
 - `plugin-fresh`: runs `claude plugin marketplace update idfix` and, when that exited 0, `claude plugin update idfix@idfix`. A non-zero exit is a failed fix. When only the old key `opencode-subagents@opencode-subagents` is installed, the check warns and names the reinstall commands, and the fix runs nothing, because the reinstall changes the plugin configuration of the user.
 - `state-names`: moves the old state folder `$XDG_STATE_HOME/oc-sub/` into `$XDG_STATE_HOME/idfx/`. It stops when a `serve-<port>.lock` exists in the old folder, because then a run starts or the watchdog stops a server. It moves each entry with a rename, so a running server keeps writing its log. An entry whose name exists in both folders stays, and the fix fails and names it. When the old folder is empty, the fix removes it and links the old path to the new folder.
 - `project-config-name`: renames `.opencode/oc-sub.json` of the project to `.opencode/idfx.json`. It never overwrites a new file. Commit the rename yourself.
+- `host-proxy`: copies `contrib/systemd/idfx-proxy.service` to `~/.config/systemd/user/idfx-proxy.service` (or `$XDG_CONFIG_HOME/systemd/user/`) when the copy is missing or differs, then runs `systemctl --user daemon-reload` and `systemctl --user enable idfx-proxy.service`. Then it runs `restart` when the file changed or the unit is active, else `start`. It probes `HEAD http://127.0.0.1:4090/api/hello` up to 10 times, 500 ms apart. The fix is ok only when the proxy answers; else the note names the log.
 - `global-rules`: for each of the three rule paths, a copy whose content equals the shared `AGENTS.md` exactly becomes a symlink to it; a copy with different content is left alone (the fix fails and names it), so no edit is lost. A broken or wrong symlink is re-pointed. A missing path is not created. Without the shared file, the fix fails and changes nothing.
 
 The checks:
@@ -421,6 +422,10 @@ check: `project-config-name`
 what-it-checks: The project root has no old config file `.opencode/oc-sub.json`.
 fail-means: Warn. `--fix` renames it to `.opencode/idfx.json`. When both files exist, merge them by hand.
 --
+check: `host-proxy`
+what-it-checks: The host cost proxy runs as the systemd user service `idfx-proxy.service`: the installed unit file equals the shipped `contrib/systemd/idfx-proxy.service`, and `systemctl --user show` gives `UnitFileState` `enabled` (or `enabled-runtime`) and `ActiveState` `active`. Without a user manager, it skips.
+fail-means: Warn. The unit is not installed, is outdated, is not enabled, or is not active (the message names the log `proxy-host.log` and `journalctl --user -u idfx-proxy`). `--fix` installs, enables, and starts the unit, and probes it.
+--
 check: `units`
 what-it-checks: Lists each loaded systemd user unit of idfx (`idfx-*`, and `ocsub-*` of older versions) with its owner and its reason (at most 10 entries and the total count). A unit is orphaned when its working folder is gone, or when it is a `proxy` or `idle` unit of a port without a `serve` or `holder` unit. It does not ask whether a named owner session still lives. Without a user manager, it skips.
 fail-means: Warn. An orphaned unit runs for no one. `--fix --force` stops each orphaned unit, never the unit of doctor itself.
@@ -446,6 +451,16 @@ bun run src/cli.ts fetch [--dir ROOT]
 Sandbox clone mode only. Runs `git fetch sandbox-<name>` on the host and prints every fetched `feature/*` branch with its commit count over `alpha`, plus the review and merge commands. Exit 1 without a sandbox state file.
 
 `sbx stop` removes the remote `sandbox-<name>` from the host repository, and the next start of the sandbox adds it again. So `fetch` fails while the sandbox is stopped, for example after an idle stop. Then `fetch` prints the hint `the sandbox <name> is stopped. Start it with idfx up, then fetch again.`
+
+### idfx proxy
+
+```
+bun run src/cli.ts proxy [--port 4090] [--hostname 127.0.0.1] [--log FILE] [--upstream URL] [--deepinfra-upstream URL]
+```
+
+Runs the cost proxy (see "Cost proxy" in `docs/GUIDE.md`) in the foreground until SIGTERM or SIGINT, then exits with code 0. It listens on `127.0.0.1:4090` by default. At the start it appends a start marker line to the log, then one JSON line per request. The default log is `$XDG_STATE_HOME/idfx/proxy-host.log` (default `~/.local/state/idfx/proxy-host.log`). It also prints the `listening` line to stdout, so the journal of the unit shows it. On SIGTERM it stops the server and lets open requests finish, so their `end` lines with the cost reach the log.
+
+This is the host proxy: one proxy per user, as the systemd user service `idfx-proxy.service`. A Claude Code session on the host points `ANTHROPIC_BASE_URL` at `http://127.0.0.1:4090`. idfix ships the unit file `contrib/systemd/idfx-proxy.service`. It runs `%h/.local/bin/idfx proxy --port 4090`, restarts it 5 seconds after a failure, and starts it with the session of the user. It has no `Slice=` line, so it stays out of `idfx.slice`, and the `units` check does not list it. `idfx doctor --fix` installs, enables, and starts it (check `host-proxy`). The fix overwrites a copy that differs from the shipped file, so put local changes into a drop-in, for example `~/.config/systemd/user/idfx-proxy.service.d/local.conf`. The proxy of `idfx up` in host mode (port of the server plus one) is a separate process and stays as it is.
 
 ### Typical flow
 
@@ -480,6 +495,7 @@ A git hook sets repository-local git variables such as `GIT_DIR` and `GIT_INDEX_
 - `src/realcost.ts` — the real-cost output of `watch` and `log`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
 - `src/units.ts`: the start and the stop of the `idfx-*` systemd user units (and of the old `ocsub-*` units), with the fallback to a detached process (`src/spawn.ts`)
+- `src/host-proxy.ts`: the host cost proxy: the `proxy` command, the path of its unit file, and the `/api/hello` probe
 - `src/state.ts`: per-user state files of the server (PID, log, folders with runs, lock), and the move of the old state folder
 - `src/env-names.ts`: the environment variables `IDFX_*` and their old names `OC_SUB_*`
 - `src/lock.ts`: the server lock `serve-<port>.lock` of `run` and the idle watchdog

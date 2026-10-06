@@ -131,6 +131,8 @@ claude plugin install idfix@idfix
 
    Three checks look for the old names of step 24.3. The old names still work, so each of them only warns. `state-names` warns while the old state folder `$XDG_STATE_HOME/oc-sub/` is a real folder, because idfx then keeps its state there. `idfx doctor --fix` moves it: it stops when a `serve-<port>.lock` exists, it moves each entry into `$XDG_STATE_HOME/idfx/` with a rename, it skips and names an entry that exists in both folders, and it links the old path to the new folder when the old folder is empty. A second run finds the link and does nothing. `env-names` warns when only an old variable name is set (`OC_SUB_URL`, `OC_SUB_OWNER`, `OC_SUB_SHARED_DIR`) and names the new one. It has no fix, because the configuration of the machine sets the variables. `project-config-name` warns on `.opencode/oc-sub.json` in the project, and `idfx doctor --fix` renames it to `.opencode/idfx.json`. Commit the rename yourself.
 
+   The check `host-proxy` tells whether the host cost proxy runs as the systemd user service `idfx-proxy.service` (see [The host proxy](#the-host-proxy)). It warns when the unit file is not installed, differs from the shipped file, is not enabled, or is not active. `idfx doctor --fix` installs, enables, and starts it. Without a user manager, it skips.
+
    The check `units` lists the systemd user units that `idfx up` starts: `idfx-*`, and `ocsub-*` of older versions (see `idfx up` in the README). It keeps only the units in the slices `idfx.slice` and `ocsub.slice`, so the watcher `idfx-watch.service` does not count. It asks the user manager once with `systemctl --user show 'idfx-*' 'ocsub-*'`. It names each unit with its owner and its reason, for example `idfx-serve-4096 (owner idfix: opencode server of up on port 4096)`. It lists at most 10 entries and the total count. It warns for an orphaned unit and names the cause. A unit is orphaned in two cases. First, its working folder no longer exists, for example a removed worktree or a renamed project. Second, it is a `proxy` or `idle` unit of a port where no `serve` or `holder` unit is loaded. The fix needs `--force`, because it stops processes: `idfx doctor --fix --force`. It lists the units again and stops each orphaned unit with `systemctl --user stop`. It never stops the unit of doctor itself. Without a user manager, the check skips. Known gap: the check does not ask whether a named owner session still lives, because no list of live sessions exists that an owner name maps to.
 
 ### Recheck heads of research reports
@@ -602,6 +604,14 @@ The log lines carry the tag `"source":"idfx-cost-proxy"`. Older bundles wrote `"
   ```
 
   The flag works in sandbox mode and in host mode, and the server then calls OpenRouter directly.
+
+### The host proxy
+
+A Claude Code session that runs on the host (for example with GLM through OpenRouter) needs a proxy on the host. One proxy per user runs as the systemd user service `idfx-proxy.service` on `127.0.0.1:4090`. The service runs `idfx proxy --port 4090` in the foreground. The proxy appends a start marker and one JSON line per request to `$XDG_STATE_HOME/idfx/proxy-host.log` (default `~/.local/state/idfx/proxy-host.log`). The journal shows its `listening` line and its errors: `journalctl --user -u idfx-proxy`.
+
+Install it with `idfx doctor --fix`. The check `host-proxy` compares the installed file `~/.config/systemd/user/idfx-proxy.service` with the shipped file `contrib/systemd/idfx-proxy.service`, and asks the user manager whether the unit is enabled and active. The fix copies the file when it is missing or differs, runs `systemctl --user daemon-reload`, enables the unit, and starts it (or restarts it when the file changed or it was active). Then it waits up to 5 seconds until the proxy answers `HEAD /api/hello`. The fix overwrites a changed copy, so put local changes into a drop-in such as `~/.config/systemd/user/idfx-proxy.service.d/local.conf`. A user service gets a short PATH. If bun is not in one of its generic folders, set `Environment=PATH=...` in the drop-in.
+
+The service has no `Slice=` line, so it is not in `idfx.slice`, and the `units` check does not count it. The proxy of `idfx up` in host mode (the unit `idfx-proxy-<port>`) is a separate process.
 
 ## DeepInfra as a direct provider
 

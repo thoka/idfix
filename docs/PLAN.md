@@ -181,10 +181,6 @@ On 2026-10-04 five sandbox servers ran for up to 1.8 days with no session. `oc-s
 3. 29c: if the sandbox server of the project is down, `run` starts it.
 4. 29d: find the leak of `top --all` with a heap snapshot, fix it, and add a test that memory stays flat over many refreshes.
 
-### 15. Step 30 follow-up: the integration tests leak cost-proxy loops
-
-Step 30 is done (see HISTORY). Its dry run on 2026-10-04 found 3 `sh -c "while :; do bun .../cost-proxy.js ...; done"` loops in deleted `/tmp/oc-sub-it-*` folders, with their parent `/init`. The teardown of `test/integration.test.ts` stops the server, but not the restart loop of the cost proxy. Find the start of the loop, stop its process group in the teardown, and add a test that no process of the test outlives it.
-
 ### 16. Step 31: label long-lived processes with systemd user units
 
 Research: [process-labels.md](research/process-labels.md), with the review of the main thread. The user asked on 2026-10-04 that each process knows the reason it runs, so that a forgotten process is easy to find.

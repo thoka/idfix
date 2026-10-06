@@ -15,8 +15,10 @@
  * The same folder rule and `--all` apply. They show also when no opencode
  * server answers.
  *
- * `loadView` loads the live view with the production build of React, because
- * the development build keeps data of every render and leaks memory.
+ * The live view needs the production build of React, because the development
+ * build keeps data of every render and leaks memory. The start script
+ * `bin/oc-sub` sets `NODE_ENV=production` when the user did not set it. It
+ * must not change later, because bun picks its JSX transform at the start.
  */
 import path from "node:path";
 import type { Session, SessionStatus } from "@opencode-ai/sdk";
@@ -257,24 +259,11 @@ export type TopUi = {
 };
 
 /**
- * Set `NODE_ENV` to `production` when the user did not set it, so that React
- * loads its production build. The start scripts in `bin/` run bun without
- * `NODE_ENV`, and then `react` loads its development build. That build keeps
- * data of every render, so the live view of `top` grew about 1.5 MB per
- * minute at its redraw of once per second (7 GB after 2 days). A value that
- * the user set stays. Call it before the first import of React or Ink.
- */
-export function preferReactProduction(env: Env = process.env): void {
-  env.NODE_ENV ??= "production";
-}
-
-/**
- * Load the module of the live view. It first calls `preferReactProduction`,
- * then imports `./app` dynamically, so that Ink and React load only after
- * `NODE_ENV` is set. No module on the path of `top` imports them earlier.
+ * Load the module of the live view dynamically, so that `top --once` does not
+ * load Ink and React. React picks its build from `NODE_ENV`, which the start
+ * script `bin/oc-sub` sets.
  */
 export async function loadView(): Promise<typeof import("./app")> {
-  preferReactProduction();
   return import("./app");
 }
 

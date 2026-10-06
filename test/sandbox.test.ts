@@ -516,11 +516,11 @@ describe("mise helpers", () => {
 
   test("sandboxRecreateFix names doctor --fix --force first and sbx rm as the fallback", () => {
     const fix = sandboxRecreateFix("oc-sub-t");
-    expect(fix).toContain("oc-sub doctor --fix --force");
+    expect(fix).toContain("idfx doctor --fix --force");
     expect(fix).toContain("clone mode");
     // The manual commands stay as the fallback in the same text.
     expect(fix).toContain("sbx rm --force oc-sub-t");
-    expect(fix).toContain("oc-sub up");
+    expect(fix).toContain("idfx up");
   });
 });
 
@@ -1110,7 +1110,7 @@ describe("upSandbox", () => {
     expect(result).toBe(1);
     expect(calls).toHaveLength(0);
     expect(errors.join("\n")).toContain("/nowhere/sbx");
-    expect(errors.join("\n")).toContain("oc-sub up --no-sandbox");
+    expect(errors.join("\n")).toContain("idfx up --no-sandbox");
   });
 
   test("a first up creates the sandbox, sets the rules, the secret, the port, and execs", async () => {
@@ -1370,7 +1370,7 @@ describe("upSandbox", () => {
     }
     expect(result).toBe(1);
     expect(errors.join("\n")).toContain(`sbx rm --force oc-sub-test`);
-    expect(errors.join("\n")).toContain("oc-sub up");
+    expect(errors.join("\n")).toContain("idfx up");
     expect(errors.join("\n")).not.toContain("--sandbox");
     // No secret, no exec, no server.
     expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls"]);
@@ -1424,7 +1424,7 @@ describe("upSandbox", () => {
     const text = errors.join("\n");
     expect(text).toContain("not in clone mode");
     expect(text).toContain("sbx rm --force oc-sub-test");
-    expect(text).toContain("oc-sub up");
+    expect(text).toContain("idfx up");
     // No secret, no exec, no server.
     expect(subcommands(calls)).toEqual(["mise", "mise", "mise", "mise", "mise", "ls", "exec", "git"]);
   });
@@ -1642,7 +1642,7 @@ describe("upSandbox", () => {
     expect(result).toBe(1);
     const text = errors.join("\n");
     expect(text).toContain(`lacks the mounts ${pluginMount(env)}`);
-    expect(text).toContain("of newer oc-sub versions");
+    expect(text).toContain("of newer idfx versions");
     expect(text).toContain("sbx rm --force oc-sub-test");
   });
 
@@ -1818,14 +1818,14 @@ describe("the KVM gate and the stderr of sbx in upSandbox", () => {
           name: "kvm-access",
           status: "fail",
           message: "the current user cannot read and write /dev/kvm (mode 0660, owner uid 0, group gid 109)",
-          fix: "run oc-sub doctor --fix-as-root, or: sudo chmod 0666 /dev/kvm",
+          fix: "run idfx doctor --fix-as-root, or: sudo chmod 0666 /dev/kvm",
         }),
       })),
     );
     expect(result).toBe(1);
     expect(calls).toHaveLength(0);
     expect(text).toContain("error: kvm-access: the current user cannot read and write /dev/kvm (mode 0660");
-    expect(text).toContain("fix: run oc-sub doctor --fix-as-root");
+    expect(text).toContain("fix: run idfx doctor --fix-as-root");
   });
 
   test("a skipped or passed kvm-access check lets up continue", async () => {

@@ -355,7 +355,7 @@ describe("worktree", () => {
     }
     expect(code).toBe(1);
     expect(errors[0]).toContain(runWorktreePath(ROOT, "14b"));
-    expect(errors[0]).toContain("oc-sub worktree rm 14b");
+    expect(errors[0]).toContain("idfx worktree rm 14b");
     // Nothing was added and nothing was fetched for a stale folder.
     expect(callsOf(calls, (c) => c.includes("worktree") && c.includes("add")).length).toBe(0);
     expect(callsOf(calls, (c) => c.includes("fetch")).length).toBe(0);
@@ -788,7 +788,7 @@ describe("fetch", () => {
     }
     expect(errors).toEqual([
       `error: git fetch sandbox-${NAME} failed`,
-      `the sandbox ${NAME} is stopped. Start it with oc-sub up, then fetch again.`,
+      `the sandbox ${NAME} is stopped. Start it with idfx up, then fetch again.`,
     ]);
     expect(stoppedSandboxHint(NAME)).toBe(errors[1]!);
   });

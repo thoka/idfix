@@ -1,5 +1,5 @@
 /**
- * The Ink view of `oc-sub top`: a full-screen live table of the
+ * The Ink view of `idfx top`: a full-screen live table of the
  * sessions, a detail pane for the selected session, and a footer. The view
  * is thin: the data comes from `startLive` (`src/top/live.ts`), and the
  * rules (selection, detail lines, footer text) come from the pure functions

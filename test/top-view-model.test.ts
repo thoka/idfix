@@ -1,4 +1,4 @@
-/** Tests for the pure logic of the live view of `oc-sub top`. */
+/** Tests for the pure logic of the live view of `idfx top`. */
 import { describe, expect, test } from "bun:test";
 import type { SessionDetail, SessionRow } from "../src/top/model";
 import type { QuestionRequest } from "../src/requests";
@@ -160,7 +160,7 @@ describe("detailLines", () => {
 
 describe("footer", () => {
   test("the attach command uses the CODE", () => {
-    expect(attachCommand("ses_2a3b4cABCDEF")).toBe("oc-sub attach ABCDEF");
+    expect(attachCommand("ses_2a3b4cABCDEF")).toBe("idfx attach ABCDEF");
   });
 
   test("the key help names o: open", () => {

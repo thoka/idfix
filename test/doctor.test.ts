@@ -469,7 +469,7 @@ describe("sandbox-mounts", () => {
   });
 
   test("names the synced plugin mount that an older sandbox lacks", () => {
-    // An old sandbox mounts the plugin folder of the oc-sub checkout, not the synced folder.
+    // An old sandbox mounts the plugin folder of the idfx checkout, not the synced folder.
     const old = `NAME STATUS WORKSPACE\noc-sub-repo running /repo, /plugin/opencode:ro, /home/user/.local/share/mise/installs:ro, /home/user/src/meta/agents:ro\n`;
     const deps = makeDeps(
       {},
@@ -481,7 +481,7 @@ describe("sandbox-mounts", () => {
     const check = byName(results(deps, SLOW_CHECKS), "sandbox-mounts");
     expect(check?.status).toBe("fail");
     expect(check?.message).toBe(
-      `the sandbox oc-sub-repo lacks the mounts ${PLUGIN_DIR}:ro (the synced plugin folder ${PLUGIN_DIR} is the plugin mount of newer oc-sub versions, so an older sandbox needs a recreate)`,
+      `the sandbox oc-sub-repo lacks the mounts ${PLUGIN_DIR}:ro (the synced plugin folder ${PLUGIN_DIR} is the plugin mount of newer idfx versions, so an older sandbox needs a recreate)`,
     );
     expect(check?.fix).toBe(sandboxRecreateFix("oc-sub-repo"));
   });
@@ -568,7 +568,7 @@ describe("gateFastChecks", () => {
     expect(gateFastChecks([pass, warn], 1, (line) => lines.push(line))).toBe(true);
     expect(gateFastChecks([fail], 1, (line) => lines.push(line))).toBe(false);
     expect(lines).toContain("fix: do this");
-    expect(lines).toContain("run oc-sub doctor for details");
+    expect(lines).toContain("run idfx doctor for details");
     expect(lines).toContain("warning: w: careful");
   });
 
@@ -607,7 +607,7 @@ describe("main stops up and run on a failed fast check", () => {
       try {
         const code = await main(["up", "--dir", dir]);
         expect(code).toBe(1);
-        expect(errorSpy.mock.calls.map(String).join("\n")).toContain("run oc-sub doctor for details");
+        expect(errorSpy.mock.calls.map(String).join("\n")).toContain("run idfx doctor for details");
       } finally {
         errorSpy.mockRestore();
       }
@@ -1186,7 +1186,7 @@ describe("kvm-access", () => {
     expect(check.message).toContain("mode 0660");
     expect(check.message).toContain("owner uid 0");
     expect(check.message).toContain("group gid 109");
-    expect(check.fix).toContain("oc-sub doctor --fix-as-root");
+    expect(check.fix).toContain("idfx doctor --fix-as-root");
     expect(check.fix).toContain("sudo chmod 0666 /dev/kvm");
     expect(paths).toEqual(["/dev/kvm", "/dev/kvm"]);
   });
@@ -1242,7 +1242,7 @@ describe("the kvm-access root fix", () => {
     const { deps, calls } = kvmDeps({ tty: true, exitCode: 0 });
     const { code, lines } = await runDoctor({ fix: true }, deps);
     expect(calls).toEqual([]);
-    expect(lines).toContain("needs --fix-as-root (kvm-access): this fix runs sudo; run oc-sub doctor --fix-as-root");
+    expect(lines).toContain("needs --fix-as-root (kvm-access): this fix runs sudo; run idfx doctor --fix-as-root");
     expect(lines.some((line) => line.startsWith("FAIL  kvm-access"))).toBe(true);
     expect(code).toBe(1);
   });
@@ -1386,7 +1386,7 @@ describe("server-plugin", () => {
   test("passes without a synced folder when no server runs", () => {
     const result = check(makeDeps({}, { pluginDigest: digests("sha256:a", null) }));
     expect(result?.status).toBe("pass");
-    expect(result?.message).toContain("the next oc-sub up syncs");
+    expect(result?.message).toContain("the next idfx up syncs");
   });
 
   test("passes when every running server started with the synced content", () => {
@@ -1395,7 +1395,7 @@ describe("server-plugin", () => {
     expect(result?.message).toContain("2 running server(s)");
   });
 
-  test("skips when the plugin folder of this oc-sub does not exist", () => {
+  test("skips when the plugin folder of this idfx does not exist", () => {
     expect(check(makeDeps({}, { pluginDigest: digests(null, "sha256:a") }))?.status).toBe("skip");
   });
 
@@ -1415,7 +1415,7 @@ describe("server-plugin", () => {
   test("warns for a server without a plugin record and names the older oc-sub", () => {
     const result = check(makeDeps({}, { pluginDigest: digests("sha256:a", "sha256:a"), runningServers: () => [host(null)] }));
     expect(result?.status).toBe("warn");
-    expect(result?.message).toContain("host server :8767 has no plugin record (started by an older oc-sub)");
+    expect(result?.message).toContain("host server :8767 has no plugin record (started by an older idfx)");
   });
 
   test("the fix syncs the folder and restarts only the servers with other content", async () => {
@@ -1442,11 +1442,11 @@ describe("server-plugin", () => {
     const deps = makeDeps({}, {
       syncPlugin: () => "sha256:new",
       runningServers: () => [host("sha256:old")],
-      restartServer: async () => ({ ok: false, note: "host server :8767 is busy, not restarted: busy s1 /repo. Wait for the sessions, or end them with oc-sub abort or oc-sub down" }),
+      restartServer: async () => ({ ok: false, note: "host server :8767 is busy, not restarted: busy s1 /repo. Wait for the sessions, or end them with idfx abort or idfx down" }),
     });
     const outcome = await serverPluginFix(deps, { name: "server-plugin", status: "warn", message: "" }, { force: false });
     expect(outcome.ok).toBe(false);
-    expect(outcome.note).toContain("oc-sub abort or oc-sub down");
+    expect(outcome.note).toContain("idfx abort or idfx down");
   });
 
   test("doctor --fix syncs, restarts the stale server, and the re-run passes", async () => {
@@ -1648,7 +1648,7 @@ describe("the sandbox-mounts fix", () => {
     const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: false });
     expect(outcome.ok).toBe(false);
     expect(outcome.note).toContain("ends all sessions");
-    expect(outcome.note).toContain("oc-sub doctor --fix --force");
+    expect(outcome.note).toContain("idfx doctor --fix --force");
     expect(recreateCalls).toEqual([]);
   });
 
@@ -1671,7 +1671,7 @@ describe("the sandbox-mounts fix", () => {
     const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
     expect(outcome.ok).toBe(false);
     expect(outcome.note).toContain("busy ses_1 /repo");
-    expect(outcome.note).toContain("oc-sub abort or oc-sub down");
+    expect(outcome.note).toContain("idfx abort or idfx down");
     expect(recreateCalls).toEqual([]);
   });
 
@@ -1700,7 +1700,7 @@ describe("the sandbox-mounts fix", () => {
     expect(outcome.note).toContain("the host would lose with sbx rm");
     expect(outcome.note).toContain("Merge the branch");
     expect(outcome.note).toContain("git branch feature/15d sandbox-oc-sub-repo/feature/15d");
-    expect(outcome.note).toContain("oc-sub worktree rm 15d");
+    expect(outcome.note).toContain("idfx worktree rm 15d");
     expect(outcome.note).toContain("A squash merge does not contain the feature commits");
     expect(recreateCalls).toEqual([]);
   });
@@ -1770,7 +1770,7 @@ describe("the sandbox-mounts fix", () => {
     const { deps, recreateCalls } = fixDeps(runner);
     const outcome = await sandboxMountsFix(deps, FAIL_RESULT, { force: true });
     expect(outcome.ok).toBe(false);
-    expect(outcome.note).toContain("oc-sub fetch");
+    expect(outcome.note).toContain("idfx fetch");
     expect(outcome.note).toContain("/repo/.worktrees/15d");
     expect(recreateCalls).toEqual([]);
   });
@@ -1851,7 +1851,7 @@ describe("the sandbox-mounts fix", () => {
     } finally {
       logSpy.mockRestore();
     }
-    expect(lines).toContain("fixing sandbox-mounts: Recreate it with: oc-sub doctor --fix --force. It recreates the sandbox in clone mode with all required mounts. To do it by hand: sbx rm --force oc-sub-repo, then oc-sub up.");
+    expect(lines).toContain("fixing sandbox-mounts: Recreate it with: idfx doctor --fix --force. It recreates the sandbox in clone mode with all required mounts. To do it by hand: sbx rm --force oc-sub-repo, then idfx up.");
     expect(lines).toContain("fixed sandbox-mounts: recreated");
     // The re-run of the checks still fails: the fake runner does not change
     // the sandbox, so the exit code is 1.
@@ -1871,7 +1871,7 @@ describe("the sandbox-mounts fix", () => {
     }
     expect(code).toBe(1);
     const failed = lines.find((line) => line.startsWith("fix failed (sandbox-mounts):"));
-    expect(failed).toContain("oc-sub doctor --fix --force");
+    expect(failed).toContain("idfx doctor --fix --force");
   });
 });
 
@@ -1898,7 +1898,7 @@ describe("recreateSandbox", () => {
         },
         upSandbox: async () => {
           steps.push("up");
-          // The real `oc-sub up` prints to stdout; recreateSandbox must send
+          // The real `idfx up` prints to stdout; recreateSandbox must send
           // it to stderr.
           console.log("up printed a line");
           return opts.upCode ?? 0;
@@ -1910,7 +1910,7 @@ describe("recreateSandbox", () => {
     };
   }
 
-  test("runs down, then sbx rm --force, then oc-sub up", async () => {
+  test("runs down, then sbx rm --force, then idfx up", async () => {
     const { deps, steps } = fakeRecreate();
     const outcome = await recreateSandbox("oc-sub-repo", "/repo", true, process.env, deps);
     expect(outcome.ok).toBe(true);
@@ -1928,11 +1928,11 @@ describe("recreateSandbox", () => {
     const { deps, steps } = fakeRecreate({ downCode: 1 });
     const outcome = await recreateSandbox("oc-sub-repo", "/repo", true, process.env, deps);
     expect(outcome.ok).toBe(false);
-    expect(outcome.note).toContain("oc-sub down failed with code 1");
+    expect(outcome.note).toContain("idfx down failed with code 1");
     expect(steps).toEqual(["down"]);
   });
 
-  test("a failed sbx rm reports its exit code and skips oc-sub up", async () => {
+  test("a failed sbx rm reports its exit code and skips idfx up", async () => {
     const { deps, steps } = fakeRecreate({ rmCode: 5 });
     const outcome = await recreateSandbox("oc-sub-repo", "/repo", false, process.env, deps);
     expect(outcome.ok).toBe(false);
@@ -1940,11 +1940,11 @@ describe("recreateSandbox", () => {
     expect(steps).toEqual(["rm"]);
   });
 
-  test("a failed oc-sub up reports its exit code", async () => {
+  test("a failed idfx up reports its exit code", async () => {
     const { deps, steps } = fakeRecreate({ upCode: 2 });
     const outcome = await recreateSandbox("oc-sub-repo", "/repo", false, process.env, deps);
     expect(outcome.ok).toBe(false);
-    expect(outcome.note).toContain("oc-sub up failed with code 2");
+    expect(outcome.note).toContain("idfx up failed with code 2");
     expect(steps).toEqual(["rm", "up"]);
   });
 
@@ -2107,7 +2107,7 @@ describe("the opencode-version check", () => {
 describe("the opencode-release check", () => {
   const TESTED = '[tools]\nbun = "1.4.2"\nopencode = "1.18.32"\n';
   const REVIEW = JSON.stringify({ reviewed: "1.18.33", date: "2026-09-30", decision: "stay on 1.18.32" });
-  const FIX = "read the release notes of opencode <latest>, then either raise the pin in the mise.toml of oc-sub and run the tests, or record the decision in opencode-review.json";
+  const FIX = "read the release notes of opencode <latest>, then either raise the pin in the mise.toml of idfx and run the tests, or record the decision in opencode-review.json";
   const check = (deps: DoctorDeps) => byName(results(deps, SLOW_CHECKS), "opencode-release");
   /** Fake deps with the given files and a mise runner that prints `stdout` and records its calls. */
   function reviewDeps(files: Record<string, string>, stdout: string, exitCode = 0) {
@@ -2157,9 +2157,9 @@ describe("the opencode-release check", () => {
     const res = check(deps);
     expect(res?.status).toBe("warn");
     expect(res?.message).toContain("opencode 1.19.0 is out");
-    expect(res?.message).toContain("oc-sub is tested with 1.18.32");
+    expect(res?.message).toContain("idfx is tested with 1.18.32");
     expect(res?.message).toContain("last review 1.18.33 on 2026-09-30");
-    expect(res?.fix).toBe(`read the release notes of opencode 1.19.0, then either raise the pin in the mise.toml of oc-sub and run the tests, or record the decision in opencode-review.json`);
+    expect(res?.fix).toBe(`read the release notes of opencode 1.19.0, then either raise the pin in the mise.toml of idfx and run the tests, or record the decision in opencode-review.json`);
   });
 
   test("warns when the review file is missing and the latest is newer than tested", () => {
@@ -2319,7 +2319,7 @@ describe("the agent-copies fix", () => {
     }
     expect(code).toBe(1);
     const failed = lines.find((line) => line.startsWith("fix failed (agent-copies):"));
-    expect(failed).toContain("--force or oc-sub doctor --renovate");
+    expect(failed).toContain("--force or idfx doctor --renovate");
     expect(deps.readText("/repo/.opencode/agents/coder.md")).toBe(FULL_AGENT);
   });
 
@@ -2585,7 +2585,7 @@ describe("doctor --renovate keeps the guards", () => {
     }
     const failed = lines.find((line) => line.startsWith("fix failed (sandbox-mounts):"));
     expect(failed).toContain("busy ses_1 /repo");
-    expect(failed).toContain("oc-sub abort or oc-sub down");
+    expect(failed).toContain("idfx abort or idfx down");
     expect(code).toBe(1);
   });
 });
@@ -2658,7 +2658,7 @@ describe("the process checks", () => {
     const check = byCheck(deps, "top-memory");
     expect(check?.status).toBe("warn");
     expect(check?.message).toContain("42 (1536 MB)");
-    expect(check?.fix).toContain("oc-sub doctor --fix --force");
+    expect(check?.fix).toContain("idfx doctor --fix --force");
   });
 
   test("top-memory ignores RSS at or under 1 GiB", () => {
@@ -2671,7 +2671,7 @@ describe("the process checks", () => {
     expect(byCheck(deps, "top-memory")?.status).toBe("pass");
   });
 
-  test("top-memory ignores another oc-sub command with top in a later argument", () => {
+  test("top-memory ignores another idfx command with top in a later argument", () => {
     const { deps } = procDeps([proc({ args: ["/repo/src/cli.ts", "say", "ses_x", "top"], rssBytes: 2 * TOP_RSS_LIMIT })]);
     expect(byCheck(deps, "top-memory")?.status).toBe("pass");
   });
@@ -2711,7 +2711,7 @@ describe("the process checks", () => {
     const check = byCheck(deps, "orphan-processes");
     expect(check?.status).toBe("warn");
     expect(check?.message).toContain("42 caddy run (/repo/.worktrees/x (deleted))");
-    expect(check?.fix).toContain("oc-sub doctor --fix --force");
+    expect(check?.fix).toContain("idfx doctor --fix --force");
   });
 
   test("orphan-processes lists at most 10 entries and the total count", () => {
@@ -2802,7 +2802,7 @@ describe("the process checks", () => {
     ended = true; // The next scan returns no processes; the fix must still be ok.
     const outcome = topMemoryFix(deps, check!, { force: true });
     expect(outcome.ok).toBe(true);
-    expect(outcome.note).toContain("no oc-sub top process");
+    expect(outcome.note).toContain("no idfx top process");
   });
 
   test("both checks skip on a platform without /proc", () => {

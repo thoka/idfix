@@ -2,7 +2,7 @@
  * CLI entry of the cost proxy:
  * `bun src/proxy/main.ts --port 4097 [--hostname 127.0.0.1] [--upstream URL] [--deepinfra-upstream URL]`
  *
- * `oc-sub up` starts the committed bundle of this entry
+ * `idfx up` starts the committed bundle of this entry
  * (`opencode/cost-proxy/cost-proxy.js`) next to the server.
  */
 import { DEFAULT_DEEPINFRA_UPSTREAM, DEFAULT_UPSTREAM, startProxy } from "./proxy";

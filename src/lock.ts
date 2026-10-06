@@ -1,6 +1,6 @@
 /**
  * The server lock: one lock per server port, `serve-<port>.lock` in the
- * state folder. `oc-sub run` holds it from its health check until the
+ * state folder. `idfx run` holds it from its health check until the
  * prompt of the new session is sent. The idle watchdog holds it from its
  * final check through the stop. So the watchdog never stops a server while
  * a run starts a session on it, and two runs do not start the same sandbox

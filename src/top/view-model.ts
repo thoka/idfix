@@ -1,5 +1,5 @@
 /**
- * The pure logic of the live view of `oc-sub top`: the selected
+ * The pure logic of the live view of `idfx top`: the selected
  * row, the visible part of the table, the lines of the detail pane, and the
  * footer. No Ink and no React here, so every rule has a unit test; the Ink
  * components of `src/top/view.tsx` only lay these lines out.
@@ -187,7 +187,7 @@ export function detailLines(detail: SessionDetail | undefined, maxLines: number)
 
 /** The attach command of a session, as `o` shows it. */
 export function attachCommand(sessionId: string): string {
-  return `oc-sub attach ${sessionCode(sessionId)}`;
+  return `idfx attach ${sessionCode(sessionId)}`;
 }
 
 /**

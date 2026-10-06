@@ -1,6 +1,6 @@
 /**
  * The critical-research footer. The shared skill `critical-research` holds a
- * fixed footer that every research question ends with. `oc-sub run --agent
+ * fixed footer that every research question ends with. `idfx run --agent
  * researcher` appends it to the brief, so that every research report has a
  * section "Critical analysis".
  */

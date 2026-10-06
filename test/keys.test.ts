@@ -34,7 +34,7 @@ describe("sharedKeyRefusal", () => {
     expect(message).toContain(PROJECT_B);
     expect(message).toContain(`sha256 ${run.fingerprint}`);
     expect(message).toContain(`~/.config/${PROJECT_B}/openrouter.key`.replace("~/.config", "/tmp/opencode/keys-test/config"));
-    expect(message).toContain("oc-sub restart");
+    expect(message).toContain("idfx restart");
   });
 
   test("refuses when the run directory uses the global key", () => {
@@ -42,7 +42,7 @@ describe("sharedKeyRefusal", () => {
     expect(message).not.toBeNull();
     expect(message).toContain(PROJECT_A);
     expect(message).toContain("Each project needs its own OpenRouter key");
-    expect(message).toContain("oc-sub restart");
+    expect(message).toContain("idfx restart");
   });
 
   test("names two conflicting projects sorted", () => {

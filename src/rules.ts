@@ -1,4 +1,4 @@
-/** `oc-sub ping --rules`: does the agent on the server see the shared rules? */
+/** `idfx ping --rules`: does the agent on the server see the shared rules? */
 import path from "node:path";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { assertOk, makeClient, requireServer, unwrap } from "./client";
@@ -88,7 +88,7 @@ const defaultDeps: RulesDeps = {
 };
 
 /**
- * `oc-sub ping --rules`: reads the first heading of the shared AGENTS.md on
+ * `idfx ping --rules`: reads the first heading of the shared AGENTS.md on
  * the host, asks the agent on the server for it, and compares. Prints pass or
  * fail with the cost of the session, and deletes the session afterwards when
  * the API allows it. Exit code 0 on pass, 1 on fail.

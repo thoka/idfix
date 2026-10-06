@@ -104,7 +104,7 @@ function reset(): void {
   for (const dir of [CWD, DIR_A, DIR_B]) mkdirSync(dir, { recursive: true });
 }
 
-describe("oc-sub run and the shared OpenRouter key", () => {
+describe("idfx run and the shared OpenRouter key", () => {
   test("refuses when a directory of another project resolves to the same fingerprint", async () => {
     reset();
     projectKey("alpha", KEY_A);
@@ -123,7 +123,7 @@ describe("oc-sub run and the shared OpenRouter key", () => {
       const message = captured.errors.join("\n");
       expect(message).toContain("beta");
       expect(message).toContain(fingerprint(KEY_A));
-      expect(message).toContain("oc-sub restart");
+      expect(message).toContain("idfx restart");
       expect(message).not.toContain(KEY_A);
     } finally {
       captured.restore();
@@ -193,7 +193,7 @@ describe("oc-sub run and the shared OpenRouter key", () => {
       expect(code).toBe(0);
       expect(server.sessionsCreated).toBe(1);
       expect(captured.logs[0]).toBe("ses_new");
-      expect(captured.logs.join("\n")).toContain("watch live: oc-sub attach es_new");
+      expect(captured.logs.join("\n")).toContain("watch live: idfx attach es_new");
       const record = JSON.parse(readFileSync(path.join(CWD, ".opencode", "runs", "ses_new.json"), "utf8"));
       expect(record.keyFingerprint).toBe(fingerprint(KEY_A));
       expect(record.usageAtStart).toBe(1.25);

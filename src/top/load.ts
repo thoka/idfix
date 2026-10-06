@@ -1,5 +1,5 @@
 /**
- * The data fetch of `oc-sub top`: it loads the start data for the model from
+ * The data fetch of `idfx top`: it loads the start data for the model from
  * every known server and turns it into one text snapshot with `--once`. The
  * live event stream and the Ink view come in later steps, so this module has
  * no event stream and no Ink.
@@ -112,7 +112,7 @@ async function listDirectory(
     pending = await listPendingRequests(baseUrl, directory, env);
   } catch {
     // A failed pending list must not break the listing; it only costs the
-    // waiting display, as in `oc-sub status`.
+    // waiting display, as in `idfx status`.
     pending = [];
   }
   for (const session of sessions) result.listed.set(session.id, { session, directory });
@@ -274,10 +274,10 @@ export const defaultUi: TopUi = {
 };
 
 /** The hint that `top` prints to stderr when it has no terminal for the view. */
-export const NO_TERMINAL_HINT = "oc-sub top: no terminal, printed one snapshot instead of the live view (use --once to skip this hint)";
+export const NO_TERMINAL_HINT = "idfx top: no terminal, printed one snapshot instead of the live view (use --once to skip this hint)";
 
 /**
- * `oc-sub top [--once] [--dir DIR | --all] [--json]`. With `--once`, one text
+ * `idfx top [--once] [--dir DIR | --all] [--json]`. With `--once`, one text
  * snapshot. Without it, the full-screen live view of `src/top/view.tsx`. When
  * stdin or stdout is not a terminal, it prints the snapshot and a one-line
  * hint to stderr instead of the view. `claude` loads the Claude rows of the

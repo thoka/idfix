@@ -1,5 +1,5 @@
 /**
- * Tests for the pending request detection of `oc-sub watch`, against a fake
+ * Tests for the pending request detection of `idfx watch`, against a fake
  * opencode server. No real server and no model is needed: the fake serves the
  * routes that watch calls, including a silent event stream.
  */
@@ -152,7 +152,7 @@ describe("watch with a pending request", () => {
       "  1. [File] Which file should I edit?",
       "     - Option A: the first file",
       "     - Option B: the second file",
-      `answer with: oc-sub answer que_1 --dir ${workDir} "<answer>" (or --reject)`,
+      `answer with: idfx answer que_1 --dir ${workDir} "<answer>" (or --reject)`,
       "",
       "The session waits for an answer. After answering, watch again.",
     ]);
@@ -170,7 +170,7 @@ describe("watch with a pending request", () => {
     expect(logged).toEqual([
       "permission per_1 in ses_1",
       "  bash: rm *",
-      `answer with: oc-sub answer per_1 --dir ${workDir} --reply once (or always, or reject)`,
+      `answer with: idfx answer per_1 --dir ${workDir} --reply once (or always, or reject)`,
       "",
       "The session waits for an answer. After answering, watch again.",
     ]);

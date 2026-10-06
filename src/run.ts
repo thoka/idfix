@@ -1,4 +1,4 @@
-/** `oc-sub run`: create a session, send the brief asynchronously, record it. */
+/** `idfx run`: create a session, send the brief asynchronously, record it. */
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { appendCriticalFooter, readCriticalFooter } from "./critical-footer";
@@ -28,7 +28,7 @@ import {
 import { addDir, readDirs, serveDirsPath, serveLockPath } from "./state";
 import { uniqueDirectories, worktreesOf } from "./status";
 
-/** The CODE that identifies a session for `oc-sub attach`: the last 6 characters. Pure. */
+/** The CODE that identifies a session for `idfx attach`: the last 6 characters. Pure. */
 export function attachCode(sessionId: string): string {
   return sessionId.slice(-6);
 }
@@ -109,13 +109,13 @@ export function missingSandboxFolder(
   return [
     `error: ${directory} does not exist in the sandbox ${state.name}.`,
     "The sandbox has its own clone of the repository, so a worktree created on the host is not there.",
-    `Create the worktree inside the sandbox with: oc-sub worktree ${step}`,
-    `Or run it on a host server: oc-sub up --no-sandbox, then oc-sub run --url http://127.0.0.1:<port> ...`,
+    `Create the worktree inside the sandbox with: idfx worktree ${step}`,
+    `Or run it on a host server: idfx up --no-sandbox, then idfx run --url http://127.0.0.1:<port> ...`,
   ].join("\n");
 }
 
 /**
- * The known directories, with the same sources as `oc-sub status --all`:
+ * The known directories, with the same sources as `idfx status --all`:
  * the dirs file of the server, the projects of the server, and their git
  * worktrees.
  */
@@ -147,7 +147,7 @@ export function splitModel(model: string): { providerID: string; modelID: string
   return { providerID: model.slice(0, index), modelID: model.slice(index + 1) };
 }
 
-/** The arguments of `oc-sub run`. */
+/** The arguments of `idfx run`. */
 export type RunArgs = { url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string; model?: string };
 
 export async function run(
@@ -198,7 +198,7 @@ async function takeRunLock(env: Env, port: number, acquire: AcquireLock): Promis
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
       `cannot take the server lock ${serveLockPath(env, port)}: ${reason}. ` +
-        "Another oc-sub run or the idle watchdog holds it. Try again in a minute.",
+        "Another idfx run or the idle watchdog holds it. Try again in a minute.",
     );
   }
   // `run` releases after the prompt and again at its end, so only the first call counts.
@@ -309,11 +309,11 @@ async function runLocked(
   });
   const recordPath = await writeRunRecord(deps.cwd, record);
   const stateRecordPath = await writeStateRunRecord(env, record);
-  // `oc-sub down` checks these directories for busy sessions.
+  // `idfx down` checks these directories for busy sessions.
   await addDir(serveDirsPath(env, resolvePort(undefined, baseUrl)), directory);
 
   console.log(created.id);
-  console.log(`watch live: oc-sub attach ${attachCode(created.id)}`);
+  console.log(`watch live: idfx attach ${attachCode(created.id)}`);
   console.log(`run record: ${recordPath}`);
   console.log(`run record (state): ${stateRecordPath}`);
   return 0;

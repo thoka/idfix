@@ -131,11 +131,11 @@ describe("restartServer", () => {
       },
     });
     const outcome = await restartServer(host, makeEnv(), deps);
-    expect(outcome).toEqual({ ok: false, note: "host server :8767: oc-sub up failed with code 1" });
+    expect(outcome).toEqual({ ok: false, note: "host server :8767: idfx up failed with code 1" });
     expect(calls).toEqual(["down 8767", "up"]);
   });
 
-  test("does not restart a busy server and names oc-sub abort and oc-sub down", async () => {
+  test("does not restart a busy server and names idfx abort and idfx down", async () => {
     const env = makeEnv();
     writeFileSync(serveDirsPath(env, 8767), "/repo\n");
     let dirsSeen: readonly string[] = [];
@@ -148,7 +148,7 @@ describe("restartServer", () => {
     const outcome = await restartServer(host, env, deps);
     expect(outcome.ok).toBe(false);
     expect(outcome.note).toContain("host server :8767 is busy, not restarted: busy ses_1 /repo");
-    expect(outcome.note).toContain("oc-sub abort or oc-sub down");
+    expect(outcome.note).toContain("idfx abort or idfx down");
     expect(dirsSeen).toEqual(["/repo"]);
     expect(calls).toEqual([]);
   });
@@ -169,7 +169,7 @@ describe("restartServer", () => {
       },
     });
     const outcome = await restartServer(host, makeEnv(), deps);
-    expect(outcome).toEqual({ ok: false, note: "host server :8767: oc-sub down failed with code 1" });
+    expect(outcome).toEqual({ ok: false, note: "host server :8767: idfx down failed with code 1" });
     expect(calls).toEqual(["down"]);
   });
 

@@ -1,5 +1,5 @@
 /**
- * Tests for the data fetch of `oc-sub top`: two fake servers (a host server
+ * Tests for the data fetch of `idfx top`: two fake servers (a host server
  * and a sandbox server through a state file), like the two-server test of
  * test/status.test.ts. The message JSON follows the real opencode output of
  * `GET /session/{id}/message`, with the long texts removed.

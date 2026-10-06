@@ -1,4 +1,4 @@
-/** `oc-sub abort`: abort a running session. */
+/** `idfx abort`: abort a running session. */
 import path from "node:path";
 import type { Env } from "./config";
 import { resolveCommandUrl } from "./sandbox";

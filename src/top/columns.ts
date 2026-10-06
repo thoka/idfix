@@ -1,10 +1,10 @@
 /**
- * The columns of `oc-sub top`, shared by the `--once` table and
+ * The columns of `idfx top`, shared by the `--once` table and
  * the live view. All functions here are pure: no file system, no git, no
  * clock.
  *
  * - The session column shows the attach CODE: the last 6 characters of the
- *   session ID, the same CODE that `oc-sub attach CODE` takes.
+ *   session ID, the same CODE that `idfx attach CODE` takes.
  * - The folder of a session splits into project and worktree. A folder
  *   `<root>/.worktrees/<name>/...` belongs to the project `basename(<root>)`
  *   and the worktree `<name>`. Every other folder is the main folder of the

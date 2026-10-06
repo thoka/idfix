@@ -1,5 +1,5 @@
 /**
- * The live event stream of `oc-sub top`: it loads the start data of every
+ * The live event stream of `idfx top`: it loads the start data of every
  * known server (the seed) and then follows one
  * `GET /global/event` subscription per server. No Ink here; the Ink view renders the model
  * that this module keeps up to date.

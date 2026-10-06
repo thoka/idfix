@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-/** oc-sub: drive an opencode server for cheap subagent runs. */
+/** idfx: drive an opencode server for cheap subagent runs. */
 import { UsageError, parseArgs } from "./args";
 import { up } from "./up";
 import { down } from "./down";
@@ -23,10 +23,10 @@ import { fetch, worktree, worktreeRm } from "./clone";
 import { runIdleWatch } from "./idle";
 
 /** The command name when the launcher does not pass one. */
-export const DEFAULT_PROG = "oc-sub";
+export const DEFAULT_PROG = "idfx";
 
 /**
- * The name the user called: oc-sub, idfx, or idfix. The launchers in bin/
+ * The name the user called: idfx, idfix, or the old name oc-sub. The launchers in bin/
  * pass the base name of their $0 in IDFX_PROG, so a symlink name survives.
  * Without it, the name is DEFAULT_PROG.
  */
@@ -38,6 +38,7 @@ export function progName(env: Record<string, string | undefined>): string {
 /** The help text, with the command name `prog` in each usage line. */
 export function helpText(prog: string = DEFAULT_PROG): string {
   return `${prog} - drive an opencode server for subagent runs
+oc-sub is the old name of idfx and still works.
 
 Usage:
   ${prog} up [--dir DIR] [--no-cost-proxy] [--idle-minutes N]

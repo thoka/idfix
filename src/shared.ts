@@ -1,6 +1,6 @@
 /**
  * The shared agent files of the user: one folder with `AGENTS.md` (the global
- * rules) and `skills/<name>/SKILL.md`. It is the only source; oc-sub never
+ * rules) and `skills/<name>/SKILL.md`. It is the only source; idfx never
  * copies it. The folder comes from `OC_SUB_SHARED_DIR`. Without the variable,
  * there is no shared folder: `up` and `ping --rules` stop, and doctor warns.
  */
@@ -10,7 +10,7 @@ import type { Env } from "./config";
 /**
  * The folder with the shared agent files, or undefined when
  * `OC_SUB_SHARED_DIR` is not set. Pure: it only reads the env object. An
- * empty `OC_SUB_SHARED_DIR` counts as unset, like the other oc-sub variables.
+ * empty `OC_SUB_SHARED_DIR` counts as unset, like the other `OC_SUB_*` variables.
  */
 export function sharedAgentsDir(env: Env): string | undefined {
   const fromEnv = env.OC_SUB_SHARED_DIR;

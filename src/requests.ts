@@ -66,9 +66,9 @@ export function answerHint(pending: PendingRequest, directory: string): string {
   if (pending.kind === "question") {
     const placeholders = pending.request.questions.map(() => '"<answer>"').join(" ");
     const answers = placeholders.length > 0 ? ` ${placeholders}` : "";
-    return `answer with: oc-sub answer ${pending.request.id} --dir ${directory}${answers} (or --reject)`;
+    return `answer with: idfx answer ${pending.request.id} --dir ${directory}${answers} (or --reject)`;
   }
-  return `answer with: oc-sub answer ${pending.request.id} --dir ${directory} --reply once (or always, or reject)`;
+  return `answer with: idfx answer ${pending.request.id} --dir ${directory} --reply once (or always, or reject)`;
 }
 
 /**

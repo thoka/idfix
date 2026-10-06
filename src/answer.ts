@@ -1,4 +1,4 @@
-/** `oc-sub answer`: reply to a pending question or permission request. */
+/** `idfx answer`: reply to a pending question or permission request. */
 import path from "node:path";
 import type { Env } from "./config";
 import { resolveCommandUrl } from "./sandbox";
@@ -34,7 +34,7 @@ export async function answer(
       console.log(
         `a rejected permission request ends the turn of the agent. Send a follow-up message to continue:`,
       );
-      console.log(`  oc-sub say ${found.request.sessionID} ${dir} "<what the agent should do instead>"`);
+      console.log(`  idfx say ${found.request.sessionID} ${dir} "<what the agent should do instead>"`);
     }
   } else {
     if (args.reply !== undefined) {

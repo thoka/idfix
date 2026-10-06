@@ -337,7 +337,7 @@ describe("ping", () => {
       `key: sha256 ${fingerprint(ENV_KEY)}`,
       "source: environment OPENROUTER_API_KEY",
       "openrouter: ok, limit none, used $0.25",
-      `warning: not the project key. The cost goes to another key. Create ${PROJECT_KEY} and refer to it in opencode.json. If you changed a configuration file, run oc-sub restart.`,
+      `warning: not the project key. The cost goes to another key. Create ${PROJECT_KEY} and refer to it in opencode.json. If you changed a configuration file, run idfx restart.`,
     ]);
   });
 

@@ -29,8 +29,8 @@ describe("missingSandboxFolder", () => {
     });
     expect(asked).toEqual([`oc-sub-proj-a ${DIR}`]);
     expect(message).toContain(`${DIR} does not exist in the sandbox oc-sub-proj-a`);
-    expect(message).toContain("oc-sub worktree r-claude-glm");
-    expect(message).toContain("oc-sub up --no-sandbox");
+    expect(message).toContain("idfx worktree r-claude-glm");
+    expect(message).toContain("idfx up --no-sandbox");
   });
 
   test("passes a folder that exists in the sandbox", () => {

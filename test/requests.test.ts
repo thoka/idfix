@@ -94,7 +94,7 @@ describe("formatRequest", () => {
 describe("answerHint", () => {
   test("names one answer placeholder per question", () => {
     expect(answerHint(QUESTION, "/w")).toBe(
-      'answer with: oc-sub answer que_1 --dir /w "<answer>" (or --reject)',
+      'answer with: idfx answer que_1 --dir /w "<answer>" (or --reject)',
     );
   });
 
@@ -111,13 +111,13 @@ describe("answerHint", () => {
       },
     };
     expect(answerHint(pending, "/w")).toBe(
-      'answer with: oc-sub answer que_3 --dir /w "<answer>" "<answer>" (or --reject)',
+      'answer with: idfx answer que_3 --dir /w "<answer>" "<answer>" (or --reject)',
     );
   });
 
   test("names the reply flag for a permission", () => {
     expect(answerHint(PERMISSION, "/w")).toBe(
-      "answer with: oc-sub answer per_1 --dir /w --reply once (or always, or reject)",
+      "answer with: idfx answer per_1 --dir /w --reply once (or always, or reject)",
     );
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Tests for the start of a down sandbox server in `oc-sub run` and for the
+ * Tests for the start of a down sandbox server in `idfx run` and for the
  * server lock that `run` holds. No test starts a sandbox or calls `sbx`: the
  * start, the health check, and the lock are fakes.
  */
@@ -154,7 +154,7 @@ describe("startSandboxIfDown", () => {
   });
 });
 
-describe("oc-sub run with a down sandbox server", () => {
+describe("idfx run with a down sandbox server", () => {
   test("takes the lock, starts the server before the folder check, and releases the lock after the prompt", async () => {
     const trace: Trace = [];
     const server = fakeServer(trace);

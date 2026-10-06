@@ -1,5 +1,5 @@
 /**
- * `oc-sub down`: stop the opencode server that `oc-sub up` started, and its
+ * `idfx down`: stop the opencode server that `idfx up` started, and its
  * cost proxy.
  *
  * With a user manager, `up` starts each process as a transient user service
@@ -10,7 +10,7 @@
  * manager restarts the proxy, so the unit is the handle for the stop.
  *
  * After the unit stop, `down` stops the process group of each PID file as
- * before. This covers a server of an older oc-sub and the fallback path
+ * before. This covers a server of an older idfx and the fallback path
  * without a user manager, where `up` starts each process detached
  * (`spawnDetached` in `spawn.ts`): each one leads its own session and
  * process group, and the group ID is the PID in its PID file. On the
@@ -99,7 +99,7 @@ export function commandLineOf(pid: number): string | null {
   return proc.exitCode === 0 && text.length > 0 ? text : null;
 }
 
-/** Sessions that are not idle, in the directories that `oc-sub run` used. */
+/** Sessions that are not idle, in the directories that `idfx run` used. */
 export async function busySessions(serveUrl: string, directories: readonly string[], env: Env): Promise<BusySession[]> {
   const client = makeClient(serveUrl, env);
   const busy: BusySession[] = [];
@@ -196,7 +196,7 @@ export const defaultDownDeps: DownDeps = {
  * Stops the cost proxy of the server on `port` and removes its PID file:
  * first its unit, then the process group of its PID file. Throws when the
  * proxy did not stop in time. A missing unit and a missing or stale PID
- * file are fine: the proxy of an older oc-sub version has none, and a PID
+ * file are fine: the proxy of an older idfx version has none, and a PID
  * that now belongs to another process is not signaled.
  */
 async function stopProxy(env: Env, port: number, deps: DownDeps): Promise<void> {
@@ -242,7 +242,7 @@ export async function down(
       return 1;
     }
     if ((await probeServer(serveUrl, env, 2000)).state !== "down") {
-      console.error(`error: a server answers on ${serveUrl}, but oc-sub up did not start it. Stop it yourself.`);
+      console.error(`error: a server answers on ${serveUrl}, but idfx up did not start it. Stop it yourself.`);
       return 1;
     }
     console.log(`no server on ${serveUrl}`);
@@ -271,7 +271,7 @@ export async function down(
       return 1;
     }
   }
-  // Then the process group of the PID file: the server of an older oc-sub,
+  // Then the process group of the PID file: the server of an older idfx,
   // or of the fallback path. It leads its own process group, so signal the
   // group, so that child processes (for example language servers) stop,
   // too. After a unit stop, the process is gone already.

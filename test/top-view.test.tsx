@@ -1,5 +1,5 @@
 /**
- * Tests for the Ink view of `oc-sub top` with Claude rows (steps 25g.2 and
+ * Tests for the Ink view of `idfx top` with Claude rows (steps 25g.2 and
  * 25g.3), with a fake live source and a fake tmux runner, so no real
  * process starts.
  */

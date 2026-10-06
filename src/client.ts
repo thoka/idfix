@@ -47,7 +47,7 @@ export async function probeServer(baseUrl: string, env: Env, timeoutMs = 5000): 
 /** No opencode server answers on the URL. */
 export class ServerDownError extends Error {
   constructor(readonly url: string) {
-    super(`no server on ${url}. Start it with: oc-sub up`);
+    super(`no server on ${url}. Start it with: idfx up`);
     this.name = "ServerDownError";
   }
 }

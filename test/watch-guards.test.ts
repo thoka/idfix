@@ -1,5 +1,5 @@
 /**
- * Tests for the guards of `oc-sub watch` and for the false idle report,
+ * Tests for the guards of `idfx watch` and for the false idle report,
  * against a fake opencode server whose event stream can deliver invented
  * events. No real server and no model is needed.
  */

@@ -105,7 +105,7 @@ describe("nextWatchState", () => {
   });
 });
 
-describe("oc-sub attach", () => {
+describe("idfx attach", () => {
   test("no match exits 1 with an error", async () => {    const { deps } = makeDeps([record("ses_abc123", "/a")]);
     const captured = capture();
     try {

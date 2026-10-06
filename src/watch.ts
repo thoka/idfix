@@ -1,4 +1,4 @@
-/** `oc-sub watch`: follow a session and its subagent sessions, end with a summary. */
+/** `idfx watch`: follow a session and its subagent sessions, end with a summary. */
 import path from "node:path";
 import type { Env } from "./config";
 import { resolveCommandUrl } from "./sandbox";

@@ -32,7 +32,7 @@ export function spawnDetached(
   // The process keeps running after this one exits, so its output goes to
   // a file: fd numbers are inherited by the child and closed here again.
   // The file opens in append mode, so the proxy `end` lines of older runs
-  // stay in the log and `oc-sub log` of an older run keeps the real cost.
+  // stay in the log and `idfx log` of an older run keeps the real cost.
   const logFd = openSync(logPath, "a");
   let proc: Bun.Subprocess;
   try {

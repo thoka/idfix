@@ -1,5 +1,5 @@
 /**
- * `oc-sub worktree` and `oc-sub fetch`: the run worktrees of sandbox clone
+ * `idfx worktree` and `idfx fetch`: the run worktrees of sandbox clone
  * mode. The worktree of a run lives only inside the in-container clone of
  * the sandbox, not on the host, so every git step goes through
  * `sbx exec NAME ...` with the runner (like `upSandbox`). The host only
@@ -80,7 +80,7 @@ function stateFor(
 }
 
 const HOST_MODE_ERROR =
-  "oc-sub worktree and oc-sub fetch work only in sandbox mode. Run oc-sub up for the project first.";
+  "idfx worktree and idfx fetch work only in sandbox mode. Run idfx up for the project first.";
 
 function fail(message: string): number {
   console.error(`error: ${message}`);
@@ -102,14 +102,14 @@ export const HOST_SOURCE = "/run/sandbox/source";
 export const HOST_REMOTE = "host";
 
 /**
- * The base branches that `oc-sub worktree` tries without `--base`, in this
+ * The base branches that `idfx worktree` tries without `--base`, in this
  * order. `alpha` holds the finished features; a repository without it
  * works on `main`.
  */
 export const DEFAULT_BASES = ["alpha", "main", "master"] as const;
 
 /**
- * `oc-sub worktree STEP [--dir ROOT] [--base BRANCH] [--no-setup]`: create
+ * `idfx worktree STEP [--dir ROOT] [--base BRANCH] [--no-setup]`: create
  * the worktree of a run inside the sandbox clone. It makes sure that the
  * remote `host` of the clone points to the read-only host repository at
  * `/run/sandbox/source`, fetches new host commits from it, sets the git
@@ -121,7 +121,7 @@ export const DEFAULT_BASES = ["alpha", "main", "master"] as const;
  * that the sandbox cannot reach (run-isolation.md section 9). When the
  * worktree already exists and git knows it, it says so and exits 0. A
  * folder that exists but is not a registered worktree is stale: it stops
- * with an error that names the folder and `oc-sub worktree rm`.
+ * with an error that names the folder and `idfx worktree rm`.
  *
  * When the project sets a `setup` command in `.opencode/oc-sub.json`, it
  * runs that command inside the new worktree after a successful `git
@@ -159,7 +159,7 @@ export async function worktree(
       return 0;
     }
     return fail(
-      `${worktreePath} exists but is not a registered worktree (stale leftover of an earlier run). Remove it with: oc-sub worktree rm ${args.step}`,
+      `${worktreePath} exists but is not a registered worktree (stale leftover of an earlier run). Remove it with: idfx worktree rm ${args.step}`,
     );
   }
 
@@ -256,7 +256,7 @@ export async function worktree(
   }
 
   console.log(`worktree: ${worktreePath}`);
-  console.log(`start the run with: oc-sub run --dir ${worktreePath} ...`);
+  console.log(`start the run with: idfx run --dir ${worktreePath} ...`);
   return 0;
 }
 
@@ -276,7 +276,7 @@ async function disposeFresh(deps: CloneDeps, port: number, worktreePath: string)
 }
 
 /**
- * `oc-sub worktree rm STEP [--dir ROOT]`: remove the worktree of the step
+ * `idfx worktree rm STEP [--dir ROOT]`: remove the worktree of the step
  * inside the clone and delete its branch there. The branch only exists in
  * the clone; the host reviews it through the `sandbox-<name>` remote.
  *
@@ -356,11 +356,11 @@ export async function worktreeRm(
 
 /** The hint of a failed fetch when the remote of the sandbox is missing. Pure. */
 export function stoppedSandboxHint(name: string): string {
-  return `the sandbox ${name} is stopped. Start it with oc-sub up, then fetch again.`;
+  return `the sandbox ${name} is stopped. Start it with idfx up, then fetch again.`;
 }
 
 /**
- * `oc-sub fetch [--dir ROOT]`: fetch the branches of the sandbox clone on
+ * `idfx fetch [--dir ROOT]`: fetch the branches of the sandbox clone on
  * the host (`git fetch sandbox-NAME`), then list every fetched
  * `feature/*` branch with its commit count over `alpha` and the review
  * commands. Pure host git, no `sbx exec`.

@@ -1,5 +1,5 @@
 /**
- * The synced plugin folder. Every server that `oc-sub up` starts
+ * The synced plugin folder. Every server that `idfx up` starts
  * loads the plugin config (agents, `opencode.json`, the cost proxy bundle)
  * from one fixed real folder: `$XDG_DATA_HOME/oc-sub/opencode/`, default
  * `~/.local/share/oc-sub/opencode/`. `up` copies the `opencode/` folder of

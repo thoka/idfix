@@ -5,7 +5,7 @@
  *
  * One run:
  *  1. create the run worktree `probe-<provider>-<n>-<HHMMSS>` inside the
- *     sandbox clone (the same `oc-sub worktree` code); the `HHMMSS` stamp
+ *     sandbox clone (the same `idfx worktree` code); the `HHMMSS` stamp
  *     comes from the start time of the batch, so a step name is unique per
  *     batch and a leftover of an older batch is never reused,
  *  2. write `.opencode/opencode.json` with the model alias
@@ -14,7 +14,7 @@
  *     config on first use, see .plan/research/probe-routing.md section 4),
  *  3. note the key usage of the project key, start the run with the agent
  *     `coder`, the probe task text, and the model alias, and wait until the
- *     session tree is settled (the logic of `oc-sub watch`, with its
+ *     session tree is settled (the logic of `idfx watch`, with its
  *     guards). After the time limit the run is aborted and counts as
  *     failed with rule `timeout`,
  *  4. read the messages, `answer.md`, and the commit state, and evaluate,
@@ -288,7 +288,7 @@ async function runOne(input: ProbeInput, provider: string, run: number, stamp: s
   // nothing about the provider, so they fail with rule `setup`.
   let phase: "setup" | "run" = "setup";
   try {
-    if (state === null) throw new Error(`no sandbox state for project ${project}. Run oc-sub up first.`);
+    if (state === null) throw new Error(`no sandbox state for project ${project}. Run idfx up first.`);
     const worktreePath = await createWorktree(step, root, input.env, deps);
     worktreeCreated = true;
 
@@ -414,14 +414,14 @@ function cloneDeps(deps: ProbeDeps): CloneDeps {
   };
 }
 
-/** Creates the run worktree with the same code as `oc-sub worktree`. */
+/** Creates the run worktree with the same code as `idfx worktree`. */
 async function createWorktree(step: string, root: string, env: Env, deps: ProbeDeps): Promise<string> {
   const code = await worktree({ step, dir: root, noSetup: true }, env, cloneDeps(deps));
   if (code !== 0) throw new Error(`creating the run worktree ${step} failed`);
   return path.join(root, ".worktrees", step);
 }
 
-/** Removes the run worktree with the same code as `oc-sub worktree rm`. */
+/** Removes the run worktree with the same code as `idfx worktree rm`. */
 async function removeWorktree(step: string, root: string, env: Env, deps: ProbeDeps): Promise<boolean> {
   const code = await worktreeRm({ step, dir: root }, env, cloneDeps(deps));
   if (code !== 0) console.error(`warning: removing the run worktree ${step} failed`);
@@ -476,7 +476,7 @@ async function abortRun(client: OpencodeClient, sessionId: string, directory: st
 }
 
 /**
- * The settled wait of `oc-sub watch`, as a poll loop: the session tree is
+ * The settled wait of `idfx watch`, as a poll loop: the session tree is
  * the session and all descendant sessions, a pending request keeps it
  * waiting, the guards check for stalls, and a missing session is settled
  * per `missingSessionIsSettled`. Returns whether the time limit hit first.

@@ -95,7 +95,7 @@ describe("requireServer", () => {
       (caught: unknown) => caught,
     );
     expect(error).toBeInstanceOf(ServerDownError);
-    expect((error as ServerDownError).message).toBe("no server on http://127.0.0.1:1. Start it with: oc-sub up");
+    expect((error as ServerDownError).message).toBe("no server on http://127.0.0.1:1. Start it with: idfx up");
     expect(fake.calls()).toBe(3);
   });
 

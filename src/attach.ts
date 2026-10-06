@@ -1,4 +1,4 @@
-/** `oc-sub attach CODE`: attach the opencode TUI to a known run. */
+/** `idfx attach CODE`: attach the opencode TUI to a known run. */
 import type { Env } from "./config";
 import { makeClient, probeServer } from "./client";
 import { loadAllRunRecords, type RunRecord } from "./runs";
@@ -74,7 +74,7 @@ export function nextWatchState(
 
 /**
  * Keep only the characters [A-Za-z0-9_] of CODE. The user may paste the CODE
- * from `oc-sub top` with its agent icon, for example "🔧3NcXxn". Pure.
+ * from `idfx top` with its agent icon, for example "🔧3NcXxn". Pure.
  */
 export function normalizeCode(code: string): string {
   return (code.match(/[A-Za-z0-9_]/g) ?? []).join("");

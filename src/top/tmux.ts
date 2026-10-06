@@ -1,5 +1,5 @@
 /**
- * The tmux pane opener of `oc-sub top`: the key `o` opens the attach of the
+ * The tmux pane opener of `idfx top`: the key `o` opens the attach of the
  * selected session in a new tmux pane when the view runs inside tmux. For
  * an interactive Claude Code session in tmux, it switches to its pane. The
  * argv builders and the split flag are pure, so they have unit tests; the

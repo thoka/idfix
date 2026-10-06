@@ -1,4 +1,4 @@
-/** `oc-sub say`: send a follow-up message into a session without waiting. */
+/** `idfx say`: send a follow-up message into a session without waiting. */
 import path from "node:path";
 import type { Env } from "./config";
 import type { OpencodeClient } from "@opencode-ai/sdk";
@@ -86,7 +86,7 @@ export async function say(
   );
   const modelText = model === undefined ? "" : `, model ${model.providerID}/${model.modelID}`;
   console.log(
-    `sent to ${args.session} (agent ${agent}${modelText}). Watch it with: oc-sub watch ${args.session} --dir ${directory}`,
+    `sent to ${args.session} (agent ${agent}${modelText}). Watch it with: idfx watch ${args.session} --dir ${directory}`,
   );
   return 0;
 }

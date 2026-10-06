@@ -1,4 +1,4 @@
-/** Tests for the project config of `oc-sub top`. */
+/** Tests for the project config of `idfx top`. */
 import { describe, expect, test } from "bun:test";
 import {
   makeProjectNameResolver,

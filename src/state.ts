@@ -1,5 +1,5 @@
 /**
- * Per-user state of the servers that `oc-sub up` starts. One server serves
+ * Per-user state of the servers that `idfx up` starts. One server serves
  * many project directories, so its PID file, its log, and the list of
  * directories with runs live in one place per user, not in the current
  * directory: `$XDG_STATE_HOME/oc-sub/`, default `~/.local/state/oc-sub/`.
@@ -25,13 +25,13 @@ export function serveLogPath(env: Env, port: number): string {
   return path.join(stateDir(env), `serve-${port}.log`);
 }
 
-/** The directories that `oc-sub run` sent sessions to, one per line. */
+/** The directories that `idfx run` sent sessions to, one per line. */
 export function serveDirsPath(env: Env, port: number): string {
   return path.join(stateDir(env), `serve-${port}.dirs`);
 }
 
 /**
- * The lock of the server on `port` (`lock.ts`). `oc-sub run` holds it while
+ * The lock of the server on `port` (`lock.ts`). `idfx run` holds it while
  * it starts a session, and the idle watchdog holds it while it stops the
  * server. It is a folder, because `proper-lockfile` locks with `mkdir`.
  */
@@ -61,7 +61,7 @@ export function readServePlugin(file: string): string | null {
 }
 
 /**
- * The PID file of the cost proxy that `oc-sub up` starts next to the server
+ * The PID file of the cost proxy that `idfx up` starts next to the server
  * on the port of the server plus one (host mode only; in sandbox mode the
  * proxy lives in the holder process).
  */

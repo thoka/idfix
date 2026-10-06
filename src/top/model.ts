@@ -1,5 +1,5 @@
 /**
- * The model of `oc-sub top`: a pure reducer that turns server events into
+ * The model of `idfx top`: a pure reducer that turns server events into
  * one row per session. No UI, no network, no clock: the caller passes
  * `nowMs` with every call, and the events come in as plain SDK objects.
  *

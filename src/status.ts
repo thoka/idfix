@@ -1,4 +1,4 @@
-/** `oc-sub status`: sessions of a directory and its worktrees, or of all projects with --all. */
+/** `idfx status`: sessions of a directory and its worktrees, or of all projects with --all. */
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { OpencodeClient } from "@opencode-ai/sdk";
@@ -66,7 +66,7 @@ export function cloneDirectories(project: string, env: Env, runner: Runner): str
  * the project root plus the worktrees of the clone, which exist only inside
  * the sandbox. The directory is mapped with `projectRootOfRun` first, so a
  * clone-mode run folder `<root>/.worktrees/<name>` that is missing on the
- * host maps to its project root. `oc-sub status` without `--all` and
+ * host maps to its project root. `idfx status` without `--all` and
  * `scopeDirectories` of `top` share this helper, so they never differ.
  */
 export function projectDirectories(directory: string, env: Env, deps: StatusDeps): string[] {
@@ -195,7 +195,7 @@ async function listSessionsSafe(
  * host `exists` filter and no host git apply there. For the host server: the
  * folders of past runs on its port, the projects of the server, and the git
  * worktrees of both, without a directory that does not exist on this
- * machine. `oc-sub status --all` and `oc-sub top --all` share this listing.
+ * machine. `idfx status --all` and `idfx top --all` share this listing.
  */
 export async function serverDirectories(baseUrl: string, env: Env, deps: StatusDeps): Promise<string[]> {
   const client = makeClient(baseUrl, env);
@@ -421,7 +421,7 @@ async function allServerRows(
 }
 
 /**
- * `oc-sub status [--dir DIR | --all] [--json]`: one line per session
+ * `idfx status [--dir DIR | --all] [--json]`: one line per session
  * (`ID state title`), or with `--json` one JSON object as the whole stdout:
  * the snapshot of the tool protocol (`statusSnapshot`) with `tool`,
  * `version`, `time`, `source`, `sequence`, `conditions`, and `items`. Each

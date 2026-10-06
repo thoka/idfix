@@ -1,6 +1,6 @@
 /**
- * `oc-sub trace`: stage one of the trace analysis. It loads a session and
- * all of its subagent sessions (as `oc-sub log` does), cuts each session
+ * `idfx trace`: stage one of the trace analysis. It loads a session and
+ * all of its subagent sessions (as `idfx log` does), cuts each session
  * into steps, computes cheap signals without a model, and writes one JSON
  * line per step. The cutting and the signals are pure functions over the
  * message list, so the tests need no server.
@@ -287,7 +287,7 @@ export type TraceTagDeps = {
   sleep?: (ms: number) => Promise<void>;
 };
 
-/** Run `oc-sub trace`: print one JSON line per step to stdout or --out. */
+/** Run `idfx trace`: print one JSON line per step to stdout or --out. */
 export async function trace(
   args: { url?: string; session: string; dir?: string; out?: string; tag?: boolean; maxSteps?: number },
   env: Env = process.env,

@@ -1,8 +1,8 @@
 /**
- * The per-project configuration of oc-sub: the file `.opencode/oc-sub.json`
+ * The per-project configuration of idfx: the file `.opencode/oc-sub.json`
  * in the project root. It holds two settings: the `shortName`
- * that the project column of `oc-sub top` shows, and the `setup` shell
- * command that `oc-sub worktree` runs inside a new run worktree. Without
+ * that the project column of `idfx top` shows, and the `setup` shell
+ * command that `idfx worktree` runs inside a new run worktree. Without
  * the file, or with an invalid one, there is no setting; nothing fails.
  *
  * The reader is sync and injectable, and reads each project root at most
@@ -96,7 +96,7 @@ export function projectShortName(
 
 /**
  * The configured `setup` command of a project root, or undefined. It reads
- * the file of the root each time; no cache is needed, because `oc-sub
+ * the file of the root each time; no cache is needed, because `idfx
  * worktree` calls it at most once per process.
  */
 export function projectSetupCommand(

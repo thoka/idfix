@@ -1,4 +1,4 @@
-/** Tests for `oc-sub answer`, against a fake opencode server. */
+/** Tests for `idfx answer`, against a fake opencode server. */
 import { describe, expect, spyOn, test } from "bun:test";
 import { parseArgs } from "../src/args";
 import { answer } from "../src/answer";
@@ -149,7 +149,7 @@ describe("answer", () => {
       expect(logged).toEqual([
         "permission per_1 in ses_1: reject",
         "a rejected permission request ends the turn of the agent. Send a follow-up message to continue:",
-        `  oc-sub say ses_1 --dir /w "<what the agent should do instead>"`,
+        `  idfx say ses_1 --dir /w "<what the agent should do instead>"`,
         "watch the session again to follow the rest of the run",
       ]);
     } finally {

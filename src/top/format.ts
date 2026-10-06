@@ -1,4 +1,4 @@
-/** The text snapshot of `oc-sub top --once`: one padded table line per session. */
+/** The text snapshot of `idfx top --once`: one padded table line per session. */
 import type { PendingRequest } from "../requests";
 import { formatRequest } from "../requests";
 import { Chalk, type ForegroundColorName } from "chalk";

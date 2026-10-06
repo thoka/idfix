@@ -1,8 +1,8 @@
 /**
  * Detectors for a run that goes wrong: a tool loop, a stalled session, and
  * runaway reasoning. The functions are pure: no I/O, no clock, no server.
- * `oc-sub watch` feeds the events and the status map of the watched session
- * and its descendant sessions. A later live view (`oc-sub top`) and a
+ * `idfx watch` feeds the events and the status map of the watched session
+ * and its descendant sessions. A later live view (`idfx top`) and a
  * provider penalty can reuse the same detectors.
  */
 import type { Event, SessionStatus } from "@opencode-ai/sdk";

@@ -217,7 +217,7 @@ async function probeStream(
   const iterator = subscription.stream[Symbol.asyncIterator]() as AsyncGenerator<Event>;
   try {
     if (!(await primeStream(iterator, timeoutMs))) return false;
-    const probeId = await makeSession(client, directory ?? "", `oc-sub ${label} probe`);
+    const probeId = await makeSession(client, directory ?? "", `idfx ${label} probe`);
     return await deliversSessionCreated(iterator, probeId, timeoutMs);
   } finally {
     await iterator.return(undefined);
@@ -234,7 +234,7 @@ test.skipIf(!hasOpencode)(
     // and the test asserts that stderr stays empty.
     writeFileSync(path.join(workDir, "AGENTS.md"), "# rules\n");
     const dataDir = path.join(workDir, "data"); // isolate opencode storage
-    const stateHome = path.join(workDir, "state"); // isolate the oc-sub state
+    const stateHome = path.join(workDir, "state"); // isolate the idfx state
     // The outer shell may set OPENCODE_CONFIG_DIR (for example to another
     // checkout of this plugin). Drop it, so that `up` serves the agents of
     // this checkout and prints no warning.
@@ -262,13 +262,13 @@ test.skipIf(!hasOpencode)(
       // Create a session directly over the SDK. No prompt is sent, so no
       // model is called and the run costs nothing.
       const client = createOpencodeClient({ baseUrl: url });
-      const sessionId = await makeSession(client, workDir, "oc-sub integration test");
+      const sessionId = await makeSession(client, workDir, "idfx integration test");
 
       // status lists the session as idle with its title.
       const listed = runCli(workDir, ["status", "--url", url, "--dir", workDir], env);
       expect(listed.code).toBe(0);
       const lines = listed.stdout.trim().split("\n").filter((line) => line.length > 0);
-      expect(lines.some((line) => line === `${sessionId} idle oc-sub integration test`)).toBe(true);
+      expect(lines.some((line) => line === `${sessionId} idle idfx integration test`)).toBe(true);
 
       // abort the (idle) session.
       const aborted = runCli(workDir, ["abort", sessionId, "--url", url, "--dir", workDir], env);
@@ -281,7 +281,7 @@ test.skipIf(!hasOpencode)(
       // after the quiet grace time (see src/settled.ts).
       const otherDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-other-"));
       try {
-        const watchSessionId = await makeSession(client, otherDir, "oc-sub watch test");
+        const watchSessionId = await makeSession(client, otherDir, "idfx watch test");
 
         // Does the event stream need the directory query to carry events of a
         // session in another directory? The scoped stream is what watch uses,
@@ -339,7 +339,7 @@ test.skipIf(!hasOpencode)(
       // log without a server: an error with a clear message.
       const logDown = runCli(workDir, ["log", "ses_missing", "--url", url], env);
       expect(logDown.code).toBe(1);
-      expect(logDown.stderr).toContain(`no server on ${url}. Start it with: oc-sub up`);
+      expect(logDown.stderr).toContain(`no server on ${url}. Start it with: idfx up`);
     } finally {
       // Make sure no unit and no process of the test survives it.
       try {

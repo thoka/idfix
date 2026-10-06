@@ -1,4 +1,4 @@
-/** Tests for the pure column functions of `oc-sub top`. */
+/** Tests for the pure column functions of `idfx top`. */
 import { describe, expect, test } from "bun:test";
 import stringWidth from "string-width";
 import {

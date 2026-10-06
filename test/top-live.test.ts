@@ -1,5 +1,5 @@
 /**
- * Tests for the live event stream of `oc-sub top`. The fake server serves
+ * Tests for the live event stream of `idfx top`. The fake server serves
  * `/global/event` as Server-Sent Events in the real wire format, captured
  * on 2026-09-30 from opencode 1.18.32 (`GET /global/event`):
  *

@@ -1,4 +1,4 @@
-/** Command line parsing for oc-sub. Pure: throws UsageError on bad input. */
+/** Command line parsing for idfx. Pure: throws UsageError on bad input. */
 
 /** The default idle limit of the server watchdog, in minutes (`up --idle-minutes`). */
 export const DEFAULT_IDLE_MINUTES = 30;
@@ -17,7 +17,7 @@ export type ParsedArgs =
       url?: string;
       port?: number;
       force: boolean;
-      /** Only `down`: stop every server that oc-sub started. */
+      /** Only `down`: stop every server that idfx started. */
       all: boolean;
       sandbox: boolean;
       dir?: string;

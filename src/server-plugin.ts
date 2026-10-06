@@ -1,5 +1,5 @@
 /**
- * The running servers of `oc-sub` and their plugin digests, for the
+ * The running servers of `idfx` and their plugin digests, for the
  * `server-plugin` check of `doctor`, and the restart of an idle
  * server as its fix. The check itself lives in `doctor.ts`; this module holds
  * the parts that reach processes and servers, so the tests replace them.
@@ -24,7 +24,7 @@ import { sharedAgentsDir } from "./shared";
 import { readDirs, readServePlugin, serveDirsPath, servePidPath, servePluginPath } from "./state";
 import { up } from "./up";
 
-/** A server that `oc-sub up` started and that still runs. */
+/** A server that `idfx up` started and that still runs. */
 export type RunningServer = {
   mode: "host" | "sandbox";
   port: number;
@@ -33,7 +33,7 @@ export type RunningServer = {
   root?: string;
   /** The sandbox name of a sandbox server, such as `oc-sub-<project>`. */
   name?: string;
-  /** The recorded plugin digest, or null when the server has no record (started by an older oc-sub). */
+  /** The recorded plugin digest, or null when the server has no record (started by an older idfx). */
   digest: string | null;
 };
 
@@ -182,7 +182,7 @@ export function busyCheckNote(check: BusyCheck, server: RunningServer): string {
  * Restarts one server when every session on it is idle. It uses the busy
  * check of `down`: the sessions of the folders in `serve-<port>.dirs` that
  * are not idle. A busy server is not restarted, and the outcome names
- * `oc-sub abort` and `oc-sub down`. Then it runs `down` and `up` (or their
+ * `idfx abort` and `idfx down`. Then it runs `down` and `up` (or their
  * sandbox forms) without `--force`, so `down` checks the sessions once more.
  * `up` syncs the plugin folder again and records the new digest.
  *
@@ -219,7 +219,7 @@ export async function restartServer(
   if (busy.kind === "busy") {
     return {
       ok: false,
-      note: `${label} is busy, not restarted: ${busy.sessions}. Wait for the sessions, or end them with oc-sub abort or oc-sub down, then run oc-sub doctor --fix again`,
+      note: `${label} is busy, not restarted: ${busy.sessions}. Wait for the sessions, or end them with idfx abort or idfx down, then run idfx doctor --fix again`,
     };
   }
   const log = console.log;
@@ -227,15 +227,15 @@ export async function restartServer(
   try {
     if (server.mode === "host") {
       const stopped = await deps.down(server.port);
-      if (stopped !== 0) return { ok: false, note: `${label}: oc-sub down failed with code ${stopped}` };
+      if (stopped !== 0) return { ok: false, note: `${label}: idfx down failed with code ${stopped}` };
       const started = await deps.up(server.port);
-      if (started !== 0) return { ok: false, note: `${label}: oc-sub up failed with code ${started}` };
+      if (started !== 0) return { ok: false, note: `${label}: idfx up failed with code ${started}` };
     } else {
       const root = server.root as string;
       const stopped = await deps.downSandbox(root);
-      if (stopped !== 0) return { ok: false, note: `${label}: oc-sub down failed with code ${stopped}` };
+      if (stopped !== 0) return { ok: false, note: `${label}: idfx down failed with code ${stopped}` };
       const started = await deps.upSandbox(root);
-      if (started !== 0) return { ok: false, note: `${label}: oc-sub up failed with code ${started}` };
+      if (started !== 0) return { ok: false, note: `${label}: idfx up failed with code ${started}` };
     }
   } finally {
     console.log = log;

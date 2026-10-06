@@ -300,7 +300,7 @@ export type ResolvedKey = {
   fingerprint: string;
   /** True when the key equals the project key file of the project. */
   isProjectKey: boolean;
-  /** The source label, as `oc-sub ping` prints it. */
+  /** The source label, as `idfx ping` prints it. */
   source: string;
 };
 
@@ -402,7 +402,7 @@ export function sharedKeyRefusal(
     return (
       `error: the run directory of project ${run.project} does not use its project key. ` +
       `Each project needs its own OpenRouter key. ` +
-      `Create ${projectKeyPath(run.project, env)} and refer to it in opencode.json, then run oc-sub restart.`
+      `Create ${projectKeyPath(run.project, env)} and refer to it in opencode.json, then run idfx restart.`
     );
   }
   const shared = [...new Set(
@@ -415,6 +415,6 @@ export function sharedKeyRefusal(
   return (
     `error: the OpenRouter key sha256 ${run.fingerprint} is shared by the projects ${run.project} and ${names}. ` +
     `Each project needs its own key. ` +
-    `Create ${projectKeyPath(run.project, env)} or ${projectKeyPath(shared[0] as string, env)} for one of them, then run oc-sub restart.`
+    `Create ${projectKeyPath(run.project, env)} or ${projectKeyPath(shared[0] as string, env)} for one of them, then run idfx restart.`
   );
 }

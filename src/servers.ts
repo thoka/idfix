@@ -1,7 +1,7 @@
 /**
- * The list of opencode servers that `oc-sub` knows: the host server (or the
+ * The list of opencode servers that `idfx` knows: the host server (or the
  * server of an explicit `--url`) and one sandbox server per project with a
- * valid state file. `oc-sub status --all` and the later `oc-sub top` share
+ * valid state file. `idfx status --all` and the later `idfx top` share
  * this listing.
  */
 import { resolveServerUrl, type Env } from "./config";

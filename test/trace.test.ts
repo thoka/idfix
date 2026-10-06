@@ -1,4 +1,4 @@
-/** Tests for `oc-sub trace`: the step cut, the signals, and the command. */
+/** Tests for `idfx trace`: the step cut, the signals, and the command. */
 import { describe, expect, spyOn, test } from "bun:test";
 import { parseArgs } from "../src/args";
 import type { MessageEntry } from "../src/summary";

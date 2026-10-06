@@ -1,9 +1,9 @@
 /**
- * `oc-sub doctor`: a registry of named health checks. The fast checks 1 to 6
+ * `idfx doctor`: a registry of named health checks. The fast checks 1 to 6
  * only stat and list directories (except check 6, which reads the frontmatter
  * of a project agent file), so `up` and `run` run them on every invocation.
  * The slow checks need a git call, `sbx` calls, or the KVM device, so only
- * `oc-sub doctor` runs them. The design is in `.plan/research/doctor.md`.
+ * `idfx doctor` runs them. The design is in `.plan/research/doctor.md`.
  * Every dependency is injected, so the tests use fakes like in
  * `test/sandbox.test.ts`.
  */
@@ -60,7 +60,7 @@ export type DoctorDeps = {
   sharedDir: string | undefined;
   /** The mise installs folder, for the sandbox mount check. */
   installsDir: string;
-  /** The plugin folder of this oc-sub, the source of the sync. */
+  /** The plugin folder of this idfx, the source of the sync. */
   pluginSource: string;
   /** The synced plugin folder that the servers load and the sandboxes mount. */
   pluginDir: string;
@@ -115,8 +115,8 @@ export type DoctorDeps = {
   /** The shared busy check of a server: unauthorized, a failed check, or a busy session blocks. */
   serverBusy: (server: RunningServer) => Promise<BusyCheck>;
   /**
-   * Recreates the sandbox of a project: with `stopServer`, `oc-sub down`
-   * first, then `sbx rm --force NAME`, then `oc-sub up`.
+   * Recreates the sandbox of a project: with `stopServer`, `idfx down`
+   * first, then `sbx rm --force NAME`, then `idfx up`.
    */
   recreateSandbox: (name: string, root: string, stopServer: boolean) => Promise<FixOutcome>;
   /** The optional DeepInfra key file of the project. */
@@ -646,7 +646,7 @@ export function agentCopiesFix(deps: DoctorDeps, _result: CheckResult, ctx: { fo
   if (ctx.force !== true) {
     return {
       ok: false,
-      note: "rewriting an agent file removes its description, model, and prompt. Run oc-sub doctor --fix --force or oc-sub doctor --renovate",
+      note: "rewriting an agent file removes its description, model, and prompt. Run idfx doctor --fix --force or idfx doctor --renovate",
     };
   }
   const agentsDir = path.join(deps.root, ".opencode", "agents");
@@ -858,8 +858,8 @@ function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
  * refs, so the last ref of a fetched but unmerged branch would go. A failed
  * command blocks too. The note names the three ways out: merge the branch,
  * keep it with `git branch`, or remove it in the clone with
- * `oc-sub worktree rm`. A squash merge does not contain the feature commits,
- * so after a squash merge the user runs `oc-sub worktree rm`.
+ * `idfx worktree rm`. A squash merge does not contain the feature commits,
+ * so after a squash merge the user runs `idfx worktree rm`.
  *
  * It also lists the worktrees of the clone and blocks on uncommitted
  * changes. Null means the guard is clear.
@@ -879,30 +879,30 @@ function sandboxUnfetchedWorkGuard(deps: DoctorDeps, name: string, root: string)
   const refArgs = [bin, "exec", name, "git", "-C", root, "for-each-ref", `--format=${RECREATE_REF_FORMAT}`];
   const refs = deps.runner(refArgs);
   if (refs.exitCode !== 0) {
-    return `cannot prove that no work is lost: ${refArgs.slice(1).join(" ")} failed with code ${refs.exitCode}. Fetch and push the work first (oc-sub fetch)`;
+    return `cannot prove that no work is lost: ${refArgs.slice(1).join(" ")} failed with code ${refs.exitCode}. Fetch and push the work first (idfx fetch)`;
   }
   for (const { sha, branch } of parseFeatureBranches(refs.stdout)) {
     const containsArgs = ["git", "-C", root, "for-each-ref", "--contains", sha, "--format=%(refname)"];
     const contains = deps.runner(containsArgs);
     if (contains.exitCode !== 0) {
-      return `cannot prove that no work is lost: ${containsArgs.slice(1).join(" ")} failed with code ${contains.exitCode} for ${branch}. Fetch and push the work first (oc-sub fetch, branch ${branch})`;
+      return `cannot prove that no work is lost: ${containsArgs.slice(1).join(" ")} failed with code ${contains.exitCode} for ${branch}. Fetch and push the work first (idfx fetch, branch ${branch})`;
     }
     if (hostRefsKeepingCommit(contains.stdout, name).length === 0) {
-      return `the branch ${branch} of the clone ${name} holds commits that the host would lose with sbx rm (its only refs sit under sandbox-${name}). Merge the branch, keep it with git branch ${branch} sandbox-${name}/${branch}, or remove it in the clone with oc-sub worktree rm ${branch.slice("feature/".length)}. A squash merge does not contain the feature commits, so after a squash merge run oc-sub worktree rm ${branch.slice("feature/".length)}`;
+      return `the branch ${branch} of the clone ${name} holds commits that the host would lose with sbx rm (its only refs sit under sandbox-${name}). Merge the branch, keep it with git branch ${branch} sandbox-${name}/${branch}, or remove it in the clone with idfx worktree rm ${branch.slice("feature/".length)}. A squash merge does not contain the feature commits, so after a squash merge run idfx worktree rm ${branch.slice("feature/".length)}`;
     }
   }
   const wtArgs = [bin, "exec", name, "git", "-C", root, "worktree", "list", "--porcelain"];
   const worktrees = deps.runner(wtArgs);
   if (worktrees.exitCode !== 0) {
-    return `cannot prove that no work is lost: ${wtArgs.slice(1).join(" ")} failed with code ${worktrees.exitCode}. Fetch and push the work first (oc-sub fetch)`;
+    return `cannot prove that no work is lost: ${wtArgs.slice(1).join(" ")} failed with code ${worktrees.exitCode}. Fetch and push the work first (idfx fetch)`;
   }
   for (const worktree of parseWorktrees(worktrees.stdout)) {
     const status = deps.runner([bin, "exec", name, "git", "-C", worktree, "status", "--porcelain"]);
     if (status.exitCode !== 0) {
-      return `cannot prove that no work is lost: git status in the worktree ${worktree} failed with code ${status.exitCode}. Commit and push the work first (oc-sub fetch)`;
+      return `cannot prove that no work is lost: git status in the worktree ${worktree} failed with code ${status.exitCode}. Commit and push the work first (idfx fetch)`;
     }
     if (status.stdout.trim().length > 0) {
-      return `the worktree ${worktree} of the clone ${name} has uncommitted changes. Commit and push them first (oc-sub fetch, worktree ${worktree})`;
+      return `the worktree ${worktree} of the clone ${name} has uncommitted changes. Commit and push them first (idfx fetch, worktree ${worktree})`;
     }
   }
   return null;
@@ -910,7 +910,7 @@ function sandboxUnfetchedWorkGuard(deps: DoctorDeps, name: string, root: string)
 
 /**
  * The fix of `sandbox-mounts`: recreate the sandbox with
- * `sbx rm --force NAME` and `oc-sub up`. The classifier decides whether a
+ * `sbx rm --force NAME` and `idfx up`. The classifier decides whether a
  * recreate helps; in the `exec-failed` case it does not, because the sandbox
  * does not start. Without `--force` nothing runs, because a recreate ends
  * all sessions of the sandbox. Two guards always block, also with
@@ -942,7 +942,7 @@ export async function sandboxMountsFix(deps: DoctorDeps, _result: CheckResult, c
   if (ctx.force !== true) {
     return {
       ok: false,
-      note: `a recreate of the sandbox ${name} ends all sessions of the sandbox. Run oc-sub doctor --fix --force to recreate it`,
+      note: `a recreate of the sandbox ${name} ends all sessions of the sandbox. Run idfx doctor --fix --force to recreate it`,
     };
   }
   // Guard 1: a busy session on the sandbox server. The same shared probe and
@@ -953,7 +953,7 @@ export async function sandboxMountsFix(deps: DoctorDeps, _result: CheckResult, c
     if (busy.kind !== "clear") {
       return {
         ok: false,
-        note: `${busyCheckNote(busy, server)}. The sandbox ${name} is not recreated. End the sessions with oc-sub abort or oc-sub down, then run oc-sub doctor --fix --force again`,
+        note: `${busyCheckNote(busy, server)}. The sandbox ${name} is not recreated. End the sessions with idfx abort or idfx down, then run idfx doctor --fix --force again`,
       };
     }
   }
@@ -990,13 +990,13 @@ export function kvmAccessRootFix(deps: DoctorDeps, _result: CheckResult, _ctx: {
 
 /** The fix text of `server-plugin`. */
 export const SERVER_PLUGIN_FIX =
-  "run oc-sub doctor --fix: it syncs the folder and restarts each idle server. A busy server needs oc-sub abort or oc-sub down first";
+  "run idfx doctor --fix: it syncs the folder and restarts each idle server. A busy server needs idfx abort or idfx down first";
 
 /**
  * Whether the servers run the current plugin. Every server loads
  * the synced plugin folder, and its state records the digest of that folder
  * at its start. The check warns when the synced folder differs from the
- * plugin folder of this oc-sub (a plugin update since the last `up`), or
+ * plugin folder of this idfx (a plugin update since the last `up`), or
  * when a running server started with other content than the synced folder
  * holds now. A server without a record started before the synced plugin folder, so its
  * content is unknown and it counts as stale. Without a running server, a
@@ -1015,14 +1015,14 @@ function serverPluginCheck(deps: DoctorDeps): CheckResult {
   }
   for (const server of servers) {
     if (server.digest === null) {
-      problems.push(`the ${serverLabel(server)} has no plugin record (started by an older oc-sub)`);
+      problems.push(`the ${serverLabel(server)} has no plugin record (started by an older idfx)`);
     } else if (server.digest !== synced) {
       problems.push(`the ${serverLabel(server)} started with other plugin content than the synced folder holds`);
     }
   }
   if (problems.length > 0) return result("server-plugin", "warn", problems.join(", and "), SERVER_PLUGIN_FIX);
   if (servers.length === 0) {
-    return result("server-plugin", "pass", synced === null ? "no server runs, the next oc-sub up syncs the plugin folder" : "the synced plugin folder matches the plugin, no server runs");
+    return result("server-plugin", "pass", synced === null ? "no server runs, the next idfx up syncs the plugin folder" : "the synced plugin folder matches the plugin, no server runs");
   }
   return result("server-plugin", "pass", `the synced plugin folder matches the plugin, and ${servers.length} running server(s) use it`);
 }
@@ -1032,7 +1032,7 @@ function serverPluginCheck(deps: DoctorDeps): CheckResult {
  * every running server whose recorded digest differs from the new one. A
  * restart happens only when all sessions of the server are idle; a busy
  * server stays as it is, and the fix fails with a note that names
- * `oc-sub abort` and `oc-sub down`. No `--force` is needed, because an idle
+ * `idfx abort` and `idfx down`. No `--force` is needed, because an idle
  * server loses no work.
  */
 export async function serverPluginFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): Promise<FixOutcome> {
@@ -1073,7 +1073,7 @@ export function miseToolVersion(text: string | null, tool: string): string | nul
 }
 
 /**
- * Whether the project runs the opencode version that oc-sub is tested with.
+ * Whether the project runs the opencode version that idfx is tested with.
  * The tested version is the `opencode` pin in the `mise.toml` of this
  * repository. The version of the project is what `mise current opencode`
  * resolves in the project root, so a pin in the project `mise.toml` and the
@@ -1088,7 +1088,7 @@ export function miseToolVersion(text: string | null, tool: string): string | nul
  * PATH, so the sandbox server runs the opencode that mise resolves for the
  * project. Only when that folder is missing from the tool PATH does the
  * opencode of the sandbox image run. In host mode, the server runs the
- * opencode of the PATH of the shell that calls `oc-sub up`.
+ * opencode of the PATH of the shell that calls `idfx up`.
  *
  * The fix action is `opencodeVersionFix`.
  */
@@ -1120,7 +1120,7 @@ function opencodeVersionCheck(deps: DoctorDeps): CheckResult {
     return result(
       "opencode-version",
       "warn",
-      `${source} resolves to opencode ${resolved} now, but oc-sub is tested only with ${tested}; the next release can change it`,
+      `${source} resolves to opencode ${resolved} now, but idfx is tested only with ${tested}; the next release can change it`,
       fix,
     );
   }
@@ -1128,7 +1128,7 @@ function opencodeVersionCheck(deps: DoctorDeps): CheckResult {
   return result(
     "opencode-version",
     "warn",
-    `the project runs opencode ${resolved} (from ${source}), but oc-sub is tested with ${tested}`,
+    `the project runs opencode ${resolved} (from ${source}), but idfx is tested with ${tested}`,
     fix,
   );
 }
@@ -1228,15 +1228,15 @@ function opencodeReviewCheck(deps: DoctorDeps): CheckResult {
     return result(
       "opencode-release",
       "warn",
-      `opencode ${latest} is out; oc-sub is tested with ${tested}, last review none`,
-      `read the release notes of opencode ${latest}, then either raise the pin in the mise.toml of oc-sub and run the tests, or record the decision in opencode-review.json`,
+      `opencode ${latest} is out; idfx is tested with ${tested}, last review none`,
+      `read the release notes of opencode ${latest}, then either raise the pin in the mise.toml of idfx and run the tests, or record the decision in opencode-review.json`,
     );
   }
   return result(
     "opencode-release",
     "warn",
-    `opencode ${latest} is out; oc-sub is tested with ${tested}, last review ${review.reviewed} on ${review.date}`,
-    `read the release notes of opencode ${latest}, then either raise the pin in the mise.toml of oc-sub and run the tests, or record the decision in opencode-review.json`,
+    `opencode ${latest} is out; idfx is tested with ${tested}, last review ${review.reviewed} on ${review.date}`,
+    `read the release notes of opencode ${latest}, then either raise the pin in the mise.toml of idfx and run the tests, or record the decision in opencode-review.json`,
   );
 }
 
@@ -1323,7 +1323,7 @@ export function researchDueCheck(deps: DoctorDeps): CheckResult {
 export const TOP_RSS_LIMIT = 1024 * 1024 * 1024;
 
 /**
- * Whether the command line runs the oc-sub CLI: one argument ends with the
+ * Whether the command line runs the idfx CLI: one argument ends with the
  * CLI entry, `src/cli.ts` (a run from the repository, as `top` starts it) or
  * `dist/cli.js` (an installed build). A `top` of another program does not
  * match, because its command line holds neither.
@@ -1333,7 +1333,7 @@ export function isOcSubCli(args: readonly string[]): boolean {
 }
 
 /**
- * Whether the command line runs the `top` command of oc-sub: the
+ * Whether the command line runs the `top` command of idfx: the
  * argument right after the CLI entry is `top`, so a `top` in a later
  * argument, for example in the text of `say`, does not match.
  */
@@ -1344,7 +1344,7 @@ export function isOcSubTop(args: readonly string[]): boolean {
 
 /**
  * The selection of `top-memory`: each process of the current user that runs
- * the `top` command of oc-sub with an RSS above 1 GiB, except doctor itself.
+ * the `top` command of idfx with an RSS above 1 GiB, except doctor itself.
  * Pure apart from the injected scan, so the fix uses the same rule.
  */
 export function leakyTopProcesses(deps: DoctorDeps): ProcessInfo[] {
@@ -1356,7 +1356,7 @@ export function leakyTopProcesses(deps: DoctorDeps): ProcessInfo[] {
 }
 
 /**
- * The `top-memory` check: a `top` of oc-sub that leaked keeps its
+ * The `top-memory` check: a `top` of idfx that leaked keeps its
  * whole table in memory, and one process can hold gigabytes. It warns with
  * the PID and the RSS in MB of each process over 1 GiB. The fix needs
  * `--force`, because it ends a view of the user: it sends SIGTERM to each
@@ -1366,13 +1366,13 @@ export function topMemoryCheck(deps: DoctorDeps): CheckResult {
   const processes = deps.listProcesses();
   if (processes === null) return result("top-memory", "skip", "no /proc on this platform");
   const leaky = leakyTopProcesses(deps);
-  if (leaky.length === 0) return result("top-memory", "pass", "no oc-sub top process over 1 GiB");
+  if (leaky.length === 0) return result("top-memory", "pass", "no idfx top process over 1 GiB");
   const listed = leaky.map((p) => `${p.pid} (${Math.round(p.rssBytes / (1024 * 1024))} MB)`);
   return result(
     "top-memory",
     "warn",
-    `${leaky.length} oc-sub top process(es) over 1 GiB: ${listed.join(", ")}`,
-    "run oc-sub doctor --fix --force: it sends SIGTERM to each listed process",
+    `${leaky.length} idfx top process(es) over 1 GiB: ${listed.join(", ")}`,
+    "run idfx doctor --fix --force: it sends SIGTERM to each listed process",
   );
 }
 
@@ -1386,7 +1386,7 @@ export function topMemoryFix(deps: DoctorDeps, _result: CheckResult, ctx: { forc
   if (ctx.force !== true) {
     return {
       ok: false,
-      note: "ending an oc-sub top process needs --force. Run oc-sub doctor --fix --force",
+      note: "ending an idfx top process needs --force. Run idfx doctor --fix --force",
     };
   }
   const leaky = leakyTopProcesses(deps);
@@ -1394,8 +1394,8 @@ export function topMemoryFix(deps: DoctorDeps, _result: CheckResult, ctx: { forc
   for (const p of leaky) {
     if (deps.killProcess(p.pid, "SIGTERM")) stopped++;
   }
-  if (leaky.length === 0) return { ok: true, note: "no oc-sub top process over 1 GiB" };
-  return { ok: true, note: `sent SIGTERM to ${stopped} oc-sub top process(es)` };
+  if (leaky.length === 0) return { ok: true, note: "no idfx top process over 1 GiB" };
+  return { ok: true, note: `sent SIGTERM to ${stopped} idfx top process(es)` };
 }
 
 /**
@@ -1441,7 +1441,7 @@ export function orphanProcessesCheck(deps: DoctorDeps): CheckResult {
     "orphan-processes",
     "warn",
     `${prefix}${listed.join(", ")}`,
-    "run oc-sub doctor --fix --force: it sends SIGTERM to each listed process, then SIGKILL after 5 s",
+    "run idfx doctor --fix --force: it sends SIGTERM to each listed process, then SIGKILL after 5 s",
   );
 }
 
@@ -1481,7 +1481,7 @@ export async function orphanProcessesFix(deps: DoctorDeps, _result: CheckResult,
   if (ctx.force !== true) {
     return {
       ok: false,
-      note: "stopping orphaned processes needs --force. Run oc-sub doctor --fix --force",
+      note: "stopping orphaned processes needs --force. Run idfx doctor --fix --force",
     };
   }
   const all = deps.listProcesses() ?? [];
@@ -1508,7 +1508,7 @@ export async function orphanProcessesFix(deps: DoctorDeps, _result: CheckResult,
 const UNIT_LIST_LIMIT = 10;
 
 /** The hint of the `units` check when it finds an orphaned unit. */
-export const UNITS_FIX = "run oc-sub doctor --fix --force: it stops each orphaned unit";
+export const UNITS_FIX = "run idfx doctor --fix --force: it stops each orphaned unit";
 
 /** One unit as `<unit> (owner <owner>: <reason>)`, or `<unit> (no owner: <description>)`. Pure. */
 export function unitEntry(u: LoadedUnit): string {
@@ -1554,7 +1554,7 @@ export function unitsCheck(deps: DoctorDeps): CheckResult {
  */
 export function unitsFix(deps: DoctorDeps, _result: CheckResult, ctx: { force: boolean }): FixOutcome {
   if (ctx.force !== true) {
-    return { ok: false, note: "stopping an orphaned unit needs --force. Run oc-sub doctor --fix --force" };
+    return { ok: false, note: "stopping an orphaned unit needs --force. Run idfx doctor --fix --force" };
   }
   const units = listUnits(deps.units);
   if (units === null) return { ok: true, note: "no systemd user manager" };
@@ -1606,7 +1606,7 @@ export const FAST_CHECKS: Check[] = [
   { name: "agent-copies", run: agentCopiesCheck, fix: agentCopiesFix },
 ];
 
-/** The slow checks: only `oc-sub doctor` runs them. */
+/** The slow checks: only `idfx doctor` runs them. */
 export const SLOW_CHECKS: Check[] = [
   // First: it only spawns mise, and no other check or fix depends on it.
   { name: "opencode-version", run: opencodeVersionCheck, fix: opencodeVersionFix },
@@ -1756,7 +1756,7 @@ export function gateFastChecks(
       print(`warning: ${check.name}: ${check.message}`);
     }
   }
-  if (!ok) print("run oc-sub doctor for details");
+  if (!ok) print("run idfx doctor for details");
   return ok;
 }
 
@@ -1818,7 +1818,7 @@ export async function runFixes(
       if (ctx.asRoot === true) {
         await apply(check, res, check.rootFix);
       } else {
-        print(`needs --fix-as-root (${check.name}): this fix runs sudo; run oc-sub doctor --fix-as-root`);
+        print(`needs --fix-as-root (${check.name}): this fix runs sudo; run idfx doctor --fix-as-root`);
       }
     }
   }
@@ -1826,7 +1826,7 @@ export async function runFixes(
 }
 
 /**
- * `oc-sub doctor`: run all checks and print the results. With `--json`,
+ * `idfx doctor`: run all checks and print the results. With `--json`,
  * stdout holds exactly one object of the tool protocol (`doctorReport`):
  * `{tool, version, status, checks, fixes?}`; all other lines go to stderr.
  *

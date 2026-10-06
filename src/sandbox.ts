@@ -157,7 +157,7 @@ export function projectRoot(directory: string): string {
   return commonDir === null ? directory : path.dirname(commonDir);
 }
 
-/** The state file of one project sandbox in the oc-sub state folder. */
+/** The state file of one project sandbox in the idfx state folder. */
 export function sandboxStatePath(env: Env, project: string): string {
   return path.join(stateDir(env), `sandbox-${project}.json`);
 }
@@ -325,7 +325,7 @@ export const KVM_DEVICE = "/dev/kvm";
 export const KVM_CHMOD_COMMAND = ["chmod", "0666", KVM_DEVICE] as const;
 
 /** The fix text of the `kvm-access` check. */
-export const KVM_FIX = `run oc-sub doctor --fix-as-root, or: sudo ${KVM_CHMOD_COMMAND.join(" ")} (it lasts until the next WSL restart)`;
+export const KVM_FIX = `run idfx doctor --fix-as-root, or: sudo ${KVM_CHMOD_COMMAND.join(" ")} (it lasts until the next WSL restart)`;
 
 /** The metadata of /dev/kvm that the check names in its message. */
 export type KvmStat = { mode: number; uid: number; gid: number };
@@ -363,7 +363,7 @@ export const defaultKvmDeps: KvmDeps = {
 
 /**
  * The `kvm-access` check: the current process can read and write /dev/kvm.
- * `oc-sub doctor` runs it as a slow check, and `upSandbox` runs it before
+ * `idfx doctor` runs it as a slow check, and `upSandbox` runs it before
  * its first `sbx` call. Without the access, `sbx create` and the start of a
  * sandbox fail with an error that does not name the cause.
  */
@@ -579,7 +579,7 @@ export function bunBinFromToolPath(toolPath: string, installsDir: string): strin
 /**
  * The newest installed `bun` inside the mise installs folder, as a fallback
  * for a project without bun in its own `mise.toml`: the installs folder is
- * shared across projects, so the bun of the oc-sub `mise.toml` is usually
+ * shared across projects, so the bun of the idfx `mise.toml` is usually
  * there. Scans `installs/bun/<version>/bin/bun` and picks the last version
  * in lexicographic order. Null when no bun is installed.
  */
@@ -607,7 +607,7 @@ export function bunBinFromInstalls(installsDir: string): string | null {
  * The loop never ends by itself. To stop it, signal its whole process group
  * (the negative PID of the `sh` that `spawnDetached` starts): a signal to the
  * `bun` child alone only restarts it, and a signal to the `sh` alone leaves
- * the child. `oc-sub down` and `stopStartedGroups` in `down.ts` do this.
+ * the child. `idfx down` and `stopStartedGroups` in `down.ts` do this.
  */
 export function proxyLoopScript(bunBin: string, bundlePath: string, port: number, hostname: string): string {
   return [
@@ -797,7 +797,7 @@ export function missingMounts(stdout: string, name: string, required: readonly s
 export function missingMountsMessage(name: string, missing: readonly string[], pluginDir: string): string {
   let message = `the sandbox ${name} lacks the mounts ${missing.join(", ")}`;
   if (missing.includes(`${pluginDir}:ro`)) {
-    message += ` (the synced plugin folder ${pluginDir} is the plugin mount of newer oc-sub versions, so an older sandbox needs a recreate)`;
+    message += ` (the synced plugin folder ${pluginDir} is the plugin mount of newer idfx versions, so an older sandbox needs a recreate)`;
   }
   return message;
 }
@@ -809,7 +809,7 @@ export function missingMountsMessage(name: string, missing: readonly string[], p
  * ends the sessions of the sandbox.
  */
 export function sandboxRecreateFix(name: string): string {
-  return `Recreate it with: oc-sub doctor --fix --force. It recreates the sandbox in clone mode with all required mounts. To do it by hand: sbx rm --force ${name}, then oc-sub up.`;
+  return `Recreate it with: idfx doctor --fix --force. It recreates the sandbox in clone mode with all required mounts. To do it by hand: sbx rm --force ${name}, then idfx up.`;
 }
 
 /**
@@ -908,9 +908,9 @@ export function sandboxRecreateCase(
 export type RecreateDeps = {
   /** Runs the `sbx rm` command. */
   runner: Runner;
-  /** Stops the sandbox of a project root, as `oc-sub down` does. */
+  /** Stops the sandbox of a project root, as `idfx down` does. */
   downSandbox: (root: string) => Promise<number>;
-  /** Creates the sandbox again and starts its server, as `oc-sub up` does. */
+  /** Creates the sandbox again and starts its server, as `idfx up` does. */
   upSandbox: (root: string) => Promise<number>;
 };
 
@@ -922,8 +922,8 @@ export const defaultRecreateDeps: RecreateDeps = {
 };
 
 /**
- * Recreates a project sandbox: `sbx rm --force NAME`, then `oc-sub up`. With
- * `stopServer`, `oc-sub down` runs first, so the proxy and the state files of
+ * Recreates a project sandbox: `sbx rm --force NAME`, then `idfx up`. With
+ * `stopServer`, `idfx down` runs first, so the proxy and the state files of
  * the server go. The caller has already checked that no session runs (the
  * busy guard), so down runs without `--force` and re-checks it.
  *
@@ -942,13 +942,13 @@ export async function recreateSandbox(
   try {
     if (stopServer) {
       const stopped = await deps.downSandbox(root);
-      if (stopped !== 0) return { ok: false, note: `oc-sub down failed with code ${stopped}, the sandbox ${name} is not recreated` };
+      if (stopped !== 0) return { ok: false, note: `idfx down failed with code ${stopped}, the sandbox ${name} is not recreated` };
     }
     const rm = deps.runner([sbxBin(env), "rm", "--force", name]);
     if (rm.exitCode !== 0) return { ok: false, note: `sbx rm --force ${name} exited with code ${rm.exitCode}` };
     const started = await deps.upSandbox(root);
-    if (started !== 0) return { ok: false, note: `oc-sub up failed with code ${started}` };
-    return { ok: true, note: `recreated the sandbox ${name}: sbx rm --force ${name}, then oc-sub up` };
+    if (started !== 0) return { ok: false, note: `idfx up failed with code ${started}` };
+    return { ok: true, note: `recreated the sandbox ${name}: sbx rm --force ${name}, then idfx up` };
   } finally {
     console.log = log;
   }
@@ -1114,7 +1114,7 @@ function printUp(serveUrl: string, name: string, logPath: string, version: strin
 }
 
 /**
- * `oc-sub up` in sandbox mode: make sure an opencode server in the project sandbox
+ * `idfx up` in sandbox mode: make sure an opencode server in the project sandbox
  * answers, set the sandbox up and start one if needed.
  */
 export async function upSandbox(
@@ -1147,7 +1147,7 @@ export async function upSandbox(
   }
   if (!deps.binExists(bin)) {
     console.error(`error: the sbx binary "${bin}" is not on the PATH (set SBX_BIN to its location).`);
-    console.error("To start a host server instead, run: oc-sub up --no-sandbox");
+    console.error("To start a host server instead, run: idfx up --no-sandbox");
     return 1;
   }
   // `sbx` runs the sandbox as a microVM and needs read and write access to
@@ -1172,7 +1172,7 @@ export async function upSandbox(
   const keyPath = projectKeyPath(project, env);
   if (!(await deps.keyExists(keyPath))) {
     console.error(`error: no OpenRouter key file for project ${project}: ${keyPath}`);
-    console.error("Create it first. oc-sub only checks that the file exists, it never reads its content.");
+    console.error("Create it first. idfx only checks that the file exists, it never reads its content.");
     return 1;
   }
 
@@ -1218,7 +1218,7 @@ export async function upSandbox(
     bunBin = bunBinFromToolPath(toolPath, installsDir) ?? bunBinFromInstalls(installsDir);
     if (bunBin === null) {
       console.error(`error: no bun in the mise installs folder ${installsDir}; the cost proxy needs it.`);
-      console.error("Install bun (mise use bun), or start without the proxy: oc-sub up --no-cost-proxy.");
+      console.error("Install bun (mise use bun), or start without the proxy: idfx up --no-cost-proxy.");
       return 1;
     }
   }
@@ -1293,7 +1293,7 @@ export async function upSandbox(
   } else {
     const missing = missingMounts(lsStdout, name, requiredSandboxMounts(root, pluginDir, installsDir, sharedDir));
     if (missing.length > 0) {
-      // The sandbox holds the sessions, so oc-sub does not remove it itself.
+      // The sandbox holds the sessions, so idfx does not remove it itself.
       console.error(`error: ${missingMountsMessage(name, missing, pluginDir)}`);
       console.error(sandboxRecreateFix(name));
       return 1;
@@ -1418,7 +1418,7 @@ export async function upSandbox(
     console.error(`error: the sandbox ${name} cannot read the shared agents file ${sharedFile}`);
     printStderr(readable);
     console.error(`Remove it with: sbx rm --force ${name}`);
-    console.error("Then run oc-sub up. It creates the sandbox again with the shared mount.");
+    console.error("Then run idfx up. It creates the sandbox again with the shared mount.");
     return 1;
   }
 
@@ -1549,7 +1549,7 @@ async function printLogTail(logPath: string): Promise<void> {
 }
 
 /**
- * `oc-sub down` in sandbox mode: stop the sandbox of the project. It keeps the
+ * `idfx down` in sandbox mode: stop the sandbox of the project. It keeps the
  * busy check of `down`, stops the sandbox, and removes the PID file. The
  * state file stays, so that the port stays the same.
  */
@@ -1563,7 +1563,7 @@ export async function downSandbox(
   const project = deps.projectName(dir);
   const state = readSandboxState(sandboxStatePath(env, project));
   if (state === null) {
-    console.error(`error: no sandbox state for project ${project}. Run oc-sub up first.`);
+    console.error(`error: no sandbox state for project ${project}. Run idfx up first.`);
     return 1;
   }
   return stopSandbox(state, args.force, env, deps);
@@ -1623,7 +1623,7 @@ export async function stopSandbox(
   }
 
   // The holder unit first: the stop ends its whole cgroup. A holder of an
-  // older oc-sub or of the fallback path has no unit.
+  // older idfx or of the fallback path has no unit.
   try {
     stopPortUnits(port, ["holder"], deps.units);
   } catch (error) {
@@ -1634,7 +1634,7 @@ export async function stopSandbox(
   if (pid !== null && isAlive(pid)) {
     // The holder process leads its own process group, like the server of
     // `up`. Signal the group, so that child processes stop, too. `stopGroup`
-    // repeats SIGTERM and ends with SIGKILL, like `oc-sub down`.
+    // repeats SIGTERM and ends with SIGKILL, like `idfx down`.
     if ((await stopGroup(pid, signalGroup)) === "stuck") {
       console.error(`error: the sandbox holder process (PID ${pid}) did not stop, also not after SIGKILL`);
       return 1;

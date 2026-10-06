@@ -1,4 +1,4 @@
-/** `oc-sub log`: final assistant text plus the cost and token summary. */
+/** `idfx log`: final assistant text plus the cost and token summary. */
 import path from "node:path";
 import type { Env } from "./config";
 import { resolveCommandUrl } from "./sandbox";

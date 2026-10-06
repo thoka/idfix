@@ -1,5 +1,5 @@
 /**
- * Tests for the text snapshot of `oc-sub top --once`, with invented rows.
+ * Tests for the text snapshot of `idfx top --once`, with invented rows.
  * No server and no clock: the tests pass `nowMs` themselves.
  */
 import { describe, expect, test } from "bun:test";

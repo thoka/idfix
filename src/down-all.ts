@@ -1,5 +1,5 @@
 /**
- * `oc-sub down --all`: stop every server that oc-sub started. These are the
+ * `idfx down --all`: stop every server that idfx started. These are the
  * running sandboxes with a state file and the host servers with a PID file.
  * Each server keeps its own busy check, so a busy server stays up without
  * `--force`, and the other servers still stop.

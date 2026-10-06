@@ -1,9 +1,9 @@
 /**
- * The idle watchdog of a server that `oc-sub up` started.
+ * The idle watchdog of a server that `idfx up` started.
  *
  * `up` starts the server in the background, and before this module only
- * `oc-sub down` stopped it, so an idle server ran for days. After a start,
- * `up` starts the hidden command `oc-sub idle-watch --port <port> --minutes
+ * `idfx down` stopped it, so an idle server ran for days. After a start,
+ * `up` starts the hidden command `idfx idle-watch --port <port> --minutes
  * <N>` as the unit `ocsub-idle-<port>` (`units.ts`), or detached without a
  * user manager, with its own PID file `idle-<port>.pid` and its output
  * appended to the server log. The watchdog follows the event stream of all folders
@@ -21,7 +21,7 @@
  * of each known folder again, and a busy session resets the timer.
  *
  * The final check and the stop hold the server lock (`lock.ts`). When
- * `oc-sub run` holds it, the run starts a session now, so the watchdog
+ * `idfx run` holds it, the run starts a session now, so the watchdog
  * resets its timer and does not stop the server.
  *
  * The watchdog runs the stop path from inside its own unit. A stop of that
@@ -340,7 +340,7 @@ export type StopIdleDeps = Pick<DownDeps, "commandLineOf" | "killGroup"> & { uni
 /**
  * Stops the watchdog of the server on `port` and removes its PID file. It
  * stops the unit `ocsub-idle-<port>` first, then the process of the PID
- * file, for a watchdog of an older oc-sub or of the fallback path. A
+ * file, for a watchdog of an older idfx or of the fallback path. A
  * missing unit and a missing or stale PID file are fine. The watchdog itself
  * calls the stop path, so neither its own unit nor a PID equal to `selfPid`
  * gets a stop: it ends by itself after the stop path returns.
@@ -364,7 +364,7 @@ export async function stopIdleWatch(
   await removeFiles(file);
 }
 
-/** The path of the oc-sub entry point, for the spawn of the watchdog. */
+/** The path of the idfx entry point, for the spawn of the watchdog. */
 export const CLI_PATH = path.resolve(import.meta.dir, "cli.ts");
 
 /** The command of the watchdog of the server on `port`. Pure. */
@@ -409,7 +409,7 @@ export function startIdleWatch(
     );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    console.error(`warning: cannot start the idle watchdog: ${reason}. Stop the server with oc-sub down.`);
+    console.error(`warning: cannot start the idle watchdog: ${reason}. Stop the server with idfx down.`);
   }
 }
 
@@ -437,7 +437,7 @@ export function defaultIdleWatchDeps(
 }
 
 /**
- * `oc-sub idle-watch --port <port> [--minutes N]`: the hidden command that
+ * `idfx idle-watch --port <port> [--minutes N]`: the hidden command that
  * `up` spawns. It finds the mode by the port: a sandbox state with this port
  * means sandbox mode, else host mode.
  */

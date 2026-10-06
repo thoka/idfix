@@ -110,7 +110,7 @@ describe("appendCriticalFooter", () => {
   });
 });
 
-describe("oc-sub run and the critical-research footer", () => {
+describe("idfx run and the critical-research footer", () => {
   async function sentText(agent: string, text: string, env: Record<string, string>): Promise<string> {
     const bodies: { parts: { text: string }[] }[] = [];
     const server = Bun.serve({

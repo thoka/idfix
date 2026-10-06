@@ -2,7 +2,7 @@
  * Long-lived processes as transient systemd user services, with an owner and
  * a reason.
  *
- * oc-sub starts processes that outlive it: the host server, the cost proxy,
+ * idfx starts processes that outlive it: the host server, the cost proxy,
  * the holder of sandbox mode, and the idle watchdog. Before this module they
  * ran as plain detached processes, so a forgotten one carried no label, and
  * a tool could find it only with a guess. `startUnit` starts such a command
@@ -40,9 +40,9 @@ import type { Env } from "./config";
 import type { RunnerResult } from "./sandbox";
 import { spawnDetached, type ServeProcess } from "./spawn";
 
-/** The prefix of every unit that oc-sub starts. */
+/** The prefix of every unit that idfx starts. */
 export const UNIT_PREFIX = "ocsub-";
-/** The slice that holds every unit that oc-sub starts. */
+/** The slice that holds every unit that idfx starts. */
 export const UNIT_SLICE = "ocsub.slice";
 /**
  * How long a stop of a server unit waits after SIGTERM before SIGKILL, in

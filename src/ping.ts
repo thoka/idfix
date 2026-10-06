@@ -1,4 +1,4 @@
-/** `oc-sub ping`: show which OpenRouter key the server uses for a directory. */
+/** `idfx ping`: show which OpenRouter key the server uses for a directory. */
 import path from "node:path";
 import { makeClient, requireServer, unwrap } from "./client";
 import { type Env } from "./config";
@@ -55,7 +55,7 @@ const defaultDeps: PingDeps = {
   projectName: projectNameOf,
 };
 
-/** `oc-sub ping`: which key does the server use, where from, and does OpenRouter accept it? */
+/** `idfx ping`: which key does the server use, where from, and does OpenRouter accept it? */
 export async function ping(
   args: { url?: string; dir?: string },
   env: Env = process.env,
@@ -92,7 +92,7 @@ export async function ping(
   if (check.status !== "ok") return 1;
   if (!key.isProjectKey) {
     console.log(
-      `warning: not the project key. The cost goes to another key. Create ${projectKeyPath(project, env)} and refer to it in opencode.json. If you changed a configuration file, run oc-sub restart.`,
+      `warning: not the project key. The cost goes to another key. Create ${projectKeyPath(project, env)} and refer to it in opencode.json. If you changed a configuration file, run idfx restart.`,
     );
   }
   return 0;

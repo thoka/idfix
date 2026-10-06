@@ -1,4 +1,4 @@
-/** `oc-sub up`: make sure an opencode server answers, start one if needed. */
+/** `idfx up`: make sure an opencode server answers, start one if needed. */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -169,7 +169,7 @@ export const defaultUpDeps: UpDeps = {
   bunBin: () => Bun.which("bun"),
   // The server keeps running after this process exits. On both paths its
   // output goes to the log in append mode, so the proxy `end` lines of older
-  // runs stay in the log and `oc-sub log` of an older run keeps the real cost.
+  // runs stay in the log and `idfx log` of an older run keeps the real cost.
   spawnServe: startUnit,
   spawnProxy: startUnit,
   spawnIdleWatch: startUnit,
@@ -234,7 +234,7 @@ export async function up(
     bunBin = deps.bunBin() ?? fallbackBunBin(env);
     if (bunBin === null) {
       console.error("error: no bun on the PATH; the cost proxy needs it.");
-      console.error("Install bun (mise use -g bun), or start without the proxy: oc-sub up --no-cost-proxy.");
+      console.error("Install bun (mise use -g bun), or start without the proxy: idfx up --no-cost-proxy.");
       return 1;
     }
     if (proxyPort > 65535) {
@@ -244,7 +244,7 @@ export async function up(
   }
 
   // The server loads the synced copy of the plugin folder, never the folder
-  // of this oc-sub itself. The sync runs right before the start, so the new
+  // of this idfx itself. The sync runs right before the start, so the new
   // server gets the current plugin, and its digest goes into the state.
   const pluginDir = pluginDataDir(env);
   let digest: string;

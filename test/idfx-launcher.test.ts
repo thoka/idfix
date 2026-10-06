@@ -40,7 +40,7 @@ describe("the command name in the help", () => {
     expect(code).toBe(0);
     expect(out.startsWith("idfix - drive an opencode server")).toBe(true);
     expect(out).toContain("\n  idfix up [--dir DIR] [--no-cost-proxy] [--idle-minutes N]\n");
-    expect(out).not.toContain("oc-sub ");
+    expect(out).not.toContain("\n  oc-sub ");
   });
 
   test("a symlink oc-sub to bin/oc-sub shows oc-sub", () => {
@@ -56,22 +56,29 @@ describe("the command name in the help", () => {
 });
 
 describe("progName", () => {
-  test("defaults to oc-sub without IDFX_PROG", () => {
-    expect(DEFAULT_PROG).toBe("oc-sub");
-    expect(progName({})).toBe("oc-sub");
-    expect(progName({ IDFX_PROG: "" })).toBe("oc-sub");
-    expect(progName({ IDFX_PROG: "  " })).toBe("oc-sub");
+  test("defaults to idfx without IDFX_PROG", () => {
+    expect(DEFAULT_PROG).toBe("idfx");
+    expect(progName({})).toBe("idfx");
+    expect(progName({ IDFX_PROG: "" })).toBe("idfx");
+    expect(progName({ IDFX_PROG: "  " })).toBe("idfx");
   });
 
   test("takes the base name of IDFX_PROG", () => {
     expect(progName({ IDFX_PROG: "idfx" })).toBe("idfx");
     expect(progName({ IDFX_PROG: "/home/user/.local/bin/idfix" })).toBe("idfix");
+    expect(progName({ IDFX_PROG: "oc-sub" })).toBe("oc-sub");
   });
 
-  test("helpText and helpExitHint default to oc-sub", () => {
-    expect(helpText().split("\n")[0]).toBe("oc-sub - drive an opencode server for subagent runs");
-    expect(helpText()).toContain("\n  oc-sub up [--dir DIR] [--no-cost-proxy] [--idle-minutes N]\n");
-    expect(helpExitHint()).toBe("run `oc-sub --help` for usage");
+  test("helpText and helpExitHint default to idfx", () => {
+    expect(helpText().split("\n")[0]).toBe("idfx - drive an opencode server for subagent runs");
+    expect(helpText()).toContain("\n  idfx up [--dir DIR] [--no-cost-proxy] [--idle-minutes N]\n");
+    expect(helpExitHint()).toBe("run `idfx --help` for usage");
+  });
+
+  test("the help names oc-sub as the old name that still works", () => {
+    for (const prog of ["idfx", "oc-sub", "idfix"]) {
+      expect(helpText(prog).split("\n")[1]).toBe("oc-sub is the old name of idfx and still works.");
+    }
   });
 });
 

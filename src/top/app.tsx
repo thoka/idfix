@@ -1,5 +1,5 @@
 /**
- * The entry of the live view of `oc-sub top`: it renders `TopView` in the
+ * The entry of the live view of `idfx top`: it renders `TopView` in the
  * alternate screen of the terminal and waits until the user quits. `top` in
  * `src/top/load.ts` imports this module only when the view runs, so that
  * `top --once` does not load Ink and React.

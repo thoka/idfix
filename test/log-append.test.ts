@@ -51,7 +51,7 @@ function makeDeps(overrides: Partial<UpDeps> = {}): UpDeps {
 }
 
 describe("log marker helpers", () => {
-  test("logMarkerLine names oc-sub, the label, and the ISO time", () => {
+  test("logMarkerLine names idfx, the label, and the ISO time", () => {
     const line = logMarkerLine("up", new Date("2026-10-01T21:00:00.000Z"));
     expect(line).toBe("--- oc-sub up 2026-10-01T21:00:00.000Z ---");
   });
@@ -149,7 +149,7 @@ describe("up marks each start and keeps older log lines", () => {
     expect(serveText).toContain("older start");
     const serveMarkers = serveText.match(/^--- oc-sub up \d{4}-.* ---$/gm) ?? [];
     expect(serveMarkers).toHaveLength(2);
-    // The old end line of the proxy log survives the restart: `oc-sub log`
+    // The old end line of the proxy log survives the restart: `idfx log`
     // of the older run keeps its real cost.
     expect(readFileSync(proxyLog, "utf8")).toBe(oldProxy);
     expect(readFileSync(proxyLog, "utf8")).toContain('"session":"ses_old"');

@@ -1,4 +1,4 @@
-/** Tests for `oc-sub say`, against a fake opencode server. */
+/** Tests for `idfx say`, against a fake opencode server. */
 import { describe, expect, spyOn, test } from "bun:test";
 import { parseArgs } from "../src/args";
 import { say } from "../src/say";
@@ -96,7 +96,7 @@ describe("say", () => {
         },
       ]);
       expect(logged).toEqual([
-        "sent to ses_1 (agent coder). Watch it with: oc-sub watch ses_1 --dir /w",
+        "sent to ses_1 (agent coder). Watch it with: idfx watch ses_1 --dir /w",
       ]);
     } finally {
       server.stop();
@@ -213,7 +213,7 @@ describe("say", () => {
         "session ses_1 waits for an answer. The message stays queued until the request has an answer.",
         "  question que_1 in ses_1",
         "    1. [Go] Go on?",
-        '  answer with: oc-sub answer que_1 --dir /w "<answer>" (or --reject)',
+        '  answer with: idfx answer que_1 --dir /w "<answer>" (or --reject)',
       ]);
     } finally {
       server.stop();
@@ -249,7 +249,7 @@ describe("say", () => {
         "session ses_1 waits for an answer. The message stays queued until the request has an answer.",
         "  permission per_1 in ses_2",
         "    bash: rm *",
-        "  answer with: oc-sub answer per_1 --dir /w --reply once (or always, or reject)",
+        "  answer with: idfx answer per_1 --dir /w --reply once (or always, or reject)",
       ]);
     } finally {
       server.stop();

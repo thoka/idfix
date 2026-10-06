@@ -2,6 +2,12 @@
 
 Decisions that a session made from the canon of values. Newest entry first.
 
+## 2026-10-06: open points of step 25g.1
+
+- Decision: `waitingFor` keeps the full `needs` text, also a URL of a key management page. It holds no key, and it is the text that Claude Code shows the user. `claude-glm` sessions stay without a price until the GLM features come back, then an `openrouter/` prefix lookup in LiteLLM can price them. A blocked background job shows as `waiting` until `claude rm`, as in `claude agents`, because it is work that waits for a decision. A session with one unknown model gets no price, not a partial sum.
+- Values: one state in one place (the same list as `claude agents`). Deliver first. Secrets stay protected (no key reaches the output).
+- Conditions: Claude Code 2.1.285. If old blocked jobs fill the list, an age rule is open again.
+
 ## 2026-10-06: technical defaults of the design of step 25g
 
 - Decision: idfix reads the Claude Code files only and does not run `claude agents --json`. Prices and model windows come from the cached LiteLLM price file, at most one download per 24 hours. An ended Claude session gets a new row state `ended`. The `ctx` cell shows the size and the share of the window, for example `123k 62%`. The design is [claude-sessions-top.md](design/claude-sessions-top.md).

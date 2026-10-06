@@ -368,6 +368,10 @@ fail-means: Run `sbx rm --force NAME` and then `oc-sub up`, which creates the sa
 check: `deepinfra-key`
 what-it-checks: The optional DeepInfra key file `~/.config/<project>/deepinfra.key` has mode 600 or stricter. It only reads the mode, never the content. Without the file, it skips (DeepInfra is off).
 fail-means: Warn only. Other users may read the key. Run `chmod 600` on the file.
+--
+check: `units`
+what-it-checks: Lists each loaded `ocsub-*` systemd user unit with its owner and its reason (at most 10 entries and the total count). A unit is orphaned when its working folder is gone, or when it is a `proxy` or `idle` unit of a port without a `serve` or `holder` unit. It does not ask whether a named owner session still lives. Without a user manager, it skips.
+fail-means: Warn. An orphaned unit runs for no one. `--fix --force` stops each orphaned unit, never the unit of doctor itself.
 ```
 
 The fast checks `env-files` to `agent-copies` also run on every `oc-sub up` and `oc-sub run`. A fail stops the command with exit code 1 before anything changes state and before any paid call, and names the fixes plus the hint `run oc-sub doctor for details`. A warn prints one line and the command continues. The checks take about 1 ms. When they take over 50 ms, the command prints a warning with the time.

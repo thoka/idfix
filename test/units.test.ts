@@ -24,6 +24,11 @@ import {
   unitExitCode,
   unitName,
   unitOwner,
+  listUnits,
+  orphanedUnits,
+  parseUnitLabel,
+  parseUnitShow,
+  type LoadedUnit,
   type UnitDeps,
   type UnitOptions,
   type UnitRunner,
@@ -397,6 +402,138 @@ describe("units of a port", () => {
   test("stopPortUnits throws when systemctl fails", () => {
     const { deps } = fakeDeps({ "systemctl stop": { stdout: "", exitCode: 1, stderr: "Failed to connect to bus" } });
     expect(() => stopPortUnits(4096, ["serve"], deps)).toThrow(/Failed to connect to bus/);
+  });
+});
+
+describe("parseUnitShow", () => {
+  test("reads the active state when the query asks for it", () => {
+    const text = [
+      "Id=ocsub-serve-4096.service",
+      "Description=owner=proj reason=opencode server",
+      "WorkingDirectory=/work",
+      "ActiveState=active",
+      "",
+      "Id=ocsub-proxy-4096.service",
+      "Description=owner=proj reason=cost proxy",
+      "WorkingDirectory=",
+      "ActiveState=failed",
+    ].join("\n");
+    expect(parseUnitShow(text)).toEqual([
+      { unit: "ocsub-serve-4096", description: "owner=proj reason=opencode server", workingDirectory: "/work", activeState: "active" },
+      { unit: "ocsub-proxy-4096", description: "owner=proj reason=cost proxy", workingDirectory: "", activeState: "failed" },
+    ]);
+  });
+
+  test("gives an empty value for a property that the query left out, and keeps = in a value", () => {
+    expect(parseUnitShow("Id=ocsub-x-1.service\nDescription=owner=a reason=b=c\n")).toEqual([
+      { unit: "ocsub-x-1", description: "owner=a reason=b=c", workingDirectory: "", activeState: "" },
+    ]);
+  });
+});
+
+describe("parseUnitLabel", () => {
+  test("reads the owner and the reason that unitDescription writes", () => {
+    expect(parseUnitLabel(unitDescription("proj", "opencode server of up on port 4096"))).toEqual({
+      owner: "proj",
+      reason: "opencode server of up on port 4096",
+    });
+  });
+
+  test("keeps an empty reason", () => {
+    expect(parseUnitLabel("owner=proj reason=")).toEqual({ owner: "proj", reason: "" });
+  });
+
+  test("gives no owner and the whole text for another form", () => {
+    expect(parseUnitLabel("/usr/bin/sleep 100")).toEqual({ owner: "", reason: "/usr/bin/sleep 100" });
+    expect(parseUnitLabel("reason=x owner=y")).toEqual({ owner: "", reason: "reason=x owner=y" });
+    expect(parseUnitLabel("")).toEqual({ owner: "", reason: "" });
+  });
+});
+
+describe("listUnits", () => {
+  const show = "Id=ocsub-serve-4096.service\nDescription=owner=proj reason=r\nWorkingDirectory=/work\nActiveState=active\n";
+
+  test("asks systemctl once for all ocsub units with the bus environment", () => {
+    const { deps, calls } = fakeDeps({ "systemctl show": { stdout: show, exitCode: 0 } });
+    expect(listUnits(deps)).toEqual([
+      { unit: "ocsub-serve-4096", description: "owner=proj reason=r", workingDirectory: "/work", activeState: "active" },
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.cmd).toEqual([
+      "systemctl",
+      "--user",
+      "show",
+      "ocsub-*",
+      "--property=Id,Description,WorkingDirectory,ActiveState",
+    ]);
+    expect(calls[0]?.env?.XDG_RUNTIME_DIR).toBe("/run/user/1000");
+  });
+
+  test("gives an empty list when no unit is loaded", () => {
+    const { deps } = fakeDeps({ "systemctl show": { stdout: "", exitCode: 0 } });
+    expect(listUnits(deps)).toEqual([]);
+  });
+
+  test("gives null without a user manager, and makes no call", () => {
+    const { deps, calls } = fakeDeps({}, false);
+    expect(listUnits(deps)).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("gives null when the call fails", () => {
+    const { deps } = fakeDeps({ "systemctl show": { stdout: "", exitCode: 1, stderr: "Failed to connect to bus" } });
+    expect(listUnits(deps)).toBeNull();
+  });
+});
+
+describe("orphanedUnits", () => {
+  const loaded = (unit: string, workingDirectory = "/work"): LoadedUnit => ({
+    unit,
+    description: "owner=proj reason=r",
+    workingDirectory,
+    activeState: "active",
+  });
+  const all = () => true;
+
+  test("finds no orphan in a full set of units of one port", () => {
+    const units = ["serve", "proxy", "idle"].map((kind) => loaded(`ocsub-${kind}-4096`));
+    expect(orphanedUnits(units, all)).toEqual([]);
+  });
+
+  test("a holder unit also keeps the helpers of its port", () => {
+    expect(orphanedUnits([loaded("ocsub-holder-4096"), loaded("ocsub-idle-4096")], all)).toEqual([]);
+  });
+
+  test("a unit whose folder is gone is orphaned", () => {
+    const units = [loaded("ocsub-serve-4096", "/gone"), loaded("ocsub-serve-4097", "/work")];
+    const orphans = orphanedUnits(units, (dir) => dir !== "/gone");
+    expect(orphans.map((u) => u.unit)).toEqual(["ocsub-serve-4096"]);
+    expect(orphans[0]?.cause).toBe("its folder /gone is gone");
+  });
+
+  test("an empty folder counts as unknown, not as missing", () => {
+    expect(orphanedUnits([loaded("ocsub-serve-4096", "")], () => false)).toEqual([]);
+  });
+
+  test("a proxy or idle unit without a server unit on its port is orphaned", () => {
+    const units = [loaded("ocsub-serve-4096"), loaded("ocsub-proxy-4097"), loaded("ocsub-idle-4098"), loaded("ocsub-idle-4096")];
+    const orphans = orphanedUnits(units, all);
+    expect(orphans.map((u) => [u.unit, u.cause])).toEqual([
+      ["ocsub-proxy-4097", "no serve or holder unit runs on port 4097"],
+      ["ocsub-idle-4098", "no serve or holder unit runs on port 4098"],
+    ]);
+  });
+
+  test("a unit of another form is orphaned only when its folder is gone", () => {
+    const units = [loaded("ocsub-test-1-2"), loaded("ocsub-idle-proj")];
+    expect(orphanedUnits(units, all)).toEqual([]);
+    expect(orphanedUnits(units, () => false).map((u) => u.unit)).toEqual(["ocsub-test-1-2", "ocsub-idle-proj"]);
+  });
+
+  test("the folder cause comes first and a unit is listed once", () => {
+    const orphans = orphanedUnits([loaded("ocsub-proxy-4096", "/gone")], () => false);
+    expect(orphans).toHaveLength(1);
+    expect(orphans[0]?.cause).toContain("is gone");
   });
 });
 

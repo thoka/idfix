@@ -37,6 +37,9 @@ import {
   watchRunningCheck,
   orphanProcessesFix,
   topMemoryFix,
+  UNITS_FIX,
+  unitsCheck,
+  unitsFix,
   type Check,
   type CheckResult,
   type DoctorDeps,
@@ -47,6 +50,7 @@ import {
   runCheck,
   type DoctorReport,
 } from "../src/doctor";
+import { fakeUnits } from "./fake-units";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import type { BusyCheck, RunningServer } from "../src/server-plugin";
@@ -169,6 +173,8 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
       throw new Error("no process may be killed in this test");
     },
     wait: async () => {},
+    // A user manager with no ocsub unit by default, so units passes.
+    units: fakeUnits({ show: "" }).deps,
     ...overrides,
   };
   return deps;
@@ -716,6 +722,7 @@ describe("global-rules with the real file system", () => {
       mkdirSync(path.join(home, ".claude"), { recursive: true });
       symlinkSync(path.join(shared, "AGENTS.md"), path.join(home, ".claude", "CLAUDE.md"));
       const deps = makeDoctorDeps({ HOME: home } as Record<string, string>, home, {
+        units: fakeUnits({ available: false }).deps,
         home,
         sharedDir: shared,
         sandboxState: () => null,
@@ -2824,6 +2831,137 @@ describe("the process checks", () => {
     expect(signals).toEqual(["42:SIGTERM", "43:SIGTERM"]);
     expect(lines.some((line) => line.startsWith("fixed top-memory:"))).toBe(true);
     expect(lines.some((line) => line.startsWith("fixed orphan-processes:"))).toBe(true);
+  });
+});
+
+describe("units", () => {
+  /** One block of `systemctl --user show` output. */
+  function block(unit: string, owner: string, reason: string, dir: string): string {
+    return `Id=${unit}.service\nDescription=owner=${owner} reason=${reason}\nWorkingDirectory=${dir}\nActiveState=active\n`;
+  }
+
+  /** Fake deps with the given unit list; the folders in `dirs` exist. */
+  function unitDeps(show: string | null, opts: { dirs?: string[]; own?: string; loaded?: string[]; failStop?: string; available?: boolean } = {}) {
+    const fake = fakeUnits({ show, own: opts.own ?? null, loaded: opts.loaded ?? [], failStop: opts.failStop, available: opts.available });
+    const dirs = new Set(opts.dirs ?? ["/work"]);
+    const deps = makeDeps({}, { units: fake.deps, exists: (dir) => dirs.has(dir) });
+    return { deps, fake };
+  }
+
+  const full = [
+    block("ocsub-serve-4096", "proj", "opencode server of up on port 4096", "/work"),
+    block("ocsub-proxy-4096", "proj", "cost proxy for port 4096", "/work"),
+  ].join("\n");
+
+  test("is a slow check after orphan-processes and has a fix", () => {
+    const names = SLOW_CHECKS.map((c) => c.name);
+    expect(names.indexOf("units")).toBe(names.indexOf("orphan-processes") + 1);
+    expect(FAST_CHECKS.map((c) => c.name)).not.toContain("units");
+    expect(ALL_CHECKS.find((c) => c.name === "units")?.fix).toBe(unitsFix);
+  });
+
+  test("skips without a user manager", () => {
+    const { deps } = unitDeps(null, { available: false });
+    expect(unitsCheck(deps)).toMatchObject({ status: "skip", message: "no systemd user manager" });
+  });
+
+  test("skips when the list query fails", () => {
+    const { deps } = unitDeps(null);
+    expect(unitsCheck(deps).status).toBe("skip");
+  });
+
+  test("passes without a unit", () => {
+    const { deps } = unitDeps("");
+    expect(unitsCheck(deps)).toMatchObject({ status: "pass", message: "no ocsub unit is loaded" });
+  });
+
+  test("passes with the count and the owner and reason of each unit", () => {
+    const { deps } = unitDeps(full);
+    expect(unitsCheck(deps)).toMatchObject({
+      status: "pass",
+      message:
+        "2 ocsub unit(s): ocsub-serve-4096 (owner proj: opencode server of up on port 4096), ocsub-proxy-4096 (owner proj: cost proxy for port 4096)",
+    });
+  });
+
+  test("names a unit without a label", () => {
+    const { deps } = unitDeps("Id=ocsub-serve-1.service\nDescription=/usr/bin/sleep 9\nWorkingDirectory=/work\n");
+    expect(unitsCheck(deps).message).toBe("1 ocsub unit(s): ocsub-serve-1 (no owner: /usr/bin/sleep 9)");
+  });
+
+  test("warns with each orphan and its cause", () => {
+    const show = [
+      block("ocsub-serve-4096", "proj", "server", "/gone"),
+      block("ocsub-idle-4097", "proj", "idle watchdog", "/work"),
+      block("ocsub-serve-4098", "proj", "server", "/work"),
+    ].join("\n");
+    const { deps } = unitDeps(show);
+    const check = unitsCheck(deps);
+    expect(check.status).toBe("warn");
+    expect(check.message).toBe(
+      "2 of 3 ocsub unit(s) orphaned: ocsub-serve-4096 (owner proj: server): its folder /gone is gone, " +
+        "ocsub-idle-4097 (owner proj: idle watchdog): no serve or holder unit runs on port 4097",
+    );
+    expect(check.fix).toBe(UNITS_FIX);
+  });
+
+  test("lists at most 10 entries and the rest as a count", () => {
+    const show = Array.from({ length: 12 }, (_, i) => block(`ocsub-serve-${4000 + i}`, "p", "r", "/work")).join("\n");
+    const { deps } = unitDeps(show);
+    const message = unitsCheck(deps).message;
+    expect(message.startsWith("12 ocsub unit(s): ")).toBe(true);
+    expect(message.endsWith(", and 2 more")).toBe(true);
+    expect(message).toContain("ocsub-serve-4009");
+    expect(message).not.toContain("ocsub-serve-4010");
+  });
+
+  test("the fix needs --force and then stops nothing", () => {
+    const { deps, fake } = unitDeps(block("ocsub-idle-4097", "proj", "idle", "/work"), { loaded: ["ocsub-idle-4097"] });
+    const outcome = unitsFix(deps, unitsCheck(deps), { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("--force");
+    expect(fake.calls.filter((c) => c.startsWith("stop"))).toEqual([]);
+  });
+
+  test("the fix with --force lists again and stops each orphan, never the own unit", () => {
+    const show = [
+      block("ocsub-serve-4096", "proj", "server", "/work"),
+      block("ocsub-proxy-4096", "proj", "proxy", "/work"),
+      block("ocsub-idle-4097", "proj", "idle", "/work"),
+      block("ocsub-proxy-4098", "proj", "proxy", "/gone"),
+      block("ocsub-idle-4099", "proj", "idle", "/work"),
+    ].join("\n");
+    const { deps, fake } = unitDeps(show, {
+      own: "ocsub-idle-4099",
+      loaded: ["ocsub-serve-4096", "ocsub-proxy-4096", "ocsub-idle-4097", "ocsub-proxy-4098", "ocsub-idle-4099"],
+    });
+    const outcome = unitsFix(deps, unitsCheck(deps), { force: true });
+    expect(outcome).toEqual({ ok: true, note: "stopped 2 orphaned unit(s)" });
+    expect(fake.calls).toEqual(["list", "list", "stop ocsub-idle-4097", "stop ocsub-proxy-4098"]);
+    expect([...fake.loaded].sort()).toEqual(["ocsub-idle-4099", "ocsub-proxy-4096", "ocsub-serve-4096"]);
+  });
+
+  test("the fix counts a unit that is gone already as no stop and stays ok", () => {
+    const { deps } = unitDeps(block("ocsub-idle-4097", "proj", "idle", "/work"));
+    expect(unitsFix(deps, unitsCheck(deps), { force: true })).toEqual({ ok: true, note: "stopped 0 orphaned unit(s)" });
+  });
+
+  test("the fix fails when a stop fails", () => {
+    const { deps } = unitDeps(block("ocsub-idle-4097", "proj", "idle", "/work"), {
+      loaded: ["ocsub-idle-4097"],
+      failStop: "ocsub-idle-4097",
+    });
+    const outcome = unitsFix(deps, unitsCheck(deps), { force: true });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain("1 failed: ocsub-idle-4097: systemctl cannot stop");
+  });
+
+  test("the fix does nothing without an orphan or without a user manager", () => {
+    const { deps, fake } = unitDeps(full, { loaded: ["ocsub-serve-4096", "ocsub-proxy-4096"] });
+    expect(unitsFix(deps, unitsCheck(deps), { force: true })).toEqual({ ok: true, note: "no orphaned ocsub unit" });
+    expect(fake.calls).toEqual(["list", "list"]);
+    const none = unitDeps(null, { available: false });
+    expect(unitsFix(none.deps, unitsCheck(none.deps), { force: true })).toEqual({ ok: true, note: "no systemd user manager" });
   });
 });
 

@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { parseUnitShow, runFolderOf, unitsToReap, type LoadedUnit } from "./setup";
+import { parseUnitShow, type LoadedUnit } from "../src/units";
+import { runFolderOf, unitsToReap } from "./setup";
 
 // The pure parts of the unit reaper of the test preload (test/setup.ts).
 const TMP = "/tmp";
 const THIS_RUN = "/tmp/oc-sub-test-run-aaaa";
 const OTHER_RUN = "/tmp/oc-sub-test-run-bbbb";
 
-function unit(name: string, description: string, workingDirectory = `${THIS_RUN}/oc-sub-it-x`): LoadedUnit {
-  return { unit: name, description, workingDirectory };
+function unit(name: string, description: string, workingDirectory = `${THIS_RUN}/oc-sub-it-x`, activeState = ""): LoadedUnit {
+  return { unit: name, description, workingDirectory, activeState };
 }
 
 describe("parseUnitShow", () => {

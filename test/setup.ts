@@ -60,7 +60,7 @@ import { afterAll } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { defaultUnitDeps, stopUnit } from "../src/units";
+import { defaultUnitDeps, listUnits, stopUnit, type LoadedUnit } from "../src/units";
 
 export const RUN_PREFIX = "oc-sub-test-run-";
 const STALE_MS = 6 * 60 * 60 * 1000;
@@ -148,34 +148,6 @@ export function unitOfCall(cmd: readonly string[]): string | null {
 /** The owner that the integration tests give their units (`OC_SUB_OWNER`). */
 export const TEST_OWNER = "test";
 
-/** A loaded unit, as `systemctl --user show` gives it. */
-export type LoadedUnit = { unit: string; description: string; workingDirectory: string };
-
-/**
- * The units in the output of `systemctl --user show 'ocsub-*'
- * --property=Id,Description,WorkingDirectory`: one block of `Key=value`
- * lines per unit, and a blank line between two blocks. The unit name has no
- * `.service` suffix. Pure.
- */
-export function parseUnitShow(text: string): LoadedUnit[] {
-  const units: LoadedUnit[] = [];
-  for (const block of text.split(/\n\s*\n/)) {
-    const fields = new Map<string, string>();
-    for (const line of block.split("\n")) {
-      const at = line.indexOf("=");
-      if (at > 0) fields.set(line.slice(0, at), line.slice(at + 1));
-    }
-    const id = fields.get("Id");
-    if (id === undefined || id.length === 0) continue;
-    units.push({
-      unit: id.replace(/\.service$/, ""),
-      description: fields.get("Description") ?? "",
-      workingDirectory: fields.get("WorkingDirectory") ?? "",
-    });
-  }
-  return units;
-}
-
 /** The test run folder (`<tmp>/oc-sub-test-run-*`) that holds `dir`, or null. Pure. */
 export function runFolderOf(dir: string, systemTmp: string): string | null {
   const rel = path.relative(systemTmp, dir);
@@ -223,14 +195,10 @@ function runAlive(runFolder: string): boolean {
  * nothing. A failed `systemctl` call gives a warning and no error.
  */
 export function reapTestUnits(thisRun: string, systemTmp: string): string[] {
-  if (!defaultUnitDeps.available()) return [];
-  const res = defaultUnitDeps.run(
-    ["systemctl", "--user", "show", "ocsub-*", "--property=Id,Description,WorkingDirectory"],
-    { env: defaultUnitDeps.busEnv() },
-  );
-  if (res.exitCode !== 0) return [];
+  const units = listUnits(defaultUnitDeps);
+  if (units === null) return [];
   const stopped: string[] = [];
-  for (const u of unitsToReap(parseUnitShow(res.stdout), systemTmp, (run) => run === thisRun || !runAlive(run))) {
+  for (const u of unitsToReap(units, systemTmp, (run) => run === thisRun || !runAlive(run))) {
     try {
       if (stopUnit(u.unit)) {
         stopped.push(u.unit);

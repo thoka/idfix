@@ -446,3 +446,111 @@ export function stopPortUnits(
   }
   return stopped;
 }
+
+/** A loaded `ocsub-*` unit, as `systemctl --user show` gives it. */
+export type LoadedUnit = {
+  /** The unit name without `.service`. */
+  unit: string;
+  /** The description, normally `owner=<owner> reason=<reason>`. */
+  description: string;
+  /** The working folder of the unit, or "" when the manager gives none. */
+  workingDirectory: string;
+  /** The active state, for example `active` or `failed`, or "" when the query did not ask for it. */
+  activeState: string;
+};
+
+/**
+ * The units in the output of `systemctl --user show 'ocsub-*'
+ * --property=Id,Description,WorkingDirectory,ActiveState`: one block of
+ * `Key=value` lines per unit, and a blank line between two blocks. The unit
+ * name has no `.service` suffix. A missing property gives "". Pure.
+ */
+export function parseUnitShow(text: string): LoadedUnit[] {
+  const units: LoadedUnit[] = [];
+  for (const block of text.split(/\n\s*\n/)) {
+    const fields = new Map<string, string>();
+    for (const line of block.split("\n")) {
+      const at = line.indexOf("=");
+      if (at > 0) fields.set(line.slice(0, at), line.slice(at + 1));
+    }
+    const id = fields.get("Id");
+    if (id === undefined || id.length === 0) continue;
+    units.push({
+      unit: id.replace(/\.service$/, ""),
+      description: fields.get("Description") ?? "",
+      workingDirectory: fields.get("WorkingDirectory") ?? "",
+      activeState: fields.get("ActiveState") ?? "",
+    });
+  }
+  return units;
+}
+
+/**
+ * The owner and the reason in a description that `unitDescription` wrote:
+ * `owner=<owner> reason=<reason>`. The owner is one word, and the reason is
+ * the rest of the line. A description in another form gives the owner "" and
+ * the whole text as the reason. Pure.
+ */
+export function parseUnitLabel(description: string): { owner: string; reason: string } {
+  const match = /^owner=(\S*) reason=(.*)$/s.exec(description);
+  if (match === null) return { owner: "", reason: description };
+  return { owner: match[1] ?? "", reason: match[2] ?? "" };
+}
+
+/** The properties that `listUnits` asks for. */
+export const LIST_UNIT_PROPERTIES = ["Id", "Description", "WorkingDirectory", "ActiveState"] as const;
+
+/**
+ * The loaded `ocsub-*` units, with one call `systemctl --user show
+ * 'ocsub-*'`. Gives null when no user manager answers or the call fails, and
+ * an empty list when no unit is loaded.
+ */
+export function listUnits(deps: UnitDeps = defaultUnitDeps): LoadedUnit[] | null {
+  if (!deps.available()) return null;
+  const res = deps.run(
+    ["systemctl", "--user", "show", `${UNIT_PREFIX}*`, `--property=${LIST_UNIT_PROPERTIES.join(",")}`],
+    { env: deps.busEnv() },
+  );
+  if (res.exitCode !== 0) return null;
+  return parseUnitShow(res.stdout);
+}
+
+/** An orphaned unit and the cause, as short text. */
+export type OrphanedUnit = LoadedUnit & { cause: string };
+
+/**
+ * The orphaned units in a list of loaded units. A unit is orphaned when:
+ *
+ * - its working folder does not exist (a removed worktree or a renamed
+ *   project), or
+ * - it is a helper unit (`proxy` or `idle`, name `ocsub-<kind>-<port>`) of a
+ *   port where no server unit (`serve` or `holder`) is in the list.
+ *
+ * An empty working folder counts as unknown, not as missing. The check does
+ * not ask whether a named owner session still lives. Pure apart from
+ * `exists`.
+ */
+export function orphanedUnits(units: readonly LoadedUnit[], exists: (dir: string) => boolean): OrphanedUnit[] {
+  const portOf = (unit: string, kinds: readonly string[]): string | null => {
+    const match = /^ocsub-([a-z]+)-(\d+)$/.exec(unit);
+    if (match === null || !kinds.includes(match[1] ?? "")) return null;
+    return match[2] ?? null;
+  };
+  const serverPorts = new Set<string>();
+  for (const u of units) {
+    const port = portOf(u.unit, ["serve", "holder"]);
+    if (port !== null) serverPorts.add(port);
+  }
+  const orphans: OrphanedUnit[] = [];
+  for (const u of units) {
+    if (u.workingDirectory.length > 0 && !exists(u.workingDirectory)) {
+      orphans.push({ ...u, cause: `its folder ${u.workingDirectory} is gone` });
+      continue;
+    }
+    const port = portOf(u.unit, ["proxy", "idle"]);
+    if (port !== null && !serverPorts.has(port)) {
+      orphans.push({ ...u, cause: `no serve or holder unit runs on port ${port}` });
+    }
+  }
+  return orphans;
+}

@@ -20,6 +20,7 @@ import { PLUGIN_CONFIG_DIR } from "./up";
 import { LOCK_FILE, lockHolder, watchStateDir, type LockHolder } from "./watch/log";
 import { pluginDataDir, pluginDigest, syncPluginDir } from "./plugin-sync";
 import { idfxVersion, TOOL } from "./protocol";
+import { defaultUnitDeps, listUnits, orphanedUnits, parseUnitLabel, stopUnit, type LoadedUnit, type UnitDeps } from "./units";
 import { busyCheck, busyCheckNote, findRunningServers, restartServer, serverLabel, type BusyCheck, type RunningServer } from "./server-plugin";
 
 /**
@@ -161,6 +162,11 @@ export type DoctorDeps = {
   watchLock: () => LockHolder;
   /** The version of idfx in the `--json` object, see `src/protocol.ts`. */
   toolVersion: () => string;
+  /**
+   * The user manager, for the `units` check: it lists the `ocsub-*` units
+   * and its fix stops the orphaned ones. The tests pass a fake.
+   */
+  units: UnitDeps;
 };
 
 /** One process of the host, as the process checks see it. */
@@ -377,6 +383,7 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     watchLockFile: path.join(watchStateDir(env), LOCK_FILE),
     watchLock: () => lockHolder(watchStateDir(env)),
     toolVersion: idfxVersion,
+    units: defaultUnitDeps,
   };
   return { ...deps, ...overrides };
 }
@@ -1497,6 +1504,78 @@ export async function orphanProcessesFix(deps: DoctorDeps, _result: CheckResult,
   return { ok: true, note: `stopped ${stopped} orphaned process(es), SIGKILL after 5 s for ${killed}` };
 }
 
+/** How many unit entries the `units` message lists. */
+const UNIT_LIST_LIMIT = 10;
+
+/** The hint of the `units` check when it finds an orphaned unit. */
+export const UNITS_FIX = "run oc-sub doctor --fix --force: it stops each orphaned unit";
+
+/** One unit as `<unit> (owner <owner>: <reason>)`, or `<unit> (no owner: <description>)`. Pure. */
+export function unitEntry(u: LoadedUnit): string {
+  const { owner, reason } = parseUnitLabel(u.description);
+  return owner.length > 0 ? `${u.unit} (owner ${owner}: ${reason})` : `${u.unit} (no owner: ${reason})`;
+}
+
+/** At most `UNIT_LIST_LIMIT` entries, joined with ", ", and a note on the rest. Pure. */
+function limitedList(entries: readonly string[]): string {
+  const shown = entries.slice(0, UNIT_LIST_LIMIT).join(", ");
+  const rest = entries.length - UNIT_LIST_LIMIT;
+  return rest > 0 ? `${shown}, and ${rest} more` : shown;
+}
+
+/**
+ * The `units` check: it lists the loaded `ocsub-*` systemd user units with
+ * owner and reason, and warns for each orphaned unit (see `orphanedUnits` in
+ * `src/units.ts`): its folder is gone, or it is a proxy or idle unit of a
+ * port without a serve or holder unit. It skips without a user manager. It
+ * does not ask whether a named owner session still lives.
+ */
+export function unitsCheck(deps: DoctorDeps): CheckResult {
+  const units = listUnits(deps.units);
+  if (units === null) return result("units", "skip", "no systemd user manager");
+  if (units.length === 0) return result("units", "pass", "no ocsub unit is loaded");
+  const orphans = orphanedUnits(units, deps.exists);
+  if (orphans.length === 0) {
+    return result("units", "pass", `${units.length} ocsub unit(s): ${limitedList(units.map(unitEntry))}`);
+  }
+  return result(
+    "units",
+    "warn",
+    `${orphans.length} of ${units.length} ocsub unit(s) orphaned: ${limitedList(orphans.map((u) => `${unitEntry(u)}: ${u.cause}`))}`,
+    UNITS_FIX,
+  );
+}
+
+/**
+ * The fix of `units`: without `--force` nothing runs, because it stops
+ * processes. With `--force` it lists the units again and stops each orphaned
+ * unit with `systemctl --user stop`, never the unit of doctor itself. A unit
+ * that is no longer loaded counts as done. The fix fails when a stop fails.
+ */
+export function unitsFix(deps: DoctorDeps, _result: CheckResult, ctx: { force: boolean }): FixOutcome {
+  if (ctx.force !== true) {
+    return { ok: false, note: "stopping an orphaned unit needs --force. Run oc-sub doctor --fix --force" };
+  }
+  const units = listUnits(deps.units);
+  if (units === null) return { ok: true, note: "no systemd user manager" };
+  const own = deps.units.ownUnit();
+  const orphans = orphanedUnits(units, deps.exists).filter((u) => u.unit !== own);
+  if (orphans.length === 0) return { ok: true, note: "no orphaned ocsub unit" };
+  let stopped = 0;
+  const failed: string[] = [];
+  for (const u of orphans) {
+    try {
+      if (stopUnit(u.unit, deps.units)) stopped++;
+    } catch (error) {
+      failed.push(`${u.unit}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (failed.length > 0) {
+    return { ok: false, note: `stopped ${stopped} orphaned unit(s), ${failed.length} failed: ${limitedList(failed)}` };
+  }
+  return { ok: true, note: `stopped ${stopped} orphaned unit(s)` };
+}
+
 /** The command that installs and starts the watcher as a systemd user service. */
 export const WATCH_SERVICE_FIX =
   "systemctl --user enable --now idfx-watch.service (link the unit contrib/systemd/idfx-watch.service into ~/.config/systemd/user/ first)";
@@ -1544,6 +1623,8 @@ export const SLOW_CHECKS: Check[] = [
   // Last: they scan /proc, and a fix must run after the plugin and sandbox fixes.
   { name: "top-memory", run: topMemoryCheck, fix: topMemoryFix },
   { name: "orphan-processes", run: orphanProcessesCheck, fix: orphanProcessesFix },
+  // After orphan-processes: it asks the user manager, not /proc.
+  { name: "units", run: unitsCheck, fix: unitsFix },
 ];
 
 /** All checks in their fixed order. */

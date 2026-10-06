@@ -31,6 +31,15 @@ export function serveDirsPath(env: Env, port: number): string {
 }
 
 /**
+ * The lock of the server on `port` (`lock.ts`). `oc-sub run` holds it while
+ * it starts a session, and the idle watchdog holds it while it stops the
+ * server. It is a folder, because `proper-lockfile` locks with `mkdir`.
+ */
+export function serveLockPath(env: Env, port: number): string {
+  return path.join(stateDir(env), `serve-${port}.lock`);
+}
+
+/**
  * The plugin digest of the server on `port`: the content digest of the
  * synced plugin folder (`pluginDigest` in `plugin-sync.ts`) at the moment
  * `up` started the server. Both modes write it, because both keep the PID of

@@ -337,7 +337,7 @@ sev: INFO
 reason: NoName, NameOffRule
 --
 type: SessionHandedOff
-true: the session ended a turn, `handover check <folder>` exits with code 0, and `docs/PLAN.md` has a new commit since the last event of this session
+true: the session ended a turn, `handover check <folder>` exits with code 0, and the plan (`PLAN.md` in the plan folder, `handover show --json`) has a new commit since the last event of this session
 sev: INFO
 reason: HandoverCheckPassed
 ```
@@ -347,7 +347,7 @@ reason: HandoverCheckPassed
 - The kind of the wait is in `message`, for example `permission dialog: Bash permission, waits for the user since 12 min`, `input needed, waits for the user since 11 min`, `blocked job: approve the push, waits for the user since 40 min`, or `login needed: Please run /login, waits for the user since 15 min`.
 - The naming rule: the name of a session is its project, or `<project>-<step>`, for example `idfix` or `idfix-36`. The step is not empty. The project is the folder of the main repository, so a session in a worktree of idfix also has the project `idfix`. The name `supervisor` is valid in every folder. A live session without a name gives the reason `NoName`. A live session with another name gives the reason `NameOffRule`, and `message` names the expected form, for example `expected "meta" or "meta-<step>"`. When the session gets a valid name, the condition turns False.
 - At the end of a session, `handover check` runs one time. Exit code 2 (for example a folder outside git) gives no event.
-- `SessionHandedOff` tells that a session ended a step with a clean hand-off. When a session goes from `busy` or `waiting` to `idle` or `ended`, `handover check` runs one time. If it exits with 0, the watcher reads `git log -1 --format=%H -- docs/PLAN.md` in the folder of the session. If that commit differs from `data.planCommit` of the last `SessionHandedOff` event of this session, the watcher writes a True event with the new `data.planCommit`. A session goes `idle` after each turn, also after a question, so the same plan commit never gives a second event, also not after a restart of the watcher. Exit code 1 at an `idle` edge gives no event: a session in the middle of a step is not a failure. `HandoverFailed` still comes only at the end of a session.
+- `SessionHandedOff` tells that a session ended a step with a clean hand-off. When a session goes from `busy` or `waiting` to `idle` or `ended`, `handover check` runs one time. If it exits with 0, the watcher reads the last commit of the plan (`PLAN.md` in the plan folder, `handover show --json`): it runs `handover show --json <folder>` and takes the field `planCommit`. The plan folder is `plan_dir` of `.handover.toml` (default `docs`), and it can be a companion repository, for example a git-ignored clone `.plan/`. The `handover` tool resolves both, so a project with a companion repository also gets the event. A missing tool, a timeout, an exit code other than 0 and 1, or an output without a hex hash in `planCommit` gives no event. If that commit differs from `data.planCommit` of the last `SessionHandedOff` event of this session, the watcher writes a True event with the new `data.planCommit`. A session goes `idle` after each turn, also after a question, so the same plan commit never gives a second event, also not after a restart of the watcher. Exit code 1 at an `idle` edge gives no event: a session in the middle of a step is not a failure. `HandoverFailed` still comes only at the end of a session.
 - `SessionHandedOff` is a one-shot event: it has no False event, also not when the session leaves the list. It does not count as an open condition, and `status --json` does not show it.
 - An API error turns False at the next poll without a new error line, so each new error gives one True event.
 - `message` holds only the waiting text, the error text (at most 200 characters), the first line of `handover check`, a commit hash, or numbers. It never holds a prompt.
@@ -359,7 +359,7 @@ The log is `$XDG_STATE_HOME/idfx/events.jsonl` (default `~/.local/state/idfx/eve
 - `subject`: the session name, else the first 8 characters of the session ID.
 - `sequence`: a number with 20 digits. `id` is the same number without the leading zeros.
 - `severitytext` and `severitynumber`: INFO 9, WARN 13, or ERROR 17.
-- `data`: `condition`, `status`, `reason`, `message`, `lastTransitionTime`, `session`, `cwd`, and `kind`. A `SessionHandedOff` event also has `planCommit`, the full hash of the last commit of `docs/PLAN.md`.
+- `data`: `condition`, `status`, `reason`, `message`, `lastTransitionTime`, `session`, `cwd`, and `kind`. A `SessionHandedOff` event also has `planCommit`, the full hash of the last commit of the plan (`PLAN.md` in the plan folder, `handover show --json`).
  Every 5 minutes a heartbeat event `dv.idfx.watch.heartbeat` shows that the watcher lives.
 
 - Only one watcher runs. The lock file `events.lock` holds its PID. A second watcher exits with code 1. A lock of a process that is gone does not block.

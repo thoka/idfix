@@ -12,7 +12,8 @@
  * the first 8 characters of the session ID.
  *
  * `SessionHandedOff` is a one-shot condition (`ONE_SHOT_CONDITIONS`): each
- * new commit of `docs/PLAN.md` after a clean `handover check` gives one True
+ * new commit of the plan (`PLAN.md` in the plan folder, `handover show
+ * --json`) after a clean `handover check` gives one True
  * event, and the condition never gives a False event. Its record keeps the
  * plan commit, so the same commit gives no second event, also after a
  * restart.
@@ -87,8 +88,6 @@ export const REASON_CLEARED = "Cleared";
 export const REASON_GONE = "SessionGone";
 /** The reason of a True event of `SessionHandedOff`. */
 export const REASON_HANDED_OFF = "HandoverCheckPassed";
-/** The file whose last commit marks a new hand-off. */
-export const PLAN_FILE = "docs/PLAN.md";
 /** The reason of `SessionUnnamed` for a live session without a name. */
 export const REASON_NO_NAME = "NoName";
 /** The reason of `SessionUnnamed` for a live session whose name breaks the naming rule. */
@@ -131,7 +130,7 @@ export type ConditionRecord = {
   subject: string;
   cwd: string;
   kind: string;
-  /** `SessionHandedOff` only: the hash of the last commit of `docs/PLAN.md` at the True event. */
+  /** `SessionHandedOff` only: the hash of the last commit of the plan at the True event. */
   planCommit?: string;
 };
 
@@ -160,9 +159,11 @@ export type HandoverResult = { code: number; firstLine: string | undefined };
 export type HandoverCheck = (cwd: string) => HandoverResult;
 
 /**
- * The hash of the last commit that changed `docs/PLAN.md` in a folder
- * (`git log -1 --format=%H -- docs/PLAN.md`), or undefined when git fails or
- * no commit changed the file.
+ * The hash of the last commit of the plan of a folder (`PLAN.md` in the plan
+ * folder, field `planCommit` of `handover show --json`), or undefined when
+ * the tool fails or no commit changed the plan. The plan folder is
+ * `plan_dir` of `.handover.toml` (default `docs`), and it can be a companion
+ * repository.
  */
 export type PlanCommitReader = (cwd: string) => string | undefined;
 
@@ -367,7 +368,7 @@ const RESTING: ReadonlySet<SessionRowState> = new Set<SessionRowState>(["idle", 
 /**
  * `SessionHandedOff`: at the edge of a session from `busy` or `waiting` to
  * `idle` or `ended`, `handover check` must exit with 0. Then the last commit
- * of `docs/PLAN.md` must differ from `planCommit` of the old record. A
+ * of the plan (`PLAN.md` in the plan folder) must differ from `planCommit` of the old record. A
  * session that the watcher sees for the first time has the edge when it
  * rests and its last activity is after the watermark (it ended a turn while
  * the watcher was down). Exit code 1 here gives no event: a session that
@@ -405,7 +406,7 @@ function handedOff(
  * of `CONDITION_TYPES`. `check` runs `handover check`. It runs at most once
  * per session and poll, and only at the edge to `ended` (`HandoverFailed`)
  * or from `busy` or `waiting` to `idle` or `ended` (`SessionHandedOff`).
- * `planCommit` reads the last commit of `docs/PLAN.md`, only after a clean
+ * `planCommit` reads the last commit of the plan, only after a clean
  * check at such an edge. The old state is not changed.
  */
 export function evaluate(

@@ -88,7 +88,7 @@ export type ConditionData = {
   session: string;
   cwd: string;
   kind: string;
-  /** `SessionHandedOff` only: the hash of the last commit of `docs/PLAN.md`. */
+  /** `SessionHandedOff` only: the hash of the last commit of the plan (`PLAN.md` in the plan folder). */
   planCommit?: string;
 };
 

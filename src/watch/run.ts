@@ -25,7 +25,6 @@ import {
   evaluate,
   openCount,
   restoreState,
-  PLAN_FILE,
   type HandoverCheck,
   type HandoverResult,
   type PlanCommitReader,
@@ -65,7 +64,7 @@ export type WatchAllDeps = {
   /** The Claude rows at a time, see `claudeRowsLoader`. */
   loadRows: ClaudeRowsLoader;
   handoverCheck: HandoverCheck;
-  /** The last commit of `docs/PLAN.md` in a folder, for `SessionHandedOff`. */
+  /** The last commit of the plan (`PLAN.md` in the plan folder) of a folder, for `SessionHandedOff`. */
   planCommit: PlanCommitReader;
   /** Waits for `ms`, or less when the signal aborts. */
   sleep(ms: number, signal: AbortSignal | undefined): Promise<void>;
@@ -193,7 +192,7 @@ export function nodeHandoverCheck(cwd: string): HandoverResult {
 /**
  * The git variables that point git at one repository (`git rev-parse
  * --local-env-vars`, for example `GIT_DIR`). They are removed from the
- * environment of `git log`, so a watcher that a git hook started still
+ * environment of `handover show`, so a watcher that a git hook started still
  * reads the folder of the session (lesson `git-hook-env-leaks-into-other-repos`).
  */
 export function gitLocalEnvVars(): string[] {
@@ -203,9 +202,29 @@ export function gitLocalEnvVars(): string[] {
 }
 
 /**
- * The real plan commit reader: `git -C <cwd> log -1 --format=%H --
- * docs/PLAN.md`. A failure, a timeout, or an empty output gives undefined,
- * which writes no event.
+ * The field `planCommit` of the output of `handover show --json`: the full
+ * hash of the last commit of the plan, or undefined when the output is not
+ * a JSON object, the field is null or missing, or it is not a hex hash.
+ */
+export function parsePlanCommit(stdout: string): string | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(stdout);
+  } catch {
+    return undefined;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const hash = (value as { planCommit?: unknown }).planCommit;
+  return typeof hash === "string" && /^[0-9a-f]{7,64}$/.test(hash) ? hash : undefined;
+}
+
+/**
+ * The real plan commit reader: `handover show --json <cwd>` through the
+ * `handover` tool of meta, field `planCommit`. The tool reads `plan_dir` of
+ * `.handover.toml` and finds a companion plan repository, so idfix does not
+ * repeat that logic. Exit code 0 or 1 gives the parsed output. Another exit
+ * code, a missing tool, a timeout, or a bad output gives undefined, which
+ * writes no event.
  */
 export function nodePlanCommit(env: Record<string, string | undefined> = process.env): PlanCommitReader {
   let clean: NodeJS.ProcessEnv | undefined;
@@ -214,14 +233,13 @@ export function nodePlanCommit(env: Record<string, string | undefined> = process
       clean = { ...env } as NodeJS.ProcessEnv;
       for (const name of gitLocalEnvVars()) delete clean[name];
     }
-    const result = spawnSync("git", ["-C", cwd, "log", "-1", "--format=%H", "--", PLAN_FILE], {
+    const result = spawnSync("handover", ["show", "--json", cwd], {
       encoding: "utf8",
-      timeout: GIT_TIMEOUT_MS,
+      timeout: HANDOVER_TIMEOUT_MS,
       env: clean,
     });
-    if (result.error !== undefined || result.status !== 0) return undefined;
-    const hash = (result.stdout ?? "").trim();
-    return /^[0-9a-f]{7,64}$/.test(hash) ? hash : undefined;
+    if (result.error !== undefined || (result.status !== 0 && result.status !== 1)) return undefined;
+    return parsePlanCommit(result.stdout ?? "");
   };
 }
 

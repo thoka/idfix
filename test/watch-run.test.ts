@@ -7,7 +7,7 @@ import { createClaudeSource, loadClaudeRows, type ClaudeRow } from "../src/claud
 import type { HandoverCheck, PlanCommitReader } from "../src/watch/conditions";
 import { acquireLock, EVENTS_FILE, type LockProcess } from "../src/watch/log";
 import type { Notifier } from "../src/watch/wake";
-import { HEARTBEAT_MS, humanLine, nodePlanCommit, POLL_MS, runWatchAll, toWatchRow, type WatchAllDeps } from "../src/watch/run";
+import { HEARTBEAT_MS, humanLine, nodePlanCommit, parsePlanCommit, POLL_MS, runWatchAll, toWatchRow, type WatchAllDeps } from "../src/watch/run";
 import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, MINUTE, NOW, S1, S2, S5, statLine } from "./claude-fixture";
 import { claudeRowOf } from "./top-rows";
 
@@ -443,39 +443,112 @@ describe("the command line", () => {
   });
 });
 
+describe("parsePlanCommit", () => {
+  const hash = "24e69b18e1666a40683c6139cfd1c8e507d064e5";
+
+  test("takes planCommit from the output of handover show --json", () => {
+    const out = JSON.stringify({ nextStep: null, waitsFor: null, newContext: false, planCommit: hash, planDir: ".plan" });
+    expect(parsePlanCommit(`${out}\n`)).toBe(hash);
+  });
+
+  test("a null or missing planCommit gives undefined", () => {
+    expect(parsePlanCommit(JSON.stringify({ planCommit: null, planDir: "docs" }))).toBeUndefined();
+    expect(parsePlanCommit(JSON.stringify({ planDir: "docs" }))).toBeUndefined();
+  });
+
+  test("bad JSON, an empty output, or a value that is not an object gives undefined", () => {
+    expect(parsePlanCommit("")).toBeUndefined();
+    expect(parsePlanCommit("handover: plan missing")).toBeUndefined();
+    expect(parsePlanCommit("{")).toBeUndefined();
+    expect(parsePlanCommit(JSON.stringify(hash))).toBeUndefined();
+    expect(parsePlanCommit("null")).toBeUndefined();
+    expect(parsePlanCommit(JSON.stringify([hash]))).toBeUndefined();
+  });
+
+  test("a planCommit that is not a hex hash gives undefined", () => {
+    for (const bad of ["", "HEAD", "abc", "24E69B18E1666A40", "zz69b18e16", 42, true]) {
+      expect(parsePlanCommit(JSON.stringify({ planCommit: bad }))).toBeUndefined();
+    }
+  });
+});
+
 describe("nodePlanCommit", () => {
-  /** git with a clean environment: no variable of `git rev-parse --local-env-vars` from a hook leaks in. */
-  function git(cwd: string, ...args: string[]): string {
-    const env: Record<string, string | undefined> = { ...process.env };
+  /**
+   * The environment without the variables of `git rev-parse --local-env-vars`
+   * from a hook. The preload moves XDG_STATE_HOME, so mise no longer knows
+   * the trusted config files above this checkout, and the mise shim of
+   * python3 that runs `handover` fails. MISE_TRUSTED_CONFIG_PATHS trusts them
+   * again, for this child only.
+   */
+  function cleanEnv(): Record<string, string> {
+    const ancestors: string[] = [];
+    for (let dir = ROOT; ; dir = path.dirname(dir)) {
+      ancestors.push(dir);
+      if (path.dirname(dir) === dir) break;
+    }
+    const env: Record<string, string | undefined> = { ...process.env, MISE_TRUSTED_CONFIG_PATHS: ancestors.join(":") };
     const local = Bun.spawnSync(["git", "rev-parse", "--local-env-vars"], { env: env as Record<string, string> });
     for (const name of local.stdout.toString().split("\n")) if (name.trim().length > 0) delete env[name.trim()];
+    return env as Record<string, string>;
+  }
+
+  /** git with a clean environment: no variable of `git rev-parse --local-env-vars` from a hook leaks in. */
+  function git(cwd: string, ...args: string[]): string {
     const result = Bun.spawnSync(["git", "-C", cwd, ...args], {
       env: {
-        ...env,
+        ...cleanEnv(),
         GIT_AUTHOR_NAME: "t",
         GIT_AUTHOR_EMAIL: "t@example.invalid",
         GIT_COMMITTER_NAME: "t",
         GIT_COMMITTER_EMAIL: "t@example.invalid",
-      } as Record<string, string>,
+      },
     });
     if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
     return result.stdout.toString().trim();
   }
 
-  test("reads the last commit of docs/PLAN.md, not of another file; no plan or no repository gives undefined", () => {
+  function commitAll(repo: string, message: string): string {
+    git(repo, "add", ".");
+    git(repo, "commit", "-q", "-m", message);
+    return git(repo, "rev-parse", "HEAD");
+  }
+
+  const PLAN = "# Plan\n\n## Hand-off\n\nNext step: 1. Do it.\nWaits for: nothing\nNew context: no. Small.\n";
+  const hasHandover = Bun.which("handover") !== null;
+
+  test.skipIf(!hasHandover)("reads the last commit of docs/PLAN.md by default, not of another file", () => {
     const repo = mkdtempSync(path.join(tmpdir(), "idfx-plan-commit-"));
     git(repo, "init", "-q");
-    const read = nodePlanCommit();
+    const read = nodePlanCommit(cleanEnv());
     expect(read(repo)).toBeUndefined();
     mkdirSync(path.join(repo, "docs"));
-    writeFileSync(path.join(repo, "docs", "PLAN.md"), "# Plan\n");
-    git(repo, "add", ".");
-    git(repo, "commit", "-q", "-m", "plan");
-    const planHash = git(repo, "rev-parse", "HEAD");
+    writeFileSync(path.join(repo, "docs", "PLAN.md"), PLAN);
+    const planHash = commitAll(repo, "plan");
     writeFileSync(path.join(repo, "other.txt"), "x\n");
-    git(repo, "add", ".");
-    git(repo, "commit", "-q", "-m", "other");
+    commitAll(repo, "other");
     expect(read(repo)).toBe(planHash);
     expect(read(mkdtempSync(path.join(tmpdir(), "idfx-no-repo-")))).toBeUndefined();
+  });
+
+  test.skipIf(!hasHandover)("with plan_dir = \".plan\", reads the last plan commit of the companion repository", () => {
+    const repo = mkdtempSync(path.join(tmpdir(), "idfx-plan-companion-"));
+    git(repo, "init", "-q");
+    writeFileSync(path.join(repo, ".handover.toml"), 'plan_dir = ".plan"\n');
+    writeFileSync(path.join(repo, ".gitignore"), ".plan/\n");
+    // A docs/PLAN.md in the main checkout must not count.
+    mkdirSync(path.join(repo, "docs"));
+    writeFileSync(path.join(repo, "docs", "PLAN.md"), PLAN);
+    const mainHash = commitAll(repo, "main");
+    const read = nodePlanCommit(cleanEnv());
+    expect(read(repo)).toBeUndefined();
+    const plan = path.join(repo, ".plan");
+    mkdirSync(plan);
+    git(plan, "init", "-q");
+    writeFileSync(path.join(plan, "PLAN.md"), PLAN);
+    const planHash = commitAll(plan, "plan");
+    writeFileSync(path.join(plan, "notes.md"), "x\n");
+    commitAll(plan, "notes");
+    expect(planHash).not.toBe(mainHash);
+    expect(read(repo)).toBe(planHash);
   });
 });

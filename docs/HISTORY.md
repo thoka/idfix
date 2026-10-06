@@ -5,6 +5,17 @@ This file holds the plan as it stood on 2026-10-01, with every finished step and
 
 ## Steps after 2026-10-01
 
+## Step 25g: Claude Code sessions in `top`, `status`, and `idfx watch --all`
+
+Done on 2026-10-06. The grill with the user settled the sources and the display (Q1 to Q7). Q6: the `¢` column shows the API price of the tokens in gray. Q7: an ended session shows for 60 minutes, a live session always, and a waiting session always and first. Designs: [claude-sessions-top.md](design/claude-sessions-top.md) and [idfx-watch.md](design/idfx-watch.md). Decisions on the open points: `docs/review-queue.md`, entries of 2026-10-06.
+
+- 25g.1: `src/claude/` reads the session, job, and transcript files of Claude Code by polling, and the cached LiteLLM price file. `status` lists Claude sessions.
+- 25g.2: Claude rows in `top --once` and the live view, gray API price, `ctx` share of the window, waiting first, ended last.
+- 25g.3: the key `o` attaches a background session in a new tmux pane, or switches to the pane of an interactive session.
+- W1: `idfx watch --all [--json] [--once]` writes six conditions per session as CloudEvents (protocol version 0 of `~/dv/meta/docs/research/tool-protocol.md`) to `$XDG_STATE_HOME/idfx/events.jsonl`.
+- W2: the watcher wakes the supervisor with `notify-session`, only on a new wait for the user or a new API error, batched, with a baseline on the first run. The unit file is `contrib/systemd/idfx-watch.service`, and arch-helper installs it. `doctor` has the check `watch-running`.
+- W3: `status --json` and `doctor --json` print one object in the protocol form.
+
 ## Step 30 follow-up: the integration tests leak cost-proxy loops
 
 Step 30 is done (see HISTORY). Its dry run on 2026-10-04 found 3 `sh -c "while :; do bun .../cost-proxy.js ...; done"` loops in deleted `/tmp/oc-sub-it-*` folders, with their parent `/init`. The teardown of `test/integration.test.ts` stops the server, but not the restart loop of the cost proxy. Find the start of the loop, stop its process group in the teardown, and add a test that no process of the test outlives it.

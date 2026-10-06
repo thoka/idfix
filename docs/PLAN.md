@@ -2,19 +2,13 @@
 
 ## Hand-off
 
-2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5). The supervisor renamed the repository and the folder to idfix. This session added the scan task for the old name (step 24, sub-step 4b) on the request of the supervisor (brief `~/inbox/idfix-rename-scan-task.md`).
+2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5). Step 25g is done and merged into `alpha` (see HISTORY): Claude sessions in `status`, `top`, and the key `o`, and `idfx watch --all` with the wake-up of the supervisor and the protocol form of `status --json` and `doctor --json`. Step 24/4b and the cost-proxy leak fix are done too. The user renamed this session to `idfix`.
 
-State: the temp folder leak of the tests is fixed (900d438). `test/watch-guards.test.ts` is flaky under load (see Later). The Telegram work is stopped by the user, step 32 is dropped, and step 23 is paused (see Direction). A grill with the user on step 25g, "idfx top shows Claude sessions", is in progress. Settled: `top` and `status` show Claude sessions, interactive and background, from `claude agents --json`, `~/.claude/sessions/<pid>.json`, `~/.claude/jobs/<id>/state.json`, and the transcripts, by polling (no proxy, no hooks). Subagents show as children. The folder rule of `top` applies, and `--all` also shows sessions outside `~/dv`. The `o` key runs `claude attach <id>` for a background session and switches to the tmux pane of an interactive one. The facts on the data sources: [claude-session-sources.md](research/claude-session-sources.md).
+State: the suite has 1244 tests. `test/integration.test.ts` fails about one run in three, also alone and at low load: `restart` reports "opencode serve (PID ...) did not stop within 15s". `test/watch-guards.test.ts` times out under load. The watcher does not run yet: arch-helper must install `contrib/systemd/idfx-watch.service` (outbox task, imported by the supervisor or pending). The user has not yet tried the key `o` in real tmux.
 
-Answered by the user on 2026-10-06, both as recommended. Q6: the `¢` column shows the API price of the tokens in gray, and `status --json` names the field `apiEquivalentUsd`. Q7: an ended session shows for 60 minutes (`src/top/load.ts:30`), a live session always shows, and a waiting session always shows and sorts to the top. The grill of the read side of 25g is complete.
+Next step: find the root cause of the flaky `restart` in `test/integration.test.ts` (opencode serve does not stop within 15s), with the skill `diagnosing-bugs`, in a subagent worktree. Then step 35 (pre-push hook), because a flaky suite blocks a pre-push hook. Then step 36 (worker names in the starts of idfix).
 
-Done on 2026-10-06: step 24/4b (a84e47f), part 25g.1 (Claude sessions in `status`), part 25g.2 (Claude rows in `top`), part 25g.3 (the key `o` for Claude rows, not tried in real tmux yet), watch W1 (`idfx watch --all` writes condition events) and W2 (it wakes the supervisor, unit file in `contrib/systemd/`, `doctor` check `watch-running`, outbox tasks for arch-helper and for `notify-session`), and the step 30 follow-up (the cost-proxy loop leak, see HISTORY). The suite passes: 1228 tests. Under heavy load of other projects, `test/watch-guards.test.ts` and `test/integration.test.ts` can time out. They pass alone.
-
-Running: a subagent in `.worktrees/25g-w3-protocol` builds W3 of [idfx-watch.md](design/idfx-watch.md): `status --json` and `doctor --json` in the object form of the protocol.
-
-Next step: review and merge W3. Then step 25g ends: move it to HISTORY and pick the next step with the supervisor (candidates: step 35 pre-push hook, step 36 worker names in idfix starts). If this session ended before the merge, check `git log alpha..feature/25g-w3-protocol`.
-
-Scope from the supervisor, 2026-10-05 (grill in `~/dv/meta/docs/interviews/2026-10-05-watch-protocol.md`, meta plan step 22). The first slice has two parts. First, 25g as settled: Claude sessions in `top` and `status --all --json`, read only. Each row also shows the model and the context size, its share of the model window, and the last activity. The context size is the input plus cache tokens of the last request. Second, `idfx watch --all`: a deterministic systemd user service without an LLM. It writes one JSON line per event to a log in `~/.local/state/` and wakes the session `supervisor` with `notify-session`. It has five events, with starting thresholds. A session waits for the user over 10 minutes. A session is busy, but its transcript did not grow for 15 minutes. The context is over 50% of the window. A session ended, and `handover check` fails in its project. The transcript shows an API, usage limit, or authentication error. The event format is provisional, because meta researches it now. All tools follow one protocol: `doctor [--json] [--fix]`, `status --json`, and `watch`. Later, not now: `idfx restart <name>`, and the hand-off as a markgraf type. Do not rename the repository yet. Report to the supervisor at each merge.
+Next context: this context is long. A new context is better for the next step, because it has a new topic.
 
 Open tasks of the user: section "Open tasks of the user" below.
 
@@ -166,7 +160,7 @@ Next, one session each (details in section 4 of the design):
 3. 25d: the host proxy as a systemd user unit, with a `doctor` check and fix.
 4. 25e: an outbox task, so that `claude-glm` points at the host proxy.
 5. 25f: the driver interface, with the `opencode` driver around the existing code.
-6. 25g: the read side of the Claude drivers, so that `top` shows Claude sessions.
+6. 25g: done on 2026-10-06, see HISTORY.
 
 ### 12. Step 27: the researcher loads the skill simple-english
 

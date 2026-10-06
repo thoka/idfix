@@ -2,6 +2,12 @@
 
 Decisions that a session made from the canon of values. Newest entry first.
 
+## 2026-10-06: open points of W3
+
+- Decision: a doctor check with `error` counts as `warn` at the top level, as the health-check draft defines `warn`. A doctor that cannot run exits with 2 and prints nothing on stdout. The version is the short git sha until `package.json` gets a version from release-please (meta plan step 16c).
+- Values: use the standard (the health-check draft). Deliver first.
+- Conditions: protocol version 0. If the Gemini check or the meta conformance test asks for a JSON object on exit 2, this is open again.
+
 ## 2026-10-06: technical choices of W2 of `idfx watch --all`
 
 - Decision: the watcher calls `notify-session --name supervisor -- none "<text>"`, because `notify-session` needs a session ID first, and `none` matches no session, so the name decides. A failed notice is dropped after a warning, because the log holds its events and a retry would pile up while no supervisor runs. The notice ends with the path of the log. The unit file sets `PATH` (`~/.local/bin`, `~/dv/meta/dv/bin`, the mise shims, `/usr/local/bin`, `/usr/bin`), because a user service gets only `/usr/local/bin:/usr/bin` and would find neither `notify-session` nor `handover`. A `waitingFor` text outside the four fixed texts counts as the title of a permission dialog (`PermissionDialog`), because the research names no other values. The `watch-running` check is a slow check (only `doctor` runs it).

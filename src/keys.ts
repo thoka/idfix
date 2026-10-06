@@ -48,7 +48,7 @@ export function projectKeyPath(project: string, env: Env): string {
 
 /**
  * The optional DeepInfra project key file `<configHome>/<project>/deepinfra.key`.
- * Only when it exists does `up` set DeepInfra up (step 16).
+ * Only when it exists does `up` set DeepInfra up.
  */
 export function deepinfraKeyPath(project: string, env: Env): string {
   return path.join(configHome(env), project, "deepinfra.key");

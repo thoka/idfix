@@ -14,7 +14,7 @@
  * - The first poll of a new log (no event at start) is the baseline. Its
  *   edges go to the log, but give no notice.
  *
- * The notice goes out through `notify-session --name supervisor` of meta. The
+ * The notice goes out through `notify-session --name supervisor`. The
  * log is the record; the notice is only a wake-up. A failed notice gives a
  * warning on stderr, and the watcher goes on. Its edges are dropped, because
  * the log holds them.
@@ -53,7 +53,7 @@ export const NOTICE_KIND_LENGTH = 80;
 
 /**
  * One edge in short form, for example
- * `meta waits for user (permission dialog: Bash permission)`. A wait shows
+ * `proj-a waits for user (permission dialog: Bash permission)`. A wait shows
  * its kind from the message, not only its reason `input_required` or
  * `auth_required`, so the supervisor sees what to do.
  */
@@ -73,7 +73,7 @@ export function shortEdge(edge: Pick<Edge, "condition" | "subject" | "reason" | 
 /**
  * The notice text: the count, the first three edges in short form, and the
  * path of the log. For example
- * `idfx watch: 2 events: meta waits for user (permission dialog: Bash permission), grata API error (UsageLimit). Log: /home/u/.local/state/idfx/events.jsonl`.
+ * `idfx watch: 2 events: proj-a waits for user (permission dialog: Bash permission), proj-b API error (UsageLimit). Log: /home/user/.local/state/idfx/events.jsonl`.
  */
 export function noticeText(edges: readonly Edge[], logFile: string): string {
   const named = edges.slice(0, NOTICE_NAMED).map(shortEdge);
@@ -115,7 +115,7 @@ export function createWaker(notify: Notifier, logFile: string, stderr: (line: st
 /**
  * The real notifier: `notify-session --name supervisor -- <text>` from the
  * PATH. Without a session ID, `notify-session` finds the live session by
- * its name (meta af773a4). The `--` keeps a text that starts with `-` from
+ * its name. The `--` keeps a text that starts with `-` from
  * being read as an option.
  */
 export function nodeNotifier(env: Record<string, string | undefined> = process.env): Notifier {

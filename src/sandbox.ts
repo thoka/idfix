@@ -1,7 +1,7 @@
 /**
  * Sandbox mode: run `opencode serve` inside a Docker Sandbox (`sbx`) per
  * project, instead of on the host. See `.plan/research/sandbox.md` and the
- * design of step 9a in `.plan/PLAN.md`. Every `sbx` call goes through a
+ * sandbox design in the plan. Every `sbx` call goes through a
  * runner, so the tests replace it with a fake and never call the real `sbx`.
  */
 import { accessSync, constants as fsConstants, existsSync, openSync, closeSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -103,9 +103,8 @@ export const SANDBOX_BASH_AGENTS = ["coder", "researcher"] as const;
  * is the boundary.
  *
  * With `proxyUrl`, it also points the openrouter provider at the cost
- * proxy that runs next to the server in the sandbox (step 11c). With
- * `deepinfraProxyUrl`, it points the deepinfra provider at the same proxy
- * (step 16).
+ * proxy that runs next to the server in the sandbox. With
+ * `deepinfraProxyUrl`, it points the deepinfra provider at the same proxy.
  */
 export function sandboxConfigContent(sharedDir: string, proxyUrl?: string, deepinfraProxyUrl?: string): string {
   const agents: Record<string, { permission: { bash: string; external_directory: string } }> = {};
@@ -443,7 +442,7 @@ export const SANDBOX_HOME = "/home/agent";
  * sandbox PATH. `upSandbox` (the holder command) and `worktree` (the setup
  * command) use it, so both find the mise tools of the project.
  *
- * `miseBinDir` is optional: the bin folder of the sandbox mise (step 12). It
+ * `miseBinDir` is optional: the bin folder of the sandbox mise. It
  * sits after the tool folders of the project and before the sandbox PATH, so
  * a version of the project `mise.toml` wins over the sandbox mise, and the
  * sandbox mise wins over a tool of the sandbox image.
@@ -488,7 +487,7 @@ export function parseBinPaths(stdout: string): string | null {
 
 /**
  * The extra `-e` entries of the holder command that give the sandbox mise
- * its settings (step 12): the read-only shared installs of the host, trust
+ * its settings: the read-only shared installs of the host, trust
  * for the `mise.toml` of the project (and, with the shared trust folder
  * semantics of mise, of its worktrees), and writable state folders in the
  * home of the sandbox user, so mise never writes to the read-only mount.
@@ -522,7 +521,7 @@ export function sandboxMiseEnv(installsDir: string, projectRoot: string): string
  * read-only), and takes the bin folder from `mise bin-paths`. The bin folder
  * must lie inside the installs folder. On any failure it prints a warning
  * and returns undefined, so mise inside the sandbox stays a comfort, not a
- * must (step 12). `upSandbox` and `worktree` both use it, so they never
+ * must. `upSandbox` and `worktree` both use it, so they never
  * differ.
  */
 export function sandboxMiseBinDir(runner: Runner, env: Env, root: string): string | undefined {
@@ -785,7 +784,7 @@ export function deepinfraSecretCommand(bin: string, name: string, keyPath: strin
 /**
  * Whether the line of `sbx ls` for the sandbox lists all the mounts. The
  * WORKSPACE column lists the mounts separated by `, `, each with its
- * read-only suffix such as `/home/u/plugin/opencode:ro`.
+ * read-only suffix such as `/home/user/plugin/opencode:ro`.
  */
 export function listsMounts(stdout: string, name: string, mounts: readonly string[]): boolean {
   return stdout.split("\n").some((line) => {
@@ -813,13 +812,13 @@ export function missingMounts(stdout: string, name: string, required: readonly s
 
 /**
  * The error message for a sandbox that lacks mounts. When the synced plugin
- * folder is among them, it says why: step 15c moved the plugin mount to that
+ * folder is among them, it says why: newer versions moved the plugin mount to that
  * folder, so a sandbox created before has the old plugin mount only.
  */
 export function missingMountsMessage(name: string, missing: readonly string[], pluginDir: string): string {
   let message = `the sandbox ${name} lacks the mounts ${missing.join(", ")}`;
   if (missing.includes(`${pluginDir}:ro`)) {
-    message += ` (the synced plugin folder ${pluginDir} is the plugin mount since oc-sub step 15c, so a sandbox created before it needs a recreate)`;
+    message += ` (the synced plugin folder ${pluginDir} is the plugin mount of newer oc-sub versions, so an older sandbox needs a recreate)`;
   }
   return message;
 }
@@ -1077,9 +1076,9 @@ export function isInsideRoot(dir: string, root: string): boolean {
  *
  * A mount inside the project root stops the clone silently: `sbx create`
  * exits 0, but the sandbox then holds only the mount point at the root and
- * no clone (run-isolation.md section 9). This hits the project `meta` (the
- * shared agents folder `<root>/agents`). The plugin folder is the synced
- * folder of `pluginDataDir` since step 15c, which lies outside every project
+ * no clone (run-isolation.md section 9). This hits the repository that
+ * holds the shared agents folder. The plugin folder is the synced
+ * folder of `pluginDataDir`, which lies outside every project
  * root, so it is always mounted. The clone holds the tracked files
  * of such a folder at the same absolute path, so the paths in the
  * configuration still work.
@@ -1106,7 +1105,7 @@ export function sandboxMountPlan(
 /**
  * The mounts that a project sandbox must have, in the `WORKSPACE` column form
  * of `sbx ls`: the `mounted` folders of `sandboxMountPlan`, each with `:ro`.
- * `upSandbox` and the health check of step 13 use the same list, so the two
+ * `upSandbox` and the health check use the same list, so the two
  * never differ.
  */
 export function requiredSandboxMounts(root: string, pluginDir: string, installsDir: string, sharedDir: string): string[] {
@@ -1210,7 +1209,7 @@ export async function upSandbox(
   const installsDir = miseInstallsDir(env);
   const toolPath = projectToolPath(deps.runner([mise, "env", "-C", root, "--json"], { cwd: root }).stdout, installsDir);
 
-  // mise inside the sandbox is a comfort, not a must (step 12): an agent can
+  // mise inside the sandbox is a comfort, not a must: an agent can
   // run `mise x <tool>@latest -- <cmd>` there and install a tool it needs.
   // See `sandboxMiseBinDir`.
   const miseBinDir = sandboxMiseBinDir(deps.runner, env, root);
@@ -1221,8 +1220,8 @@ export async function upSandbox(
   // bun installed for any project (the project itself may have no bun in its
   // `mise.toml`). Without any bun, up stops: the proxy is on by default, and
   // `--no-cost-proxy` turns it off for the case that it breaks runs.
-  // The server and the proxy load the synced copy of the plugin folder
-  // (step 15c). It lies outside every project root, so it is always mounted.
+  // The server and the proxy load the synced copy of the plugin folder.
+  // It lies outside every project root, so it is always mounted.
   const pluginDir = pluginDataDir(env);
   const pluginSource = deps.pluginSource ?? PLUGIN_CONFIG_DIR;
   const bundlePath = proxyBundleIn(pluginDir);
@@ -1362,7 +1361,7 @@ export async function upSandbox(
     }
   }
 
-  // DeepInfra (step 16): the key stays on the host as a custom secret of
+  // DeepInfra: the key stays on the host as a custom secret of
   // this sandbox, like the openrouter one. The model calls are POST
   // requests, and the sandbox allows only GET and HEAD to every host, so the
   // DeepInfra API gets its own allow rule. Both run once per sandbox: when

@@ -117,7 +117,7 @@ describe("plugin routing", () => {
   test("pins GLM to the approved providers without fallback", () => {
     const config = JSON.parse(readFileSync(path.join(PLUGIN_DIR, "opencode", "opencode.json"), "utf8"));
     const routing = config.provider.openrouter.models["z-ai/glm-5.3-flash"].options.provider;
-    // Z.AI first, then the providers that passed the probe of step 10
+    // Z.AI first, then the providers that passed the probe
     // (.plan/research/provider-probe.md, "Probe result"). No other provider.
     expect(routing.order).toEqual(["z-ai", "parasail", "together"]);
     expect(routing.only).toEqual(routing.order);

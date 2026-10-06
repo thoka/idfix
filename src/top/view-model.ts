@@ -1,14 +1,14 @@
 /**
- * The pure logic of the live view of `oc-sub top` (step 8g): the selected
+ * The pure logic of the live view of `oc-sub top`: the selected
  * row, the visible part of the table, the lines of the detail pane, and the
  * footer. No Ink and no React here, so every rule has a unit test; the Ink
  * components of `src/top/view.tsx` only lay these lines out.
  *
- * A Claude Code session (step 25g.2) has its own detail: the kind and the
+ * A Claude Code session has its own detail: the kind and the
  * model, what it waits for, and its subagents. It has no log lines yet.
  * Its API price does not count in the cost total of the footer, because it
  * is not a real charge. The footer names it on its own. The key `o` on a
- * Claude session (step 25g.3) attaches or switches to it in tmux.
+ * Claude session attaches or switches to it in tmux.
  */
 import type { ClaudeRow } from "../claude/rows";
 import { formatRequest } from "../requests";
@@ -164,7 +164,7 @@ export function attachCommand(sessionId: string): string {
 }
 
 /**
- * What the key `o` does on a Claude session (step 25g.3): run a tmux
+ * What the key `o` does on a Claude session: run a tmux
  * command, or only show a note in the footer. A `run` action carries the
  * footer text for each result: `opened` when tmux succeeds, `outside` when
  * `top` runs outside tmux, and `fallback`, which follows a tmux error.

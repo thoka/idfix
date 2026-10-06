@@ -1,4 +1,4 @@
-/** Tests for the pure column functions of `oc-sub top` (step 8f). */
+/** Tests for the pure column functions of `oc-sub top`. */
 import { describe, expect, test } from "bun:test";
 import stringWidth from "string-width";
 import {
@@ -172,7 +172,7 @@ describe("padTable", () => {
   });
 });
 
-describe("Claude cells (step 25g.2)", () => {
+describe("Claude cells", () => {
   test("a Claude session shows the icon ✳, a subagent the icon of its agent", () => {
     expect(rowIcon(claudeRowOf("s"))).toBe("✳ ");
     expect(stringWidth(rowIcon(claudeRowOf("s")))).toBe(ICON_WIDTH);

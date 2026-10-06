@@ -1,5 +1,5 @@
 /**
- * The server and proxy logs keep the lines of older starts (step 16d): the
+ * The server and proxy logs keep the lines of older starts: the
  * logs open in append mode, every start writes one marker line first, and a
  * failed start prints only the output of this start (after the last marker).
  */

@@ -1,5 +1,5 @@
 /**
- * The Claude Code sessions in `oc-sub top` (step 25g.2, design
+ * The Claude Code sessions in `oc-sub top` (design
  * .plan/design/claude-sessions-top.md, sections 5 to 7). The rows come from
  * `src/claude/rows.ts`. This module only puts them next to the opencode
  * rows of the model of `src/top/model.ts`:

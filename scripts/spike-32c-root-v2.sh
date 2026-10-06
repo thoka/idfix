@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Spike of step 32c (.plan/design/runner-job-sandbox.md): an sbx daemon for
-# the user gh-runner next to the live runner of arch-helper fix 50, a check
+# Spike (.plan/design/runner-job-sandbox.md): an sbx daemon for
+# the user gh-runner next to the live runner of the existing runner setup, a check
 # run, and an undo.
 #
-# Fix 50 owns the user gh-runner, its rootless Docker, /usr/local/lib/gh-runner,
+# The runner setup owns the user gh-runner, its rootless Docker, /usr/local/lib/gh-runner,
 # /etc/gh-runner, /etc/credstore/claude-oauth.token, and the gh-runner@
 # instances. This script never changes, stops, or deletes them. It adds only
 # /usr/local/lib/gh-runner/sbx, /etc/gh-runner/spike.env,
@@ -17,11 +17,11 @@
 #   sudo bash scripts/spike-32c-root-v2.sh apply DOCKER_USER
 #       Reads two lines on stdin: the Claude token, then the Docker PAT.
 #       An empty line keeps the stored value, so an empty first line keeps
-#       the Claude token of fix 50. Values are never printed.
+#       the Claude token of the runner setup. Values are never printed.
 #   sudo bash scripts/spike-32c-root-v2.sh check
 #       Runs the spike checks as gh-runner.
 #   sudo bash scripts/spike-32c-root-v2.sh undo
-#       Removes only what apply added. Fix 50 keeps working.
+#       Removes only what apply added. The runner setup keeps working.
 #
 # Idempotent: apply and undo can run again. Every run appends its output and
 # exit code to ~/.local/state/user-steps/spike-32c.log of the sudo caller.
@@ -42,7 +42,7 @@ DAEMON_UNIT=gh-runner-sbx.service
 LOGIN_UNIT=gh-runner-sbx-login.service
 SPIKE_SANDBOX=spike32c
 # sbx state folders in the home of gh-runner. Not ~/.docker and not
-# ~/.local/share/docker: these belong to the rootless Docker of fix 50.
+# ~/.local/share/docker: these belong to the rootless Docker of the runner setup.
 SBX_STATE_DIRS=(.config/com.docker.sandboxes .config/sandboxes .local/state/sandboxes .local/share/sandboxes .cache/sandboxes .sbx)
 STEP_USER=${SUDO_USER:-root}
 STEP_HOME=$(getent passwd "$STEP_USER" | cut -d: -f6)
@@ -89,12 +89,12 @@ apply() {
   local src=${SBX_SRC:-/home/${SUDO_USER:-toka}/.local/share/mise/installs/github-docker-sbx-releases/$SBX_VERSION}
   [ -x "$src/sbx" ] || die "no sbx $SBX_VERSION in $src (set SBX_SRC)"
 
-  # Fix 50 makes the user with linger, so /run/user/<uid> exists.
-  [ -n "$RUNNER_HOME" ] || die "no user $RUNNER, apply arch-helper fix 50 first"
+  # The runner setup makes the user with linger, so /run/user/<uid> exists.
+  [ -n "$RUNNER_HOME" ] || die "no user $RUNNER, apply the runner setup first"
   [ "$(loginctl show-user "$RUNNER" -p Linger --value 2>/dev/null)" = yes ] ||
-    die "$RUNNER has no linger, check arch-helper fix 50"
+    die "$RUNNER has no linger, check the runner setup"
 
-  # sbx in a root-owned folder, because /home/toka is not readable for gh-runner.
+  # sbx in a root-owned folder, because the home folder of the sudo caller is not readable for gh-runner.
   if [ "$("$SBX" version 2>/dev/null | grep -o "$SBX_VERSION" | head -1)" != "$SBX_VERSION" ]; then
     PREFIX="$SBX_PREFIX" "$src/install.sh" >/dev/null
     echo "installed sbx $SBX_VERSION to $SBX_PREFIX"
@@ -221,7 +221,7 @@ check() {
   as_runner "$SBX" rm --force "$SPIKE_SANDBOX" && echo "removed"
   as_runner "$SBX" policy ls 2>&1 | grep -c "$SPIKE_SANDBOX" | sed 's/^/rules left for the sandbox: /' || true
 
-  step "9 fix 50 still works: rootless Docker and the runner instances"
+  step "9 the runner setup still works: rootless Docker and the runner instances"
   runuser -u "$RUNNER" -- env XDG_RUNTIME_DIR="/run/user/$(id -u "$RUNNER")" \
     DOCKER_HOST="unix:///run/user/$(id -u "$RUNNER")/docker.sock" \
     docker info --format 'rootless docker {{.ServerVersion}}' </dev/null || echo "FAIL rootless docker"
@@ -246,7 +246,7 @@ undo() {
   fi
   rm -rf "$SBX_PREFIX"
   rm -f "$DOCKER_PAT_FILE" "$ENV_FILE"
-  echo "undo done. Fix 50 is unchanged: gh-runner@ instances:"
+  echo "undo done. The runner setup is unchanged: gh-runner@ instances:"
   systemctl list-units --no-legend 'gh-runner@*' || true
 }
 

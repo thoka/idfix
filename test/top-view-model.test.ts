@@ -1,4 +1,4 @@
-/** Tests for the pure logic of the live view of `oc-sub top` (step 8g). */
+/** Tests for the pure logic of the live view of `oc-sub top`. */
 import { describe, expect, test } from "bun:test";
 import type { SessionDetail, SessionRow } from "../src/top/model";
 import type { QuestionRequest } from "../src/requests";
@@ -208,7 +208,7 @@ describe("tmux pane", () => {
   });
 });
 
-describe("Claude sessions (step 25g.2)", () => {
+describe("Claude sessions", () => {
   test("the detail shows the kind, the model, the pending text, and the subagents, but no log", () => {
     const child = claudeRowOf("agent-a1b2c3", { agent: "Explore", title: "find files", state: "idle" });
     const parent = claudeRowOf("sess-000001", {
@@ -247,7 +247,7 @@ describe("Claude sessions (step 25g.2)", () => {
   });
 });
 
-describe("the key o on Claude sessions (step 25g.3)", () => {
+describe("the key o on Claude sessions", () => {
   const size = { columns: 200, rows: 50 };
 
   test("claudeAttachArgv splits like the opencode attach and runs claude attach with the job ID", () => {

@@ -1,4 +1,4 @@
-/** Tests for the merge of the Claude rows into the model of `top` (step 25g.2). */
+/** Tests for the merge of the Claude rows into the model of `top`. */
 import { describe, expect, test } from "bun:test";
 import { claudeDetail, scopeClaudeRows, sortTopRows, withClaudeRows } from "../src/top/claude";
 import { createTopModel, type TopModel } from "../src/top/model";

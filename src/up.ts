@@ -34,7 +34,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * stays correct when `up` runs in any project.
  *
  * No server uses this folder directly. `up` syncs it into the fixed folder
- * `pluginDataDir(env)` first, and the server loads that copy (step 15c).
+ * `pluginDataDir(env)` first, and the server loads that copy.
  */
 export const PLUGIN_CONFIG_DIR = path.resolve(import.meta.dir, "..", "opencode");
 
@@ -57,7 +57,7 @@ export const PLUGIN_CONFIG_DIR = path.resolve(import.meta.dir, "..", "opencode")
  * entries are then not added.
  *
  * With `deepinfraKey`, the serve environment sets `DEEPINFRA_API_KEY`, so the
- * built-in deepinfra provider of opencode has its key (step 16).
+ * built-in deepinfra provider of opencode has its key.
  *
  * opencode offers the websearch tool to an OpenRouter model only when
  * `OPENCODE_ENABLE_EXA` is truthy. The researcher needs it to read web pages.
@@ -228,7 +228,7 @@ export async function up(
     return 1;
   }
 
-  // DeepInfra is optional (step 16): `DEEPINFRA_API_KEY` of the environment
+  // DeepInfra is optional: `DEEPINFRA_API_KEY` of the environment
   // first, then the DeepInfra key file of the project of the current folder.
   // Without either, nothing changes.
   const deepinfraKey = hostDeepInfraKey(

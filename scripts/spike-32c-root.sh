@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spike of step 32c (.plan/design/runner-job-sandbox.md): the root setup for
+# Spike (.plan/design/runner-job-sandbox.md): the root setup for
 # the user gh-runner and its own sbx daemon, a check run, and an undo.
 #
 #   sudo scripts/spike-32c-root.sh apply DOCKER_USER
@@ -75,7 +75,7 @@ apply() {
   done
   loginctl enable-linger "$RUNNER"
 
-  # sbx in a root-owned folder, because /home/toka is not readable for gh-runner.
+  # sbx in a root-owned folder, because the home folder of the sudo caller is not readable for gh-runner.
   if [ "$("$SBX" version 2>/dev/null | grep -o "$SBX_VERSION" | head -1)" != "$SBX_VERSION" ]; then
     PREFIX="$SBX_PREFIX" "$src/install.sh" >/dev/null
     echo "installed sbx $SBX_VERSION to $SBX_PREFIX"

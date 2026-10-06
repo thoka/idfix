@@ -5,7 +5,7 @@
  * repository sets `plan_dir = ".plan"`, a git-ignored clone of a private
  * companion repository.
  *
- * The rules follow `read_plan_dir` of `bin/plandir.py` in meta, so both
+ * The rules follow the `handover` tool, so both
  * tools read the same folder: no file or no key gives `docs`; a bad TOML, a
  * value that is not a non-empty string, an absolute path, a path with `..`
  * or a backslash, or the project root itself gives `docs` plus a problem.

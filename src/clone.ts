@@ -102,8 +102,8 @@ export const HOST_REMOTE = "host";
 
 /**
  * The base branches that `oc-sub worktree` tries without `--base`, in this
- * order. `alpha` holds the finished features; a repository without it, like
- * meta, works on `main` (step 19).
+ * order. `alpha` holds the finished features; a repository without it
+ * works on `main`.
  */
 export const DEFAULT_BASES = ["alpha", "main", "master"] as const;
 
@@ -183,7 +183,7 @@ export async function worktree(
   }
 
   // The base branch must exist on the host. Without `--base`, take the first
-  // of DEFAULT_BASES that exists: a repository like meta has only `main`.
+  // of DEFAULT_BASES that exists: a repository can have only `main`.
   const hasBase = (branch: string) =>
     sbxGit("rev-parse", "--verify", "--quiet", `refs/remotes/${HOST_REMOTE}/${branch}`).exitCode === 0;
   let base: string;

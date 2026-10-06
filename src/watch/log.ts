@@ -2,7 +2,7 @@
  * The event log of `idfx watch --all`: `$XDG_STATE_HOME/idfx/events.jsonl`
  * (default `~/.local/state/idfx/events.jsonl`). Design:
  * .plan/design/idfx-watch.md, section 4. The envelope follows section 6 of
- * the meta report `docs/research/tool-protocol.md` (version 0).
+ * the tool protocol, version 0.
  *
  * - One writer. The lock file `events.lock` holds the PID and the process
  *   start time of the watcher. It is created with `O_EXCL`, so only one
@@ -64,7 +64,7 @@ export function watchStateDir(env: Record<string, string | undefined>, home: str
 /**
  * The event type of each condition: `dv.idfx.session.<condition in kebab
  * case>`. `SessionWaitsForUser` uses `dv.idfx.session.waiting`, the type of
- * tool protocol v0 (meta `docs/research/tool-protocol.md`, section 6). The
+ * tool protocol, version 0, section 6. The
  * restore of the state reads `data.condition`, not the type, so an old log
  * with `waits-for-user` still restores.
  */

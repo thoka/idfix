@@ -442,7 +442,7 @@ describe("top", () => {
   });
 });
 
-describe("top --once with Claude sessions (step 25g.2)", () => {
+describe("top --once with Claude sessions", () => {
   const claudeRows = () => [
     claudeRowOf("sess-in-0001", { directory: HOST_DIR, title: "host claude", state: "waiting", waitingFor: "approve Bash", startTimeMs: Date.now() - MINUTE }),
     claudeRowOf("sess-out-0002", { directory: "/elsewhere", title: "other claude", startTimeMs: Date.now() - MINUTE }),

@@ -452,7 +452,7 @@ describe("sandbox-mounts", () => {
     expect(check?.fix).toContain("sbx rm --force oc-sub-repo");
   });
 
-  test("names the synced plugin mount that a sandbox from before step 15c lacks", () => {
+  test("names the synced plugin mount that an older sandbox lacks", () => {
     // An old sandbox mounts the plugin folder of the oc-sub checkout, not the synced folder.
     const old = `NAME STATUS WORKSPACE\noc-sub-repo running /repo, /plugin/opencode:ro, /home/user/.local/share/mise/installs:ro, /home/user/src/meta/agents:ro\n`;
     const deps = makeDeps(
@@ -465,7 +465,7 @@ describe("sandbox-mounts", () => {
     const check = byName(results(deps, SLOW_CHECKS), "sandbox-mounts");
     expect(check?.status).toBe("fail");
     expect(check?.message).toBe(
-      `the sandbox oc-sub-repo lacks the mounts ${PLUGIN_DIR}:ro (the synced plugin folder ${PLUGIN_DIR} is the plugin mount since oc-sub step 15c, so a sandbox created before it needs a recreate)`,
+      `the sandbox oc-sub-repo lacks the mounts ${PLUGIN_DIR}:ro (the synced plugin folder ${PLUGIN_DIR} is the plugin mount of newer oc-sub versions, so an older sandbox needs a recreate)`,
     );
     expect(check?.fix).toBe(sandboxRecreateFix("oc-sub-repo"));
   });
@@ -1388,10 +1388,10 @@ describe("server-plugin", () => {
     expect(result?.message).toBe("the sandbox server of /repo :18768 started with other plugin content than the synced folder holds");
   });
 
-  test("warns for a server without a plugin record and names step 15c", () => {
+  test("warns for a server without a plugin record and names the older oc-sub", () => {
     const result = check(makeDeps({}, { pluginDigest: digests("sha256:a", "sha256:a"), runningServers: () => [host(null)] }));
     expect(result?.status).toBe("warn");
-    expect(result?.message).toContain("host server :8767 has no plugin record (started before oc-sub step 15c)");
+    expect(result?.message).toContain("host server :8767 has no plugin record (started by an older oc-sub)");
   });
 
   test("the fix syncs the folder and restarts only the servers with other content", async () => {
@@ -1528,7 +1528,7 @@ describe("parseWorktrees", () => {
   });
 });
 
-describe("the sandbox-mounts fix (step 15d)", () => {
+describe("the sandbox-mounts fix", () => {
   const MOUNTS = requiredSandboxMounts("/repo", PLUGIN_DIR, "/home/user/.local/share/mise/installs", "/home/user/src/meta/agents").join(", ");
   const LS_OK = `NAME STATUS WORKSPACE\noc-sub-repo running /repo, ${MOUNTS}\n`;
   const LS_MISSING = `NAME STATUS WORKSPACE\noc-sub-repo running /repo\n`;
@@ -2185,7 +2185,7 @@ describe("miseToolVersion", () => {
   });
 });
 
-describe("deepinfra-key check (step 16)", () => {
+describe("deepinfra-key check", () => {
   test("skips without the key file", () => {
     const check = byName(results(makeDeps(), SLOW_CHECKS), "deepinfra-key");
     expect(check?.status).toBe("skip");
@@ -2593,7 +2593,7 @@ describe("doctor --renovate --json keeps stdout pure JSON", () => {
   });
 });
 
-describe("the process checks (step 30)", () => {
+describe("the process checks", () => {
   /** A process record for the fake scan. */
   function proc(overrides: Partial<ProcessInfo> = {}): ProcessInfo {
     return { pid: 100, ppid: 1, uid: 1000, rssBytes: 100 * 1024 * 1024, args: ["/bin/sleep", "10"], cwd: "/repo", ...overrides };

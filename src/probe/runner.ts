@@ -1,5 +1,5 @@
 /**
- * The probe runner (PLAN.md step 10d): one probe run per provider and run
+ * The probe runner: one probe run per provider and run
  * number, strictly one run at a time, so the real-cost delta of the project
  * key belongs to exactly one run.
  *

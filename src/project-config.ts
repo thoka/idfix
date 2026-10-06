@@ -1,6 +1,6 @@
 /**
  * The per-project configuration of oc-sub: the file `.opencode/oc-sub.json`
- * in the project root (step 8i). It holds two settings: the `shortName`
+ * in the project root. It holds two settings: the `shortName`
  * that the project column of `oc-sub top` shows, and the `setup` shell
  * command that `oc-sub worktree` runs inside a new run worktree. Without
  * the file, or with an invalid one, there is no setting; nothing fails.

@@ -32,7 +32,7 @@ const ROOT = "/repo";
 const NAME = "oc-sub-test";
 const STATE: SandboxState = { name: NAME, root: ROOT, port: 18768 };
 
-/** The version and bin folder that the faked host mise reports (step 12). */
+/** The version and bin folder that the faked host mise reports. */
 const MISE_VERSION = "2026.10.1";
 const MISE_BIN_DIR = "/home/user/.local/share/mise/installs/aqua-jdx-mise/2026.10.1/mise/bin";
 

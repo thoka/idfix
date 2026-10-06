@@ -143,7 +143,7 @@ describe("formatTopTable", () => {
   });
 });
 
-describe("Claude rows in the snapshot (step 25g.2)", () => {
+describe("Claude rows in the snapshot", () => {
   const claude = (overrides: Partial<TopTableRow> & { sessionId: string }): TopTableRow =>
     row({ agent: "", driver: "claude", costKind: "apiEquivalent", cost: 0.43, ...overrides });
 

@@ -10,7 +10,7 @@
  * that is down is skipped. A server that rejects the password or fails
  * prints `warning: <url>: <message>` to stderr and is skipped.
  *
- * The Claude Code sessions (step 25g.2) come from `src/claude/rows.ts` and
+ * The Claude Code sessions come from `src/claude/rows.ts` and
  * join the opencode rows through `withClaudeRows` of `src/top/claude.ts`.
  * The same folder rule and `--all` apply. They show also when no opencode
  * server answers.

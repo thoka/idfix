@@ -3,9 +3,9 @@
  * renders, on the real start path from a folder outside the repository.
  *
  * The development build of React keeps data of every render, so a long `top`
- * leaked gigabytes (step 29d). Bun picks its JSX transform, and React picks
+ * leaked gigabytes. Bun picks its JSX transform, and React picks
  * its build, from `NODE_ENV` when the process starts. So `bin/oc-sub` must
- * set `NODE_ENV`, and nothing may change it later (step 29e).
+ * set `NODE_ENV`, and nothing may change it later.
  *
  * Each test runs the real `bin/oc-sub` in a temp folder, with a fake `bun`
  * first on the PATH. The fake answers `--version` with the real bun. For the

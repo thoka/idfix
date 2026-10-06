@@ -3,11 +3,11 @@
  * one row per session. No UI, no network, no clock: the caller passes
  * `nowMs` with every call, and the events come in as plain SDK objects.
  *
- * Data flow. Step 8d (data fetch and `top --once`) seeds the model once per
+ * Data flow. The data fetch (also of `top --once`) seeds the model once per
  * server with `seed` from the REST data (session, status map, messages,
  * pending requests) and then feeds every `{ directory, payload }` of
  * `GET /global/event` into `apply`. A timer calls `tick` for the stall
- * check, and the view of step 8e reads `rows` and `session`. `session` has
+ * check, and the view reads `rows` and `session`. `session` has
  * no `nowMs` of its own; it reuses the last `nowMs` that `apply`, `tick`,
  * or `rows` received.
  *

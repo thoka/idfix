@@ -508,7 +508,7 @@ describe("top live", () => {
   });
 });
 
-describe("top live with Claude sessions (step 25g.2)", () => {
+describe("top live with Claude sessions", () => {
   const DEAD_URL = "http://127.0.0.1:9";
 
   test("the tick polls the Claude source and the rows follow it", async () => {

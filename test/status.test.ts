@@ -1064,7 +1064,7 @@ describe("Claude sessions in status", () => {
         },
         expect.objectContaining({ type: "SessionWaitsForUser", reason: "input_required", subject: "blocked-job", session: S5 }),
         expect.objectContaining({ type: "SessionStalled", reason: "NoTranscriptGrowth", subject: "bg-worker", session: S2 }),
-        // The fixture name "bg-worker" in the folder w2 breaks the naming rule (step 36).
+        // The fixture name "bg-worker" in the folder w2 breaks the naming rule.
         expect.objectContaining({ type: "SessionUnnamed", reason: "NameOffRule", message: 'expected "w2" or "w2-<step>"', session: S2 }),
       ]);
       expect((out.items as Array<{ id: string }>).map((item) => item.id)).toEqual([S1, S5, S2, S7]);

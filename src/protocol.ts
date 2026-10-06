@@ -1,7 +1,6 @@
 /**
- * The common fields of the tool protocol (version 0, meta report
- * `docs/research/tool-protocol.md`, section 6) for `status --json` and
- * `doctor --json`: the tool name and its version.
+ * The common fields of the tool protocol (version 0, section 6)
+ * for `status --json` and `doctor --json`: the tool name and its version.
  *
  * The version comes from the first of these sources that gives one:
  * 1. the `version` field of `package.json` in the idfix checkout,

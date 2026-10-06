@@ -1,8 +1,8 @@
 /**
  * The live event stream of `oc-sub top`: it loads the start data of every
- * known server (the seed of step 8d) and then follows one
- * `GET /global/event` subscription per server. No Ink here; the Ink view of
- * step 8f renders the model that this module keeps up to date.
+ * known server (the seed) and then follows one
+ * `GET /global/event` subscription per server. No Ink here; the Ink view renders the model
+ * that this module keeps up to date.
  *
  * Data flow. At the start, every server that answers is seeded with
  * `seedServer` from `src/top/load.ts`, and one SSE subscription opens. The
@@ -33,7 +33,7 @@
  * a new sandbox appears; when it answers, it is seeded and its stream
  * opens.
  *
- * Claude Code sessions (step 25g.2). One Claude loader (`claudeRowsLoader`
+ * Claude Code sessions. One Claude loader (`claudeRowsLoader`
  * of `src/claude/rows.ts`) lives as long as the live view. It reads the
  * Claude files once at the start and again on every tick. It keeps a byte
  * offset per transcript, so a tick reads only the new lines, and it loads

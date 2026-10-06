@@ -1,4 +1,4 @@
-// Step 8b smoke test: does Ink 7.1.1 work under bun 1.4.2?
+// Smoke test: does Ink 7.1.1 work under bun 1.4.2?
 // Renders a counter, handles j/k/q through useInput, shows the window size.
 import { render, Text, Box, useApp, useInput, useWindowSize } from "ink";
 import React, { useState } from "react";

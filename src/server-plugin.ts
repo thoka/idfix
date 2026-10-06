@@ -1,6 +1,6 @@
 /**
  * The running servers of `oc-sub` and their plugin digests, for the
- * `server-plugin` check of `doctor` (step 15c), and the restart of an idle
+ * `server-plugin` check of `doctor`, and the restart of an idle
  * server as its fix. The check itself lives in `doctor.ts`; this module holds
  * the parts that reach processes and servers, so the tests replace them.
  */
@@ -33,7 +33,7 @@ export type RunningServer = {
   root?: string;
   /** The sandbox name of a sandbox server, such as `oc-sub-<project>`. */
   name?: string;
-  /** The recorded plugin digest, or null when the server has no record (started before step 15c). */
+  /** The recorded plugin digest, or null when the server has no record (started by an older oc-sub). */
   digest: string | null;
 };
 
@@ -197,7 +197,7 @@ export async function restartServer(
 ): Promise<RestartOutcome> {
   const label = serverLabel(server);
   // `upSandbox` refuses a sandbox that lacks a required mount, for example
-  // one created before step 15c without the synced plugin mount. A stop
+  // an older one without the synced plugin mount. A stop
   // would then leave the server down, so such a sandbox is never stopped.
   if (server.mode === "sandbox") {
     const name = server.name ?? "";
@@ -205,7 +205,7 @@ export async function restartServer(
     if (missing.length > 0) {
       return {
         ok: false,
-        note: `${label} is not restarted, because its sandbox lacks the mounts ${missing.join(", ")} and up would not start it again. The sandbox needs a recreate first (step 15d): ${sandboxRecreateFix(name)}`,
+        note: `${label} is not restarted, because its sandbox lacks the mounts ${missing.join(", ")} and up would not start it again. The sandbox needs a recreate first: ${sandboxRecreateFix(name)}`,
       };
     }
   }

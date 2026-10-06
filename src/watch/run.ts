@@ -175,7 +175,7 @@ export async function runWatchAll(options: { json: boolean; once: boolean }, dep
 }
 
 /**
- * `handover check <cwd>` through the `handover` tool of meta. The first
+ * `handover check <cwd>` through the `handover` tool. The first
  * non-empty output line is the first problem. A missing tool or a timeout
  * gives code -1, which changes no condition.
  */
@@ -193,7 +193,7 @@ export function nodeHandoverCheck(cwd: string): HandoverResult {
  * The git variables that point git at one repository (`git rev-parse
  * --local-env-vars`, for example `GIT_DIR`). They are removed from the
  * environment of `handover show`, so a watcher that a git hook started still
- * reads the folder of the session (lesson `git-hook-env-leaks-into-other-repos`).
+ * reads the folder of the session.
  */
 export function gitLocalEnvVars(): string[] {
   const result = spawnSync("git", ["rev-parse", "--local-env-vars"], { encoding: "utf8", timeout: GIT_TIMEOUT_MS });
@@ -220,7 +220,7 @@ export function parsePlanCommit(stdout: string): string | undefined {
 
 /**
  * The real plan commit reader: `handover show --json <cwd>` through the
- * `handover` tool of meta, field `planCommit`. The tool reads `plan_dir` of
+ * `handover` tool, field `planCommit`. The tool reads `plan_dir` of
  * `.handover.toml` and finds a companion plan repository, so idfix does not
  * repeat that logic. Exit code 0 or 1 gives the parsed output. Another exit
  * code, a missing tool, a timeout, or a bad output gives undefined, which

@@ -349,7 +349,7 @@ describe("down stops the cost proxy", () => {
   });
 });
 
-describe("up syncs the plugin folder (step 15c)", () => {
+describe("up syncs the plugin folder", () => {
   test("the server and the proxy load the synced folder, and the state records its digest", async () => {
     const env = makeEnv();
     let configDir: string | undefined;
@@ -421,7 +421,7 @@ describe("--no-cost-proxy parsing", () => {
   });
 });
 
-describe("DeepInfra in host mode (step 16)", () => {
+describe("DeepInfra in host mode", () => {
   /** Runs host up and returns the env that the server got. */
   async function serveEnvOf(
     env: Record<string, string>,

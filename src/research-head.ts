@@ -1,12 +1,12 @@
 /**
- * The recheck head of a research report (PLAN.md step 17b). A report can
+ * The recheck head of a research report. A report can
  * start with a YAML front matter that holds three keys:
  *
  *   ---
  *   checked: 2026-10-01
  *   recheck: 1m
  *   decisions:
- *     - "PLAN step 16: DeepInfra as a direct provider"
+ *     - "Use DeepInfra as a direct provider"
  *   ---
  *
  * `checked` is the date of the last check of the facts (YYYY-MM-DD). It is
@@ -14,8 +14,8 @@
  * `2m`, counted from `checked`), a date, or any other text as a trigger,
  * for example "on new sbx release" (a trigger is never due by date).
  * `decisions` is a list of short texts that name the plan items that rest
- * on the facts. The format is the one of the meta research index
- * (`~/dv/meta/README.md`), so both tools compute the same due dates.
+ * on the facts. The format follows a shared research index format, so
+ * both tools compute the same due dates.
  *
  * The project has no YAML parser in `package.json`, so this module parses
  * only these three keys by hand. It is not a general YAML parser.
@@ -42,7 +42,7 @@ export type RecheckState =
   | { kind: "invalid"; problem: string };
 
 /**
- * The named intervals of the first head format. The meta index reads them
+ * The named intervals of the first head format. The research index reads them
  * as triggers, so they never become due there. The check marks them as
  * invalid and names the replacement.
  */

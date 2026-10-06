@@ -13,11 +13,11 @@ function report(head: string): string {
 
 describe("parseResearchHead", () => {
   test("parses checked, recheck, and decisions", () => {
-    const head = parseResearchHead(report('checked: 2026-10-01\nrecheck: monthly\ndecisions:\n  - "PLAN step 16: DeepInfra"\n  - "the provider order"'));
+    const head = parseResearchHead(report('checked: 2026-10-01\nrecheck: monthly\ndecisions:\n  - "step 16: DeepInfra"\n  - "the provider order"'));
     expect(head).toEqual({
       checked: "2026-10-01",
       recheck: "monthly",
-      decisions: ["PLAN step 16: DeepInfra", "the provider order"],
+      decisions: ["step 16: DeepInfra", "the provider order"],
     });
   });
 

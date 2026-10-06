@@ -1,5 +1,5 @@
 /**
- * The Ink view of `oc-sub top` (step 8g): a full-screen live table of the
+ * The Ink view of `oc-sub top`: a full-screen live table of the
  * sessions, a detail pane for the selected session, and a footer. The view
  * is thin: the data comes from `startLive` (`src/top/live.ts`), and the
  * rules (selection, detail lines, footer text) come from the pure functions
@@ -14,9 +14,9 @@
  * pane (without tmux it shows a note), `a` switches between the scope of `--dir`
  * and `--all`, and `q` or Ctrl-C quit.
  *
- * Claude Code sessions (step 25g.2) show in the same table. An ended row is
+ * Claude Code sessions show in the same table. An ended row is
  * gray, and the API price of a Claude session is gray, because it is not a
- * real charge. The key `o` on a Claude row (step 25g.3) opens a background
+ * real charge. The key `o` on a Claude row opens a background
  * session with `claude attach` in a new tmux pane, or switches the tmux
  * client to the pane of an interactive session. Otherwise the footer says
  * why nothing opens.

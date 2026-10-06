@@ -92,7 +92,7 @@ export const REASON_HANDED_OFF = "HandoverCheckPassed";
 export const REASON_NO_NAME = "NoName";
 /** The reason of `SessionUnnamed` for a live session whose name breaks the naming rule. */
 export const REASON_NAME_OFF_RULE = "NameOffRule";
-/** The name that is valid in every folder (`~/dv/AGENTS.md`). */
+/** The name that is valid in every folder. */
 export const SUPERVISOR_NAME = "supervisor";
 
 /** The fields of one Claude row that the conditions read. `ClaudeRow` of `src/claude/rows.ts` has them all. */
@@ -198,7 +198,7 @@ export const INPUT_REQUIRED = "input_required";
 /** The reason of a wait for a login or a new key (A2A `TASK_STATE_AUTH_REQUIRED`). */
 export const AUTH_REQUIRED = "auth_required";
 
-/** The two reasons of `SessionWaitsForUser`, from tool protocol v0 (meta `docs/research/tool-protocol.md`, section 1). */
+/** The two reasons of `SessionWaitsForUser`, from the tool protocol, version 0, section 1. */
 export type WaitReason = typeof INPUT_REQUIRED | typeof AUTH_REQUIRED;
 
 /**
@@ -314,7 +314,7 @@ function apiError(row: WatchRow, seen: SeenSession | undefined, watermarkMs: num
 }
 
 /**
- * The naming rule of the user (idfix plan, step 36): a session name is its
+ * The naming rule: a session name is its
  * project, or `<project>-<step>` with a non-empty step. The name
  * `supervisor` is valid in every folder.
  */

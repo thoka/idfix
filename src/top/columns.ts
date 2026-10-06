@@ -1,5 +1,5 @@
 /**
- * The columns of `oc-sub top` (step 8f), shared by the `--once` table and
+ * The columns of `oc-sub top`, shared by the `--once` table and
  * the live view. All functions here are pure: no file system, no git, no
  * clock.
  *
@@ -15,13 +15,13 @@
  *   name; the caller injects the name resolver (see
  *   `makeProjectNameResolver`). Without `--all` the cell shows only the
  *   worktree, because all rows belong to one project.
- * - The table is compact (step 25): the agent icon in front of the CODE,
+ * - The table is compact: the agent icon in front of the CODE,
  *   short times, the cost in cents, and one space between columns. The
  *   state has no column: the live view colors the `id` cell. Only a plain
  *   text table without color gets a `state` column (`stateColumn`). Icons
  *   are two cells wide, so the padding measures the display width. The
  *   `id` header starts after the icon, so that it lines up with the codes.
- * - A Claude Code session (step 25g.2) shows the icon `✳`. Its cost is the
+ * - A Claude Code session shows the icon `✳`. Its cost is the
  *   API price of its tokens, not a real charge: the views show the cell in
  *   gray, and a table without color marks it with `~`. A session without a
  *   known price has an empty cost cell. The `ctx` cell adds the share of

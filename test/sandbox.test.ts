@@ -123,7 +123,7 @@ const MISE_VERSION = "2026.10.1";
 
 /**
  * A fake runner whose answers come from a per-subcommand script. By default
- * it answers `mise --version` with a version, so the mise steps of step 12
+ * it answers `mise --version` with a version, so the mise steps
  * run in every sandbox test; `miseVersion: null` simulates a host mise
  * whose version cannot be read.
  */
@@ -1487,7 +1487,7 @@ describe("upSandbox", () => {
     expect(calls.map((call) => call.cmd)).toContainEqual(cloneCheckCommand("sbx", "oc-sub-test", root));
   });
 
-  test("an existing sandbox without the synced plugin mount stops up and names step 15c", async () => {
+  test("an existing sandbox without the synced plugin mount stops up and names the newer plugin mount", async () => {
     const env = makeEnv();
     const root = path.dirname(PLUGIN_CONFIG_DIR);
     const { runner } = fakeRunner((cmd) => {
@@ -1514,7 +1514,7 @@ describe("upSandbox", () => {
     expect(result).toBe(1);
     const text = errors.join("\n");
     expect(text).toContain(`lacks the mounts ${pluginMount(env)}`);
-    expect(text).toContain("since oc-sub step 15c");
+    expect(text).toContain("of newer oc-sub versions");
     expect(text).toContain("sbx rm --force oc-sub-test");
   });
 
@@ -1727,7 +1727,7 @@ describe("cloneStatus and printStderr", () => {
   });
 });
 
-describe("DeepInfra in sandbox mode (step 16)", () => {
+describe("DeepInfra in sandbox mode", () => {
   const SECRETS_OPENROUTER = "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n";
   // The real output of sbx 0.45.1: custom secrets come in a separate table.
   const CUSTOM_TABLE = (scope: string) =>
@@ -1881,7 +1881,7 @@ describe("DeepInfra in sandbox mode (step 16)", () => {
   });
 });
 
-describe("server log keeps older starts (sandbox mode, step 16d)", () => {
+describe("server log keeps older starts (sandbox mode)", () => {
   /** The runner answers of an up of an existing sandbox, without DeepInfra. */
   function sandboxRunner(env: Record<string, string>): Runner {
     return fakeRunner((cmd) => {

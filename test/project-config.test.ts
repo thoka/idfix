@@ -1,4 +1,4 @@
-/** Tests for the project config of `oc-sub top` (step 8i). */
+/** Tests for the project config of `oc-sub top`. */
 import { describe, expect, test } from "bun:test";
 import {
   makeProjectNameResolver,

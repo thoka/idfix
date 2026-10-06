@@ -115,10 +115,10 @@ export type DoctorDeps = {
   serverBusy: (server: RunningServer) => Promise<BusyCheck>;
   /**
    * Recreates the sandbox of a project: with `stopServer`, `oc-sub down`
-   * first, then `sbx rm --force NAME`, then `oc-sub up` (step 15d).
+   * first, then `sbx rm --force NAME`, then `oc-sub up`.
    */
   recreateSandbox: (name: string, root: string, stopServer: boolean) => Promise<FixOutcome>;
-  /** The optional DeepInfra key file of the project (step 16). */
+  /** The optional DeepInfra key file of the project. */
   deepinfraKeyFile: string;
   /** The permission bits of a file, or null when it does not exist. Never reads content. */
   fileMode: (file: string) => number | null;
@@ -127,7 +127,7 @@ export type DoctorDeps = {
   /** Deletes a file in the project (the fix of `agent-copies` without a permission block). */
   deleteFile: (file: string) => void;
   /**
-   * The git state of one file in the project (step 15e): "clean" means
+   * The git state of one file in the project: "clean" means
    * tracked and unmodified (`git ls-files --error-unmatch` succeeds and
    * `git status --porcelain -- FILE` prints nothing), "modified" means
    * tracked with uncommitted changes, "untracked" means not tracked (also
@@ -142,7 +142,7 @@ export type DoctorDeps = {
    */
   today?: string;
   /**
-   * The processes of the host (step 30), for the `top-memory` and
+   * The processes of the host, for the `top-memory` and
    * `orphan-processes` checks. Null means the platform has no `/proc`, and
    * both checks skip. A process that ends during the scan is left out.
    */
@@ -163,7 +163,7 @@ export type DoctorDeps = {
   toolVersion: () => string;
 };
 
-/** One process of the host, as the process checks of step 30 see it. */
+/** One process of the host, as the process checks see it. */
 export type ProcessInfo = {
   pid: number;
   ppid: number;
@@ -618,7 +618,7 @@ export function permissionBlockOf(text: string): string | null {
 }
 
 /**
- * The fix of `agent-copies` (step 15e, writes the project): for each project
+ * The fix of `agent-copies` (writes the project): for each project
  * agent file that is not permission-only, keep only its `permission` block
  * in the front matter and drop the description, model, prompt body, and
  * other keys. A file without a `permission` block is deleted. Because the
@@ -893,7 +893,7 @@ function sandboxUnfetchedWorkGuard(deps: DoctorDeps, name: string, root: string)
 }
 
 /**
- * The fix of `sandbox-mounts` (step 15d): recreate the sandbox with
+ * The fix of `sandbox-mounts`: recreate the sandbox with
  * `sbx rm --force NAME` and `oc-sub up`. The classifier decides whether a
  * recreate helps; in the `exec-failed` case it does not, because the sandbox
  * does not start. Without `--force` nothing runs, because a recreate ends
@@ -977,12 +977,12 @@ export const SERVER_PLUGIN_FIX =
   "run oc-sub doctor --fix: it syncs the folder and restarts each idle server. A busy server needs oc-sub abort or oc-sub down first";
 
 /**
- * Whether the servers run the current plugin (step 15c). Every server loads
+ * Whether the servers run the current plugin. Every server loads
  * the synced plugin folder, and its state records the digest of that folder
  * at its start. The check warns when the synced folder differs from the
  * plugin folder of this oc-sub (a plugin update since the last `up`), or
  * when a running server started with other content than the synced folder
- * holds now. A server without a record started before step 15c, so its
+ * holds now. A server without a record started before the synced plugin folder, so its
  * content is unknown and it counts as stale. Without a running server, a
  * missing synced folder passes: the next `up` creates it.
  */
@@ -999,7 +999,7 @@ function serverPluginCheck(deps: DoctorDeps): CheckResult {
   }
   for (const server of servers) {
     if (server.digest === null) {
-      problems.push(`the ${serverLabel(server)} has no plugin record (started before oc-sub step 15c)`);
+      problems.push(`the ${serverLabel(server)} has no plugin record (started by an older oc-sub)`);
     } else if (server.digest !== synced) {
       problems.push(`the ${serverLabel(server)} started with other plugin content than the synced folder holds`);
     }
@@ -1074,7 +1074,7 @@ export function miseToolVersion(text: string | null, tool: string): string | nul
  * opencode of the sandbox image run. In host mode, the server runs the
  * opencode of the PATH of the shell that calls `oc-sub up`.
  *
- * The fix action is `opencodeVersionFix` (step 15e).
+ * The fix action is `opencodeVersionFix`.
  */
 function opencodeVersionCheck(deps: DoctorDeps): CheckResult {
   const testedFile = path.join(deps.pluginRepoRoot, "mise.toml");
@@ -1118,7 +1118,7 @@ function opencodeVersionCheck(deps: DoctorDeps): CheckResult {
 }
 
 /**
- * The fix of `opencode-version` (step 15e, writes the project): when the
+ * The fix of `opencode-version` (writes the project): when the
  * deciding pin sits in the project `mise.toml`, set it to the tested
  * version, keep the rest of the file byte for byte, and run `mise install`
  * in the project root. The file must be clean in git (tracked and
@@ -1254,7 +1254,7 @@ export const RESEARCH_DUE_FIX = "Recheck the facts with a researcher run, then s
 export const PLAN_DIR_FIX = `Set plan_dir in ${PLAN_CONFIG} to a relative folder inside the project, for example ".plan", or remove the key`;
 
 /**
- * The `research-due` check (PLAN.md step 17c): every report in
+ * The `research-due` check: every report in
  * `<plan_dir>/research/` of the project root can start with a recheck head
  * (`checked`, `recheck`, `decisions`, see `src/research-head.ts`). The plan
  * folder is `plan_dir` of `.handover.toml` (default `docs`, see
@@ -1317,7 +1317,7 @@ export function isOcSubCli(args: readonly string[]): boolean {
 }
 
 /**
- * Whether the command line runs the `top` command of oc-sub (step 30): the
+ * Whether the command line runs the `top` command of oc-sub: the
  * argument right after the CLI entry is `top`, so a `top` in a later
  * argument, for example in the text of `say`, does not match.
  */
@@ -1340,7 +1340,7 @@ export function leakyTopProcesses(deps: DoctorDeps): ProcessInfo[] {
 }
 
 /**
- * The `top-memory` check (step 30): a `top` of oc-sub that leaked keeps its
+ * The `top-memory` check: a `top` of oc-sub that leaked keeps its
  * whole table in memory, and one process can hold gigabytes. It warns with
  * the PID and the RSS in MB of each process over 1 GiB. The fix needs
  * `--force`, because it ends a view of the user: it sends SIGTERM to each
@@ -1413,7 +1413,7 @@ export function orphanProcesses(deps: DoctorDeps): ProcessInfo[] {
 /** How many `PID command (cwd)` entries the `orphan-processes` message lists. */
 const ORPHAN_LIST_LIMIT = 10;
 
-/** The `orphan-processes` check (step 30): see `orphanProcesses`. */
+/** The `orphan-processes` check: see `orphanProcesses`. */
 export function orphanProcessesCheck(deps: DoctorDeps): CheckResult {
   const processes = deps.listProcesses();
   if (processes === null) return result("orphan-processes", "skip", "no /proc on this platform");
@@ -1490,13 +1490,13 @@ export async function orphanProcessesFix(deps: DoctorDeps, _result: CheckResult,
 
 /** The command that installs and starts the watcher as a systemd user service. */
 export const WATCH_SERVICE_FIX =
-  "systemctl --user enable --now idfx-watch.service (the unit is contrib/systemd/idfx-watch.service; arch-helper installs it through chezmoi)";
+  "systemctl --user enable --now idfx-watch.service (link the unit contrib/systemd/idfx-watch.service into ~/.config/systemd/user/ first)";
 
 /**
  * The `watch-running` check (design .plan/design/idfx-watch.md, section 6):
  * a pass when the holder of `events.lock` lives (its PID exists and its
  * start time matches), else a warn. There is no automatic fix, because
- * arch-helper owns the install of the unit.
+ * the user installs the unit.
  */
 export function watchRunningCheck(deps: DoctorDeps): CheckResult {
   const holder = deps.watchLock();

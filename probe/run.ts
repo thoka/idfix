@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * The probe CLI (PLAN.md step 10d): run the probe task once per provider
+ * The probe CLI: run the probe task once per provider
  * and run number, one run at a time, and print a table at the end.
  *
  *   bun probe/run.ts --providers z-ai,baseten --runs 3 [--dir ROOT] [--control] [--yes]

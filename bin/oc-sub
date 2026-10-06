@@ -31,6 +31,6 @@ export IDFX_PROG="${IDFX_PROG:-$(basename "$0")}"
 # Run in production mode unless the user set NODE_ENV. Bun picks its JSX
 # transform, and React picks its build, from NODE_ENV when the process starts,
 # so it must be set here and not later. The development build of React keeps
-# data of every render, and the live view of `top` leaked memory (step 29d).
+# data of every render, and the live view of `top` leaked memory.
 export NODE_ENV="${NODE_ENV:-production}"
 exec "${bun_cmd[@]}" "$root/src/cli.ts" "$@"

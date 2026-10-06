@@ -1,6 +1,6 @@
 # Provider probe: fixture and evaluator
 
-Parts of PLAN.md step 10 that need no server and no paid call. The design and
+The parts of the provider probe that need no server and no paid call. The design and
 the review are in `.plan/research/provider-probe.md` (section 5).
 
 ## Fixture (`make-fixture.ts`, `fixture/types.ts`, `expected.json`, `task.md`)
@@ -68,7 +68,7 @@ the real `@opencode-ai/sdk` shapes. Run with `bun test`.
 
 ## Probe runner (`src/probe/runner.ts`, `probe/run.ts`)
 
-The runner (PLAN.md step 10d) executes the probe task once per provider and
+The runner executes the probe task once per provider and
 run number, strictly one run at a time, so the real-cost delta of the project
 key belongs to exactly one run. One run does, in order:
 
@@ -137,7 +137,7 @@ paid call and no real `sbx` call runs in the tests.
 
 ## Jev probe (`probe/jev.ts`)
 
-PLAN.md step 18: learn whether the Jev slugs on OpenRouter answer and what
+Goal: learn whether the Jev slugs on OpenRouter answer and what
 they cost. Run it on the host:
 
 ```
@@ -170,7 +170,7 @@ Without a key the script exits 2 with a message.
 **Cost cap**: two requests, at most 200 output tokens each, plus the two
 generation lookups, which cost nothing. The script makes no other paid call.
 
-**Decisions mode** (`--decisions`, PLAN.md step 18): sends exactly one
+**Decisions mode** (`--decisions`): sends exactly one
 request to `POST https://openrouter.ai/api/alpha/decisions`, the
 non-chat Jev endpoint (see `.plan/research/jev-decisions-api.md`):
 

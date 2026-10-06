@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * The Jev probe (PLAN.md step 18): one or two non-streaming requests to
+ * The Jev probe: one or two non-streaming requests to
  * OpenRouter to learn whether the Jev slugs answer and what they cost.
  *
  *   bun probe/jev.ts [MODEL ...]        (default: typesafe/jev-router ~typesafe/jev-latest)

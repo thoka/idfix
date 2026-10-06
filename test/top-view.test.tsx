@@ -102,7 +102,7 @@ async function pressOpen(row: ClaudeRow, result: PaneResult | undefined): Promis
   }
 }
 
-describe("the key o on a Claude row (step 25g.3)", () => {
+describe("the key o on a Claude row", () => {
   test("a background session opens claude attach with its job ID in a new pane", async () => {
     const row = claudeRowOf("sess-bg0001", { kind: "background", jobId: "b3e132e9", state: "busy" });
     const { argvs, frame } = await pressOpen(row, { ok: true });

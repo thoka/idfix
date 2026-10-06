@@ -14,6 +14,9 @@
  * join the opencode rows through `withClaudeRows` of `src/top/claude.ts`.
  * The same folder rule and `--all` apply. They show also when no opencode
  * server answers.
+ *
+ * `loadView` loads the live view with the production build of React, because
+ * the development build keeps data of every render and leaks memory.
  */
 import path from "node:path";
 import type { Session, SessionStatus } from "@opencode-ai/sdk";
@@ -253,10 +256,32 @@ export type TopUi = {
   runView(args: TopArgs, env: Env, deps: StatusDeps): Promise<number>;
 };
 
+/**
+ * Set `NODE_ENV` to `production` when the user did not set it, so that React
+ * loads its production build. The start scripts in `bin/` run bun without
+ * `NODE_ENV`, and then `react` loads its development build. That build keeps
+ * data of every render, so the live view of `top` grew about 1.5 MB per
+ * minute at its redraw of once per second (7 GB after 2 days). A value that
+ * the user set stays. Call it before the first import of React or Ink.
+ */
+export function preferReactProduction(env: Env = process.env): void {
+  env.NODE_ENV ??= "production";
+}
+
+/**
+ * Load the module of the live view. It first calls `preferReactProduction`,
+ * then imports `./app` dynamically, so that Ink and React load only after
+ * `NODE_ENV` is set. No module on the path of `top` imports them earlier.
+ */
+export async function loadView(): Promise<typeof import("./app")> {
+  preferReactProduction();
+  return import("./app");
+}
+
 export const defaultUi: TopUi = {
   interactive: () => process.stdout.isTTY === true && process.stdin.isTTY === true,
   // The view loads Ink and React only when it runs, so `--once` stays light.
-  runView: async (args, env, deps) => (await import("./app")).runTopView(args, env, deps),
+  runView: async (args, env, deps) => (await loadView()).runTopView(args, env, deps),
 };
 
 /** The hint that `top` prints to stderr when it has no terminal for the view. */

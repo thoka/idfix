@@ -18,14 +18,19 @@ import { sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
 import { LOCK_FILE, lockHolder, watchStateDir, type LockHolder } from "./watch/log";
 import { pluginDataDir, pluginDigest, syncPluginDir } from "./plugin-sync";
+import { idfxVersion, TOOL } from "./protocol";
 import { busyCheck, busyCheckNote, findRunningServers, restartServer, serverLabel, type BusyCheck, type RunningServer } from "./server-plugin";
 
-/** The result of one check. */
+/**
+ * The result of one check. `error` means that the check did not run: it
+ * threw. Then `error` holds the message of the throw.
+ */
 export type CheckResult = {
   name: string;
-  status: "pass" | "warn" | "fail" | "skip";
+  status: "pass" | "warn" | "fail" | "skip" | "error";
   message: string;
   fix?: string;
+  error?: string;
 };
 
 /**
@@ -153,6 +158,8 @@ export type DoctorDeps = {
   watchLockFile: string;
   /** The holder of that lock: none, a live watcher, or a stale lock (PID plus start time). */
   watchLock: () => LockHolder;
+  /** The version of idfx in the `--json` object, see `src/protocol.ts`. */
+  toolVersion: () => string;
 };
 
 /** One process of the host, as the process checks of step 30 see it. */
@@ -368,6 +375,7 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     watchLockFile: path.join(watchStateDir(env), LOCK_FILE),
     watchLock: () => lockHolder(watchStateDir(env)),
+    toolVersion: idfxVersion,
   };
   return { ...deps, ...overrides };
 }
@@ -1520,9 +1528,71 @@ export const SLOW_CHECKS: Check[] = [
 /** All checks in their fixed order. */
 export const ALL_CHECKS: Check[] = [...FAST_CHECKS, ...SLOW_CHECKS];
 
+/**
+ * Run one check. A check that throws gives the status `error` with the
+ * message of the throw, so one broken check never stops the doctor.
+ */
+export function runCheck(check: Check, deps: DoctorDeps): CheckResult {
+  try {
+    return check.run(deps);
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    return { name: check.name, status: "error", message: `the check did not run: ${text}`, error: text };
+  }
+}
+
 /** Run the given checks in order and return their results. */
 export function runChecks(checks: readonly Check[], deps: DoctorDeps): CheckResult[] {
-  return checks.map((check) => check.run(deps));
+  return checks.map((check) => runCheck(check, deps));
+}
+
+/** The stable key of a check in the tool protocol: `urn:dv:idfx:doctor:<name>`. */
+export function checkType(name: string): string {
+  return `urn:dv:${TOOL}:doctor:${name}`;
+}
+
+/** One check in the `--json` object: the result plus its `type`. */
+export type ProtocolCheck = CheckResult & { type: string };
+
+/** The `doctor --json` object of the tool protocol, version 0. `fixes` exists only with `--fix`. */
+export type DoctorReport = {
+  tool: string;
+  version: string;
+  status: "pass" | "warn" | "fail";
+  checks: ProtocolCheck[];
+  fixes?: FixRecord[];
+};
+
+/**
+ * The top-level status: `fail` when a check fails, else `warn` when a check
+ * warns or did not run (`error`), else `pass`.
+ */
+export function overallStatus(results: readonly CheckResult[]): DoctorReport["status"] {
+  if (results.some((check) => check.status === "fail")) return "fail";
+  if (results.some((check) => check.status === "warn" || check.status === "error")) return "warn";
+  return "pass";
+}
+
+/** The `--json` object of the results, with the fix records of `--fix`. */
+export function doctorReport(results: readonly CheckResult[], version: string, fixes?: FixRecord[]): DoctorReport {
+  const checks = results.map((check) => {
+    const { name, status, message, fix, error } = check;
+    return {
+      name,
+      status,
+      type: checkType(name),
+      message,
+      ...(fix === undefined ? {} : { fix }),
+      ...(error === undefined ? {} : { error }),
+    };
+  });
+  return {
+    tool: TOOL,
+    version,
+    status: overallStatus(results),
+    checks,
+    ...(fixes === undefined ? {} : { fixes }),
+  };
 }
 
 /** The fast checks with their duration in milliseconds. */
@@ -1543,7 +1613,9 @@ export function runFastChecksFor(
 
 /** The label of a status in the printed line. */
 function label(status: CheckResult["status"]): string {
-  return status === "fail" ? "FAIL" : status;
+  if (status === "fail") return "FAIL";
+  if (status === "error") return "ERROR";
+  return status;
 }
 
 /** Print one line per result, and the fix on the next line. */
@@ -1555,8 +1627,9 @@ export function printResults(results: readonly CheckResult[]): void {
     }
   }
   const count = (status: CheckResult["status"]) => results.filter((check) => check.status === status).length;
+  const errors = count("error");
   console.log(
-    `${count("pass")} pass, ${count("warn")} warn, ${count("fail")} fail, ${count("skip")} skip`,
+    `${count("pass")} pass, ${count("warn")} warn, ${count("fail")} fail, ${count("skip")} skip${errors > 0 ? `, ${errors} error` : ""}`,
   );
 }
 
@@ -1577,7 +1650,7 @@ export function gateFastChecks(
       print(`FAIL ${check.name}: ${check.message}`);
       if (check.fix !== undefined) print(`fix: ${check.fix}`);
       ok = false;
-    } else if (check.status === "warn") {
+    } else if (check.status === "warn" || check.status === "error") {
       print(`warning: ${check.name}: ${check.message}`);
     }
   }
@@ -1650,11 +1723,33 @@ export async function runFixes(
   return records;
 }
 
-/** `oc-sub doctor`: run all checks and print the results. */
+/**
+ * `oc-sub doctor`: run all checks and print the results. With `--json`,
+ * stdout holds exactly one object of the tool protocol (`doctorReport`):
+ * `{tool, version, status, checks, fixes?}`; all other lines go to stderr.
+ *
+ * Exit codes: 0 when all checks pass or some warn; 1 when a check fails or
+ * a fix failed; 2 when the doctor itself cannot run (Nagios "unknown"). A
+ * usage error also gives 2, in `src/cli.ts`.
+ */
 export async function doctor(
   args: { dir?: string; json?: boolean; fix?: boolean; force?: boolean; fixAsRoot?: boolean; renovate?: boolean },
   env: Env = process.env,
   overrides: Partial<DoctorDeps> = {},
+): Promise<number> {
+  try {
+    return await runDoctor(args, env, overrides);
+  } catch (error) {
+    // Nothing goes to stdout here: in JSON mode, an empty stdout and code 2 mean "unknown".
+    console.error(`doctor cannot run: ${error instanceof Error ? error.message : String(error)}`);
+    return 2;
+  }
+}
+
+async function runDoctor(
+  args: { dir?: string; json?: boolean; fix?: boolean; force?: boolean; fixAsRoot?: boolean; renovate?: boolean },
+  env: Env,
+  overrides: Partial<DoctorDeps>,
 ): Promise<number> {
   const deps = makeDoctorDeps(env, args.dir ?? process.cwd(), overrides);
   const results = runChecks(ALL_CHECKS, deps);
@@ -1676,7 +1771,7 @@ export async function doctor(
     );
     const rerun = runChecks(ALL_CHECKS, deps);
     if (args.json === true) {
-      console.log(JSON.stringify({ fixes, results: rerun }, null, 2));
+      console.log(JSON.stringify(doctorReport(rerun, deps.toolVersion(), fixes), null, 2));
     } else {
       printResults(rerun);
     }
@@ -1685,7 +1780,7 @@ export async function doctor(
     return anyFail || fixFailed ? 1 : 0;
   }
   if (args.json === true) {
-    console.log(JSON.stringify(results, null, 2));
+    console.log(JSON.stringify(doctorReport(results, deps.toolVersion()), null, 2));
   } else {
     printResults(results);
   }

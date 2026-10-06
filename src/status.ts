@@ -10,6 +10,11 @@ import { listPendingRequests } from "./requests";
 import { listServers } from "./servers";
 import { readDirs, serveDirsPath } from "./state";
 import { claudeRowsLoader, inScope, type ClaudeRow, type ClaudeRowsLoader } from "./claude/rows";
+import { hostname } from "node:os";
+import { CONDITION_TYPES, conditionKey, evaluate, restoreState, type ConditionType } from "./watch/conditions";
+import { formatSequence, readLogState, sourceOf, watchStateDir, type LogState } from "./watch/log";
+import { toWatchRow } from "./watch/run";
+import { idfxVersion, TOOL } from "./protocol";
 
 /**
  * One status line: `<id> <state> <title>`, plus ` (<folder>)` for a session
@@ -99,6 +104,12 @@ export type StatusDeps = {
   cloneDirectoriesOf: (project: string) => string[];
   /** The absolute path of the main `.git` folder of a directory, or null without git. The tests replace it, so a fake host worktree needs no real git. */
   commonDirOf?: (directory: string) => string | null;
+  /** The clock of the `--json` snapshot. Default: `Date.now`. */
+  now?: () => number;
+  /** The host name in `source` of the `--json` snapshot. Default: `os.hostname`. */
+  hostname?: () => string;
+  /** The tool version of the `--json` snapshot. Default: `idfxVersion` of `src/protocol.ts`. */
+  version?: () => string;
 };
 
 const defaultDeps: StatusDeps = {
@@ -272,6 +283,96 @@ export async function claudeRowsSafe(loader: ClaudeRowsLoader, nowMs: number = D
 }
 
 /**
+ * One True condition of the `status --json` snapshot, in the Kubernetes
+ * form (`type`, `status`, `reason`, `message`, `lastTransitionTime`), plus
+ * the `subject` (session name, else the first 8 characters of the ID) and
+ * the full `session` ID.
+ */
+export type StatusCondition = {
+  type: ConditionType;
+  status: "True";
+  reason: string;
+  message: string;
+  lastTransitionTime: string;
+  subject: string;
+  session: string;
+};
+
+/**
+ * The conditions that `status` leaves out. `HandoverFailed` needs a run of
+ * `handover check` for each ended session, which is too slow for a
+ * snapshot, so only the event log of `idfx watch --all` carries it.
+ */
+export const STATUS_SKIPPED_CONDITIONS: ReadonlySet<ConditionType> = new Set(["HandoverFailed"]);
+
+/**
+ * The current True conditions of the Claude rows, as the watcher computes
+ * them (`evaluate` of `src/watch/conditions.ts`). The state starts from the
+ * event log, so a condition that the log already holds as True keeps its
+ * `lastTransitionTime` from the log. A new condition gets `nowMs`. The
+ * order is the order of the rows, then of `CONDITION_TYPES`.
+ */
+export function statusConditions(rows: readonly ClaudeRow[], log: LogState, nowMs: number): StatusCondition[] {
+  const old = restoreState(log.records, log.lastTimeMs ?? nowMs);
+  // No `handover check` here: a code of -1 keeps the old value, and the result is left out below.
+  const { state } = evaluate(old, rows.map(toWatchRow), nowMs, () => ({ code: -1, firstLine: undefined }));
+  const conditions: StatusCondition[] = [];
+  for (const row of rows) {
+    for (const type of CONDITION_TYPES) {
+      if (STATUS_SKIPPED_CONDITIONS.has(type)) continue;
+      const record = state.conditions.get(conditionKey(type, row.sessionId));
+      if (record?.status !== "True") continue;
+      conditions.push({
+        type,
+        status: "True",
+        reason: record.reason,
+        message: record.message,
+        lastTransitionTime: new Date(record.lastTransitionMs).toISOString(),
+        subject: record.subject,
+        session: record.session,
+      });
+    }
+  }
+  return conditions;
+}
+
+/** The `status --json` object of the tool protocol, version 0. */
+export type StatusSnapshot = {
+  tool: string;
+  version: string;
+  time: string;
+  source: string;
+  /** The last sequence of the event log, with 20 digits. Absent without an event. */
+  sequence?: string;
+  conditions: StatusCondition[];
+  items: StatusRow[];
+};
+
+/**
+ * The snapshot: the protocol fields, the True conditions of the Claude rows
+ * of the listing, and the listed rows as `items`. The event log is read
+ * from `$XDG_STATE_HOME/idfx` of `env`.
+ */
+export function statusSnapshot(
+  items: StatusRow[],
+  claude: readonly ClaudeRow[],
+  env: Env,
+  deps: StatusDeps,
+  nowMs: number,
+): StatusSnapshot {
+  const log = readLogState(watchStateDir(env));
+  return {
+    tool: TOOL,
+    version: (deps.version ?? idfxVersion)(),
+    time: new Date(nowMs).toISOString(),
+    source: sourceOf((deps.hostname ?? hostname)()),
+    ...(log.lastSequence > 0 ? { sequence: formatSequence(log.lastSequence) } : {}),
+    conditions: statusConditions(claude, log, nowMs),
+    items,
+  };
+}
+
+/**
  * The running sessions of one server, one row each, from the directories of
  * `serverDirectories`. A session that another server already listed (same
  * session ID) is skipped.
@@ -311,10 +412,12 @@ async function allServerRows(
 
 /**
  * `oc-sub status [--dir DIR | --all] [--json]`: one line per session
- * (`ID state title`), or with `--json` one JSON array of objects with `id`,
- * `state`, `title`, `folder`, and `driver` (plus `project`, and `server`
- * for opencode, with `--all`) as the whole stdout. In JSON mode, messages
- * such as `no server on ...` go to stderr.
+ * (`ID state title`), or with `--json` one JSON object as the whole stdout:
+ * the snapshot of the tool protocol (`statusSnapshot`) with `tool`,
+ * `version`, `time`, `source`, `sequence`, `conditions`, and `items`. Each
+ * item has `id`, `state`, `title`, `folder`, and `driver` (plus `project`,
+ * and `server` for opencode, with `--all`). In JSON mode, messages such as
+ * `no server on ...` go to stderr.
  *
  * The Claude Code sessions follow the opencode sessions (design
  * docs/design/claude-sessions-top.md, sections 6 and 8): live and waiting
@@ -329,6 +432,7 @@ export async function status(
   claudeRows: ClaudeRowsLoader = defaultClaudeRows,
 ): Promise<number> {
   const json = args.json === true;
+  const nowMs = (deps.now ?? Date.now)();
   // Nothing but the JSON document may go to stdout in JSON mode, so the
   // messages go to stderr there.
   const say = (message: string): void => {
@@ -363,7 +467,8 @@ export async function status(
         console.error(`warning: ${server.url}: ${message}`);
       }
     }
-    for (const row of await claudeRowsSafe(claudeRows)) {
+    const claude = await claudeRowsSafe(claudeRows, nowMs);
+    for (const row of claude) {
       rows.push(claudeStatusRow(row, projectNameOfRun(row.directory, deps.exists, deps.commonDirOf)));
     }
     if (!answered) {
@@ -373,7 +478,7 @@ export async function status(
       say("no running sessions");
     }
     if (json) {
-      console.log(JSON.stringify(rows, null, 2));
+      console.log(JSON.stringify(statusSnapshot(rows, claude, env, deps, nowMs), null, 2));
     } else {
       for (const row of rows) console.log(formatStatusLine(row.id, row.state, row.title, row.folder));
     }
@@ -400,16 +505,19 @@ export async function status(
       }
     }
   }
-  const claude = await claudeRowsSafe(claudeRows);
-  if (claude.length > 0) {
+  const claude: ClaudeRow[] = [];
+  const loaded = await claudeRowsSafe(claudeRows, nowMs);
+  if (loaded.length > 0) {
     // The folder rule: the project and its worktrees.
     const scope = directories ?? projectDirectories(directory, env, deps);
-    for (const row of claude) {
-      if (inScope(row.directory, scope)) rows.push(claudeStatusRow(row));
+    for (const row of loaded) {
+      if (!inScope(row.directory, scope)) continue;
+      claude.push(row);
+      rows.push(claudeStatusRow(row));
     }
   }
   if (json) {
-    console.log(JSON.stringify(rows, null, 2));
+    console.log(JSON.stringify(statusSnapshot(rows, claude, env, deps, nowMs), null, 2));
     return 0;
   }
   for (const row of rows) {

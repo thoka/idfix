@@ -103,15 +103,16 @@ export function createWaker(notify: Notifier, logFile: string, stderr: (line: st
 }
 
 /**
- * The real notifier: `notify-session --name supervisor none <text>` from the
- * PATH. `notify-session` needs a session ID first; `none` matches no session,
- * so the name decides.
+ * The real notifier: `notify-session --name supervisor -- <text>` from the
+ * PATH. Without a session ID, `notify-session` finds the live session by
+ * its name (meta af773a4). The `--` keeps a text that starts with `-` from
+ * being read as an option.
  */
 export function nodeNotifier(env: Record<string, string | undefined> = process.env): Notifier {
   return (text) => {
     const bin = Bun.which("notify-session", { PATH: env.PATH ?? "" });
     if (bin === null) return { ok: false, missing: true, message: "notify-session is not on the PATH" };
-    const result = spawnSync(bin, ["--name", SUPERVISOR_NAME, "--", "none", text], {
+    const result = spawnSync(bin, ["--name", SUPERVISOR_NAME, "--", text], {
       encoding: "utf8",
       timeout: NOTIFY_TIMEOUT_MS,
       env: env as NodeJS.ProcessEnv,

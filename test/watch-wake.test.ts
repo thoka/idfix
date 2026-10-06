@@ -108,7 +108,7 @@ describe("nodeNotifier", () => {
   test("runs notify-session from the PATH with the name supervisor", () => {
     const { dir, argsFile } = fakeBin(0);
     expect(nodeNotifier({ PATH: dir })("idfx watch: 1 event")).toEqual({ ok: true });
-    expect(readFileSync(argsFile, "utf8").split("\n").slice(0, -1)).toEqual(["--name", "supervisor", "--", "none", "idfx watch: 1 event"]);
+    expect(readFileSync(argsFile, "utf8").split("\n").slice(0, -1)).toEqual(["--name", "supervisor", "--", "idfx watch: 1 event"]);
   });
 
   test("a non-zero exit is a failure with the last stderr line", () => {

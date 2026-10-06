@@ -41,7 +41,14 @@ import {
   type CheckResult,
   type DoctorDeps,
   type ProcessInfo,
+  checkType,
+  doctorReport,
+  overallStatus,
+  runCheck,
+  type DoctorReport,
 } from "../src/doctor";
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
 import type { BusyCheck, RunningServer } from "../src/server-plugin";
 import {
   cloneCheckCommand,
@@ -141,6 +148,7 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     // A watcher runs by default, so watch-running passes.
     watchLockFile: "/home/u/.local/state/idfx/events.lock",
     watchLock: () => ({ state: "live", pid: 4242 }),
+    toolVersion: () => "abc1234",
     recreateSandbox: async () => {
       throw new Error("no sandbox may be recreated in this test");
     },
@@ -946,7 +954,7 @@ describe("doctor --fix", () => {
     expect(code).toBe(1);
   });
 
-  test("prints {fixes, results} with --fix --json", async () => {
+  test("prints one object {tool, version, status, checks, fixes} with --fix --json", async () => {
     const deps = fixDeps({
       [codexMd]: { content: "# rules" },
       "/home/u/.claude/plugins/installed_plugins.json": { content: installedOld },
@@ -964,16 +972,19 @@ describe("doctor --fix", () => {
     // stdout holds only the JSON object; the fix lines go to stderr.
     expect(lines).toHaveLength(1);
     expect(errors.some((line) => line.startsWith("fixing global-rules:"))).toBe(true);
-    const parsed = JSON.parse(lines[0]!) as { fixes: { name: string; ok: boolean; note: string }[]; results: CheckResult[] };
+    const parsed = JSON.parse(lines.join("\n")) as DoctorReport;
+    expect(Object.keys(parsed)).toEqual(["tool", "version", "status", "checks", "fixes"]);
+    expect(parsed).toMatchObject({ tool: "idfx", version: "abc1234" });
     expect(parsed.fixes).toEqual([
       { name: "global-rules", ok: true, note: expect.any(String) },
       { name: "plugin-fresh", ok: true, note: expect.any(String) },
     ]);
-    expect(parsed.results).toHaveLength(ALL_CHECKS.length);
-    expect(parsed.results.every((check) => check.name.length > 0)).toBe(true);
+    expect(parsed.checks).toHaveLength(ALL_CHECKS.length);
+    expect(parsed.checks.every((check) => check.type === `urn:dv:idfx:doctor:${check.name}`)).toBe(true);
+    expect(doctorValidator()(parsed)).toBe(true);
   });
 
-  test("keeps the plain --json array without --fix", async () => {
+  test("prints one object without fixes with --json alone", async () => {
     const deps = fixDeps({});
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
@@ -982,11 +993,117 @@ describe("doctor --fix", () => {
     } finally {
       logSpy.mockRestore();
     }
-    const jsonLine = lines.find((line) => line.startsWith("["));
-    expect(jsonLine).toBeDefined();
-    const parsed = JSON.parse(jsonLine!) as CheckResult[];
-    expect(parsed).toHaveLength(ALL_CHECKS.length);
-    expect(Object.keys(parsed[0]!)).toContain("name");
+    // The whole stdout is one JSON value.
+    const parsed = JSON.parse(lines.join("\n")) as DoctorReport;
+    expect(Object.keys(parsed)).toEqual(["tool", "version", "status", "checks"]);
+    expect(parsed.checks).toHaveLength(ALL_CHECKS.length);
+    expect(parsed.checks[0]).toMatchObject({ name: "env-files", type: "urn:dv:idfx:doctor:env-files" });
+  });
+});
+
+/** The JSON Schema of the `doctor --json` object (test/fixtures/idfx-doctor.schema.json). */
+function doctorValidator() {
+  const ajv = new Ajv({ strict: false, allErrors: true });
+  addFormats(ajv);
+  return ajv.compile(JSON.parse(readFileSync(path.join(import.meta.dir, "fixtures", "idfx-doctor.schema.json"), "utf8")));
+}
+
+describe("doctor --json in the tool protocol", () => {
+  /** Run doctor with fake deps and capture stdout, stderr, and the exit code. */
+  async function runJson(args: Parameters<typeof doctor>[0], overrides: Partial<DoctorDeps>) {
+    const lines: string[] = [];
+    const errors: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((...parts: unknown[]) => lines.push(parts.map(String).join(" ")));
+    const errorSpy = spyOn(console, "error").mockImplementation((...parts: unknown[]) => errors.push(parts.map(String).join(" ")));
+    try {
+      const code = await doctor(args, { HOME: "/home/u" } as Record<string, string>, makeDeps({}, overrides));
+      return { code, lines, errors };
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  }
+
+  test("the real output passes the JSON Schema, and stdout is one JSON value", async () => {
+    const { code, lines } = await runJson({ json: true }, {});
+    const parsed: unknown = JSON.parse(lines.join("\n"));
+    const validate = doctorValidator();
+    const ok = validate(parsed);
+    expect(validate.errors ?? []).toEqual([]);
+    expect(ok).toBe(true);
+    expect(code).toBe((parsed as DoctorReport).status === "fail" ? 1 : 0);
+  });
+
+  test("a check that throws gets the status error, and the doctor goes on", async () => {
+    const { code, lines } = await runJson({ json: true }, {
+      watchLock: () => {
+        throw new Error("boom");
+      },
+    });
+    const parsed = JSON.parse(lines.join("\n")) as DoctorReport;
+    const watch = parsed.checks.find((check) => check.name === "watch-running");
+    expect(watch).toEqual({
+      name: "watch-running",
+      status: "error",
+      type: "urn:dv:idfx:doctor:watch-running",
+      message: "the check did not run: boom",
+      error: "boom",
+    });
+    // The checks after it still ran.
+    expect(parsed.checks).toHaveLength(ALL_CHECKS.length);
+    expect(doctorValidator()(parsed)).toBe(true);
+    expect(code).toBe(parsed.status === "fail" ? 1 : 0);
+  });
+
+  test("a doctor that cannot run exits with code 2 and leaves stdout empty", async () => {
+    const { code, lines, errors } = await runJson({ json: true }, {
+      toolVersion: () => {
+        throw new Error("no version");
+      },
+    });
+    expect(code).toBe(2);
+    expect(lines).toEqual([]);
+    expect(errors).toEqual(["doctor cannot run: no version"]);
+  });
+
+  test("the top-level status: fail before warn, error counts as warn, else pass", () => {
+    const r = (status: CheckResult["status"]): CheckResult => ({ name: "x", status, message: "" });
+    expect(overallStatus([r("pass"), r("skip")])).toBe("pass");
+    expect(overallStatus([r("pass"), r("warn")])).toBe("warn");
+    expect(overallStatus([r("error"), r("pass")])).toBe("warn");
+    expect(overallStatus([r("warn"), r("fail"), r("error")])).toBe("fail");
+  });
+
+  test("the exit code is 1 when a check fails, and the object says fail", async () => {
+    // A CLAUDE.md file in the project fails the claude-md check.
+    const lines: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
+    let code: number;
+    try {
+      code = await doctor({ json: true }, { HOME: "/home/u" } as Record<string, string>, makeDeps({ files: new Map([["/repo/CLAUDE.md", { content: "# x" }]]) }));
+    } finally {
+      logSpy.mockRestore();
+    }
+    const parsed = JSON.parse(lines.join("\n")) as DoctorReport;
+    expect(code).toBe(1);
+    expect(parsed.status).toBe("fail");
+    expect(parsed.checks.find((check) => check.name === "claude-md")?.status).toBe("fail");
+    expect(parsed.checks.map((check) => check.type)).toEqual(ALL_CHECKS.map((check) => checkType(check.name)));
+  });
+
+  test("doctorReport keeps fix and error only when they are set", () => {
+    const report = doctorReport([{ name: "a", status: "pass", message: "ok", fix: undefined }], "abc1234");
+    expect(report).toEqual({
+      tool: "idfx",
+      version: "abc1234",
+      status: "pass",
+      checks: [{ name: "a", status: "pass", type: "urn:dv:idfx:doctor:a", message: "ok" }],
+    });
+  });
+
+  test("runCheck turns a non-Error throw into a message", () => {
+    const res = runCheck({ name: "odd", run: () => { throw "text"; } }, makeDeps());
+    expect(res).toEqual({ name: "odd", status: "error", message: "the check did not run: text", error: "text" });
   });
 });
 
@@ -2469,9 +2586,9 @@ describe("doctor --renovate --json keeps stdout pure JSON", () => {
     }
     expect(code).toBe(0);
     expect(lines).toHaveLength(1);
-    const parsed = JSON.parse(lines[0]!) as { fixes: { name: string; ok: boolean; note?: string }[]; results: CheckResult[] };
+    const parsed = JSON.parse(lines[0]!) as DoctorReport;
     expect(parsed.fixes).toEqual([{ name: "global-rules", ok: true, note: expect.any(String) }]);
-    expect(parsed.results).toHaveLength(ALL_CHECKS.length);
+    expect(parsed.checks).toHaveLength(ALL_CHECKS.length);
     expect(errors.some((line) => line.startsWith("fixing global-rules:"))).toBe(true);
   });
 });

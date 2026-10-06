@@ -151,12 +151,14 @@ While attach runs, it polls the server every 2 seconds. If the session is delete
 ### oc-sub status
 
 ```
-bun run src/cli.ts status [--dir DIR | --all]
+bun run src/cli.ts status [--dir DIR | --all] [--json]
 ```
 
 One line per session: ID, state (`busy`, `waiting`, `idle`, or `retry`), title. A session with a pending question or permission request shows `waiting` instead of `busy`, because it makes no progress until it gets an answer. Without `--all`, it lists the sessions of the directory and of each of its git worktrees. A session of the directory itself has no suffix. A session of another worktree gets its folder at the end: relative to the directory when the worktree is inside it (for example `.worktrees/x`), else absolute. Child sessions (internal subagent runs) are not listed. If no server runs, it prints `no server on <url>` and exits with code 0.
 
 With `--all`, it lists the running sessions of all projects, each as `<id> <state> <title> (<absolute folder>)`. Idle sessions and child sessions are not listed. The folders come from the folders of past `oc-sub run` calls, from the projects that the server knows, and from their git worktrees. Folders that no longer exist are skipped. When no session runs, it prints `no running sessions`. `--all` and `--dir` together are a usage error.
+
+With `--json`, stdout is one object of the tool protocol: `{tool, version, time, source, sequence, conditions, items}`. `items` holds the sessions, and `conditions` the True conditions of the Claude Code sessions, as `idfx watch --all` computes them. The fields are in `docs/GUIDE.md`, section "Check what runs".
 
 A directory that fails to list does not stop the listing. It prints `warning: <directory>: <message>` to stderr, and the command continues with the next directory. This covers a project whose configuration references a missing key file.
 
@@ -272,9 +274,9 @@ bun run src/cli.ts doctor [--dir DIR] [--json]
 bun run src/cli.ts doctor --fix [--force] [--dir DIR] [--json]
 ```
 
-Runs the health checks of the project of `--dir` (default: the current folder) and of the host, prints one line per check (status, name, message, and the fix on the next line), and ends with a summary line. `--json` prints the results as one JSON array. Exit code 1 when a check fails, else 0. The slow checks (a git call, one `mise current opencode` call, and the `sbx` calls) run only here.
+Runs the health checks of the project of `--dir` (default: the current folder) and of the host, prints one line per check (status, name, message, and the fix on the next line), and ends with a summary line. `--json` prints one object of the tool protocol, `{tool, version, status, checks}`, as the whole stdout; each check has a stable `type` `urn:dv:idfx:doctor:<name>`, and a check that throws gets the status `error`. Exit code 1 when a check fails, 2 when the doctor itself cannot run, else 0. The slow checks (a git call, one `mise current opencode` call, and the `sbx` calls) run only here.
 
-With `--fix`, the command first runs the checks, then the fix action of every check in the registry order whose result is `warn` or `fail` and that has a fix action. It prints `fixing <name>: <fix text>` before each action and `fixed <name>: <note>` or `fix failed (<name>): <note>` after it. A failing action does not stop the other actions. Then it runs all checks again and prints their results. With `--json`, the fix lines go to stderr, and stdout holds one object `{ "fixes": [...], "results": [...] }`. Exit code 1 when the re-run has a `fail` or when any fix action failed, else 0. `--fix` never prompts. `--force` is only valid together with `--fix` and is reserved for the destructive fixes of later steps. With `--fix --json`, it prints one object `{ "fixes": [{name, ok, note}], "results": [re-run results] }`; without `--fix`, `--json` still prints the array.
+With `--fix`, the command first runs the checks, then the fix action of every check in the registry order whose result is `warn` or `fail` and that has a fix action. It prints `fixing <name>: <fix text>` before each action and `fixed <name>: <note>` or `fix failed (<name>): <note>` after it. A failing action does not stop the other actions. Then it runs all checks again and prints their results. With `--json`, the fix lines go to stderr, and stdout holds the same object with `fixes`. Exit code 1 when the re-run has a `fail` or when any fix action failed, else 0. `--fix` never prompts. `--force` is only valid together with `--fix` and is reserved for the destructive fixes of later steps. With `--fix --json`, the object has `fixes` (`[{name, ok, note}]`), and `checks` holds the re-run results.
 
 Which checks have a fix action:
 

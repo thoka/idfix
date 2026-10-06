@@ -100,6 +100,17 @@ Watch all Claude Code sessions:
   --once          polls one time and exits.
   watch SESSION follows one opencode run and cannot be combined with --all.
 
+JSON output (tool protocol version 0):
+  status --json   prints one object: tool, version, time, source, sequence
+                  (the last event of the watch log), conditions (the True
+                  conditions of the Claude Code sessions, without
+                  HandoverFailed), and items (the sessions).
+  doctor --json   prints one object: tool, version, status (pass, warn, or
+                  fail), checks (each with type urn:dv:idfx:doctor:<name>),
+                  and fixes with --fix. Exit code 0 pass or warn, 1 fail or
+                  a failed fix, 2 usage error or a doctor that cannot run.
+  In JSON mode, stdout holds only the object; all other text goes to stderr.
+
 Doctor fixes:
   --fix           runs the safe fixes, then all checks again. It never
                   calls sudo.

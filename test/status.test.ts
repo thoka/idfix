@@ -19,7 +19,11 @@ import {
 import type { Runner } from "../src/sandbox";
 import { parsePriceFile } from "../src/claude/prices";
 import { createClaudeSource, loadClaudeRows } from "../src/claude/rows";
-import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, NOW, S1, S2, S5, S7 } from "./claude-fixture";
+import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, MINUTE, NOW, S1, S2, S5, S7 } from "./claude-fixture";
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
+import { conditionEvent, EVENTS_FILE } from "../src/watch/log";
+import { TRUE_SEVERITY } from "../src/watch/conditions";
 
 const DIR = "/repo";
 
@@ -128,6 +132,14 @@ async function runStatus(options: {
 /** The single JSON document of a JSON-mode run, parsed from the whole stdout. */
 function parseJsonStdout(lines: string[]): unknown {
   return JSON.parse(lines.join("\n"));
+}
+
+/** The `items` of the snapshot object of a JSON-mode run. The whole stdout must be the one object. */
+function parseItems(lines: string[]): unknown[] {
+  const snapshot = parseJsonStdout(lines) as { tool?: unknown; items?: unknown };
+  expect(snapshot.tool).toBe("idfx");
+  expect(Array.isArray(snapshot.items)).toBe(true);
+  return snapshot.items as unknown[];
 }
 
 describe("parseWorktreeList", () => {
@@ -713,7 +725,7 @@ describe("status", () => {
 });
 
 describe("status --json", () => {
-  test("prints one JSON array with id, state, title, folder, and driver as the whole stdout", async () => {
+  test("prints one JSON object whose items have id, state, title, folder, and driver as the whole stdout", async () => {
     const server = startFakeServer({
       sessions: [
         { id: "ses_root", directory: DIR, title: "Root run" },
@@ -732,7 +744,7 @@ describe("status --json", () => {
       expect(code).toBe(0);
       expect(errors).toEqual([]);
       // The whole stdout is one JSON document, so the test parses all of it.
-      const rows = parseJsonStdout(lines) as Array<Record<string, string>>;
+      const rows = parseItems(lines) as Array<Record<string, string>>;
       expect(rows).toEqual([
         { id: "ses_root", state: "idle", title: "Root run", folder: DIR, driver: "opencode" },
         { id: "ses_wt", state: "busy", title: "WT run", folder: `${DIR}/.worktrees/x`, driver: "opencode" },
@@ -758,7 +770,7 @@ describe("status --json", () => {
         deps: { worktreesOf: (directory) => [directory] },
       });
       expect(code).toBe(0);
-      const rows = parseJsonStdout(lines) as Array<Record<string, string>>;
+      const rows = parseItems(lines) as Array<Record<string, string>>;
       expect(rows).toEqual([
         { id: "ses_proj", state: "busy", title: "Proj run", folder: "/proj", project: "proj", server: server.url, driver: "opencode" },
       ]);
@@ -792,7 +804,7 @@ describe("status --json", () => {
       expect(code).toBe(0);
       // The warning goes to stderr; stdout stays the one JSON document.
       expect(errors.join("\n")).toContain("warning: /sbxproj/.worktrees/x:");
-      const rows = parseJsonStdout(lines) as Array<Record<string, string>>;
+      const rows = parseItems(lines) as Array<Record<string, string>>;
       expect(rows).toEqual([
         {
           id: "ses_sbx",
@@ -810,12 +822,12 @@ describe("status --json", () => {
     }
   });
 
-  test("--json prints an empty array to stdout and the message to stderr without a server", async () => {
+  test("--json prints empty items to stdout and the message to stderr without a server", async () => {
     const captured = captureLog();
     try {
       const code = await status({ url: "http://127.0.0.1:9", all: false, json: true }, {});
       expect(code).toBe(0);
-      expect(parseJsonStdout(captured.lines)).toEqual([]);
+      expect(parseItems(captured.lines)).toEqual([]);
       expect(captured.errors).toEqual(["no server on http://127.0.0.1:9"]);
     } finally {
       captured.restore();
@@ -837,7 +849,7 @@ describe("status --json", () => {
       });
       expect(code).toBe(0);
       expect(errors).toEqual(["no running sessions"]);
-      expect(parseJsonStdout(lines)).toEqual([]);
+      expect(parseItems(lines)).toEqual([]);
     } finally {
       server.stop();
       rmSync(stateHome, { recursive: true, force: true });
@@ -963,7 +975,7 @@ describe("Claude sessions in status", () => {
   test("--all --json gives the Claude fields of each entry", async () => {
     const { lines, errors } = await run({ all: true, json: true });
     expect(errors).toEqual([]);
-    const rows = parseJsonStdout(lines) as Array<Record<string, unknown>>;
+    const rows = parseItems(lines) as Array<Record<string, unknown>>;
     expect(rows.map((row) => row.id)).toEqual([S1, S5, S2, S7]);
     expect(rows[0]).toEqual({
       id: S1,
@@ -992,6 +1004,130 @@ describe("Claude sessions in status", () => {
     expect(code).toBe(0);
     expect(lines).toEqual(["no running sessions"]);
     expect(errors).toEqual(["warning: claude sessions: boom"]);
+  });
+
+  describe("--json snapshot of the tool protocol", () => {
+    /** Six minutes after the fixture time: S1 waits over 10 minutes, S2 has no transcript growth for 16 minutes. */
+    const LATER = NOW + 6 * MINUTE;
+    const loaderAt = () => async (nowMs: number) =>
+      loadClaudeRows({
+        source: createClaudeSource(FIXTURE_ROOT, fixtureFs()),
+        nowMs,
+        loadPrices: async () => parsePriceFile(readFileSync(path.join(FIXTURE_DIR, "litellm-prices.json"), "utf8")),
+      });
+    const snapshotDeps: StatusDeps = { ...claudeDeps, now: () => LATER, hostname: () => "mini", version: () => "abc1234" };
+
+    /** Run `status --json` without an opencode server; `seed` writes the event log first. */
+    async function snapshot(args: { dir?: string; all: boolean }, seed?: (stateDir: string) => void) {
+      const captured = captureLog();
+      const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-snapshot-"));
+      try {
+        mkdirSync(path.join(stateHome, "idfx"), { recursive: true });
+        seed?.(path.join(stateHome, "idfx"));
+        const url = "http://127.0.0.1:9";
+        const code = await status(
+          { url, dir: args.dir, all: args.all, json: true },
+          { XDG_STATE_HOME: stateHome, OC_SUB_URL: url },
+          snapshotDeps,
+          loaderAt(),
+        );
+        return { code, lines: captured.lines, errors: captured.errors };
+      } finally {
+        captured.restore();
+        rmSync(stateHome, { recursive: true, force: true });
+      }
+    }
+
+    function validator() {
+      const ajv = new Ajv({ strict: false, allErrors: true });
+      addFormats(ajv);
+      return ajv.compile(JSON.parse(readFileSync(path.join(import.meta.dir, "fixtures", "idfx-status.schema.json"), "utf8")));
+    }
+
+    test("stdout is one object with the protocol fields, and the True conditions of the rows", async () => {
+      const { code, lines, errors } = await snapshot({ all: true });
+      expect(code).toBe(0);
+      expect(errors).toEqual(["no server on http://127.0.0.1:9"]);
+      const out = parseJsonStdout(lines) as Record<string, unknown>;
+      expect(Object.keys(out)).toEqual(["tool", "version", "time", "source", "conditions", "items"]);
+      expect(out).toMatchObject({ tool: "idfx", version: "abc1234", time: new Date(LATER).toISOString(), source: "//mini/idfx" });
+      // Without an event log there is no sequence, and each condition starts now.
+      expect(out.conditions).toEqual([
+        {
+          type: "SessionWaitsForUser",
+          status: "True",
+          reason: "PermissionDialog",
+          message: "waits 11 min: Bash permission",
+          lastTransitionTime: new Date(LATER).toISOString(),
+          subject: "proj",
+          session: S1,
+        },
+        expect.objectContaining({ type: "SessionWaitsForUser", reason: "JobBlocked", subject: "blocked-job", session: S5 }),
+        expect.objectContaining({ type: "SessionStalled", reason: "NoTranscriptGrowth", subject: "bg-worker", session: S2 }),
+      ]);
+      expect((out.items as Array<{ id: string }>).map((item) => item.id)).toEqual([S1, S5, S2, S7]);
+    });
+
+    test("the output passes the JSON Schema of the protocol", async () => {
+      const { lines } = await snapshot({ all: true });
+      const validate = validator();
+      const ok = validate(parseJsonStdout(lines));
+      expect(validate.errors ?? []).toEqual([]);
+      expect(ok).toBe(true);
+    });
+
+    test("the event log gives the sequence and the lastTransitionTime of a known condition; HandoverFailed stays out", async () => {
+      const since = NOW - 30 * MINUTE;
+      const { lines } = await snapshot({ all: true }, (dir) => {
+        const known = conditionEvent(
+          {
+            condition: "SessionWaitsForUser",
+            status: "True",
+            reason: "JobBlocked",
+            message: "waits 4410 min: approve the push",
+            lastTransitionMs: since,
+            session: S5,
+            subject: "blocked-job",
+            cwd: "/home/u/dv/other",
+            kind: "background",
+            severity: TRUE_SEVERITY.SessionWaitsForUser,
+          },
+          41,
+          "//mini/idfx",
+        );
+        const handover = conditionEvent(
+          {
+            condition: "HandoverFailed",
+            status: "True",
+            reason: "HandoverCheckFailed",
+            message: "uncommitted work",
+            lastTransitionMs: since,
+            session: S7,
+            subject: "77777777",
+            cwd: "/home/u/dv/proj",
+            kind: "interactive",
+            severity: TRUE_SEVERITY.HandoverFailed,
+          },
+          42,
+          "//mini/idfx",
+        );
+        writeFileSync(path.join(dir, EVENTS_FILE), `${JSON.stringify(known)}\n${JSON.stringify(handover)}\n`);
+      });
+      const out = parseJsonStdout(lines) as { sequence?: string; conditions: Array<Record<string, string>> };
+      expect(out.sequence).toBe("00000000000000000042");
+      const s5 = out.conditions.find((condition) => condition.session === S5);
+      // The condition stays True since the log, so it keeps the time and the message of the log.
+      expect(s5).toMatchObject({ lastTransitionTime: new Date(since).toISOString(), message: "waits 4410 min: approve the push" });
+      expect(out.conditions.some((condition) => condition.type === "HandoverFailed")).toBe(false);
+      expect(validator()(out)).toBe(true);
+    });
+
+    test("without --all, the conditions cover only the sessions of the project", async () => {
+      const { lines } = await snapshot({ dir: "/home/u/dv/proj", all: false });
+      const out = parseJsonStdout(lines) as { conditions: Array<{ session: string }>; items: Array<{ id: string }> };
+      expect(out.items.map((item) => item.id)).toEqual([S1, S2, S7]);
+      expect(out.conditions.map((condition) => condition.session)).toEqual([S1, S2]);
+    });
   });
 
   test("the default reader of the tests sees no real Claude session", async () => {

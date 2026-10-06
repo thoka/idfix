@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dv.invalid/idfx/idfx-status.schema.json",
+  "description": "The output of idfx status --json: one snapshot object of the tool protocol version 0 (meta docs/research/tool-protocol.md, section 6). items holds the session list of idfx.",
+  "type": "object",
+  "required": ["tool", "version", "time", "source", "conditions", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "tool": { "const": "idfx" },
+    "version": { "type": "string", "minLength": 1 },
+    "time": { "type": "string", "format": "date-time" },
+    "source": { "type": "string", "pattern": "^//[^/]+/idfx$" },
+    "sequence": { "type": "string", "pattern": "^[0-9]{20}$" },
+    "conditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "status", "reason", "message", "lastTransitionTime", "subject", "session"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "enum": ["SessionWaitsForUser", "SessionStalled", "ContextHigh", "ApiError", "SessionUnnamed"] },
+          "status": { "const": "True" },
+          "reason": { "type": "string", "pattern": "^[A-Z][A-Za-z]*$" },
+          "message": { "type": "string", "maxLength": 200 },
+          "lastTransitionTime": { "type": "string", "format": "date-time" },
+          "subject": { "type": "string", "minLength": 1 },
+          "session": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "state", "title", "folder", "driver"],
+        "properties": {
+          "id": { "type": "string" },
+          "state": { "type": "string" },
+          "title": { "type": "string" },
+          "folder": { "type": "string" },
+          "project": { "type": "string" },
+          "server": { "type": "string" },
+          "driver": { "enum": ["opencode", "claude"] }
+        }
+      }
+    }
+  }
+}

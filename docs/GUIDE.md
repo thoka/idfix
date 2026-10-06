@@ -91,11 +91,29 @@ claude plugin install idfix@idfix
    oc-sub doctor
    ```
 
-   Every finding names its fix. The first lines should read `pass` for `env-files`, `claude-md`, and `agent-copies`. With `oc-sub doctor --fix`, the command repairs the safe findings itself (it turns an equal copy of the global rules into a symlink, re-points a broken link, and updates the plugin), then runs the checks again. `--fix` never calls sudo.
+   Every finding names its fix. The first lines should read `pass` for `env-files`, `claude-md`, and `agent-copies`.
+
+   `oc-sub doctor --json` prints one JSON object as the whole stdout, in the form of the tool protocol, version 0 (meta report `docs/research/tool-protocol.md`, section 6):
+
+   ```json
+   {
+     "tool": "idfx",
+     "version": "dc09dd2",
+     "status": "warn",
+     "checks": [
+       {"name": "env-files", "status": "pass", "type": "urn:dv:idfx:doctor:env-files",
+        "message": "no .env file in the project or its worktrees"},
+       {"name": "watch-running", "status": "warn", "type": "urn:dv:idfx:doctor:watch-running",
+        "message": "no idfx watch --all runs: ...", "fix": "systemctl --user enable --now idfx-watch.service ..."}
+     ]
+   }
+   ```
+
+   `version` is the same as in `status --json`. `status` is `fail` when a check fails, else `warn` when a check warns or did not run, else `pass`. Each check has its `name`, its `status` (`pass`, `warn`, `fail`, `skip`, or `error`), its stable key `type` (`urn:dv:idfx:doctor:<name>`), its `message`, and the `fix` when it has one. A check that throws does not stop the doctor: it gets the status `error`, and the field `error` holds the message of the throw. With `--fix --json`, the object also has `fixes`, one `{name, ok, note}` per fix action, and `checks` holds the results of the run after the fixes. The fix lines go to stderr. The exit code is 0 when all checks pass or some warn, 1 when a check fails or a fix failed, and 2 for a usage error or when the doctor itself cannot run. With code 2, stdout stays empty and stderr names the cause. The JSON Schema of the object is `test/fixtures/idfx-doctor.schema.json`. With `oc-sub doctor --fix`, the command repairs the safe findings itself (it turns an equal copy of the global rules into a symlink, re-points a broken link, and updates the plugin), then runs the checks again. `--fix` never calls sudo.
 
    The check `opencode-version` compares the opencode version of the project with the version that oc-sub is tested with (the pin in the `mise.toml` of oc-sub). It asks `mise current opencode` in the project root, so a pin in the project and a global pin both count. A pin other than the tested version, such as `opencode = "latest"`, warns even when it resolves to the tested version today, because the next release changes it without notice. The project pin counts first; without one, the global pin counts. The sandbox server runs the same version, because `up` puts the mise tool folders of the project in front of the sandbox PATH. With `--fix`, the fix sets the tested version in the project `mise.toml`, keeps the rest of the file byte for byte, and runs `mise install`. When the deciding pin sits in the global mise configuration of the user, the fix changes nothing and names the line to set by hand, because that file belongs to the user.
 
-   `oc-sub doctor --renovate` lifts a project to the current standard in one command. It implies `--fix` and `--force`, so it also runs the fixes that need `--force`: the rewrite of old agent copies (see `agent-copies` below) and the recreate of a sandbox that lacks a mount. The guards inside a fix still block, also with `--renovate`: a busy session, and work in the clone that the host would lose. `--renovate --json` prints the same `{fixes, results}` object on stdout as `--fix --json`.
+   `oc-sub doctor --renovate` lifts a project to the current standard in one command. It implies `--fix` and `--force`, so it also runs the fixes that need `--force`: the rewrite of old agent copies (see `agent-copies` below) and the recreate of a sandbox that lacks a mount. The guards inside a fix still block, also with `--renovate`: a busy session, and work in the clone that the host would lose. `--renovate --json` prints the same object with `fixes` on stdout as `--fix --json`.
 
    A fix that writes or deletes a file inside the project checks the git state of that file first. A clean file is tracked by git and has no uncommitted changes. The fix runs only on clean files, so git holds the old content of everything it rewrites. This holds for `--fix` and `--renovate` alike, and it covers the two fixes `agent-copies` and `opencode-version`. A file that is not clean is not touched: the note names the file, its git state, and the step by hand. An untracked file is not tracked by git, so a rewrite would lose its content; edit it by hand. A modified file can be committed or stashed first, and then the fix runs. An untracked folder such as `.claude/` is not a fix target, so it blocks nothing.
 
@@ -214,14 +232,39 @@ With `--all`, the `where` column shows the full project name. A project can set 
 
 `oc-sub status` prints one line per running session of the current project and its worktrees: the session ID, the state (`busy`, `waiting`, `retry`, or `idle`), and the title. A session of another worktree gets its folder in brackets. `oc-sub status --all` lists the running sessions of all known servers, all projects, and their worktrees, each with its folder.
 
-With `--json`, the command prints one JSON array as the whole stdout, one object per session:
+With `--json`, the command prints one JSON object as the whole stdout. It is the snapshot form of the tool protocol, version 0 (meta report `docs/research/tool-protocol.md`, section 6):
 
-- `id`, `state`, and `title` are the fields of the text line.
-- `folder` is the absolute directory whose listing produced the session (the project root, a worktree, or a run folder).
-- `driver` is `opencode` or `claude`.
-- With `--all`, each object also has `project` (the project name). An opencode session also has `server` (the URL of the server that listed the session).
+```json
+{
+  "tool": "idfx",
+  "version": "dc09dd2",
+  "time": "2026-10-06T11:06:00.000Z",
+  "source": "//mini-arch/idfx",
+  "sequence": "00000000000000000042",
+  "conditions": [
+    {"type": "SessionWaitsForUser", "status": "True", "reason": "PermissionDialog",
+     "message": "waits 11 min: Bash permission", "lastTransitionTime": "2026-10-06T11:06:00.000Z",
+     "subject": "proj", "session": "11111111-0000-4000-8000-000000000001"}
+  ],
+  "items": [
+    {"id": "11111111-0000-4000-8000-000000000001", "state": "waiting", "title": "fixture-title",
+     "folder": "/home/u/dv/proj", "driver": "claude"}
+  ]
+}
+```
 
-In JSON mode, nothing else goes to stdout: messages such as `no server on ...` go to stderr. Parse the whole stdout as one JSON document. The command works from the project root, from a host git worktree of the project (for example `<root>/.claude/worktrees/x`, which resolves to the project root through the git common dir), and with `--dir`.
+- `tool` is always `idfx`.
+- `version` is the `version` field of `package.json` of the idfix checkout. idfix has none yet, so it is the short git SHA of the checkout. Without git, it is `0.0.0`.
+- `time` is the time of the snapshot, and `source` is `//<host name>/idfx`, the same `source` as the events of `idfx watch --all`.
+- `sequence` is the last sequence number of the event log of `idfx watch --all`. A consumer can read the log from there on without a gap. Without an event in the log, the field is absent.
+- `conditions` holds the conditions of the listed Claude Code sessions that are True now, as the watcher computes them (see [Watch all Claude Code sessions](#watch-all-claude-code-sessions-idfx-watch---all)). Each has `type`, `status` (always `True`), `reason`, `message`, `lastTransitionTime`, `subject` (the session name, else the first 8 characters of the session ID), and `session` (the full ID). When the event log already holds the condition as True, `lastTransitionTime` and `message` come from the log; else `lastTransitionTime` is the time of the snapshot. `HandoverFailed` never shows here: it needs a run of `handover check` for each ended session, which is too slow for `status`. Only the event log carries it. `ApiError` shows only for an error line after the last event of the log.
+- `items` is the list of sessions, one object per session:
+  - `id`, `state`, and `title` are the fields of the text line.
+  - `folder` is the absolute directory whose listing produced the session (the project root, a worktree, or a run folder).
+  - `driver` is `opencode` or `claude`.
+  - With `--all`, each object also has `project` (the project name). An opencode session also has `server` (the URL of the server that listed the session).
+
+In JSON mode, nothing else goes to stdout: messages such as `no server on ...` go to stderr. Parse the whole stdout as one JSON document. The JSON Schema of the object is `test/fixtures/idfx-status.schema.json`. The command works from the project root, from a host git worktree of the project (for example `<root>/.claude/worktrees/x`, which resolves to the project root through the git common dir), and with `--dir`.
 
 ### Claude Code sessions in `status`
 
@@ -234,7 +277,7 @@ In JSON mode, nothing else goes to stdout: messages such as `no server on ...` g
 
 The ID of a Claude session is its session ID. The title is the custom title of the session, else its AI title, else its name, else its folder name. idfix never shows a prompt.
 
-With `--json`, a Claude entry also has these fields:
+With `--json`, a Claude entry of `items` also has these fields:
 
 - `name` and `kind` (`interactive` or `background`).
 - `waitingFor`: what the session waits for, or `null`.
@@ -347,7 +390,7 @@ systemctl --user enable --now idfx-watch.service
 
 `idfx doctor` shows in the check `watch-running` whether a watcher runs. `journalctl --user -u idfx-watch.service` shows its warnings.
 
-The design is `docs/design/idfx-watch.md`. The protocol form of `status --json` and `doctor --json` comes in the next step.
+The design is `docs/design/idfx-watch.md`. `idfx status --json` gives a snapshot of the current conditions together with the last `sequence` of the log (see [Check what runs](#check-what-runs-oc-sub-status)).
 
 ## Follow up, abort, and read the cost
 
@@ -560,7 +603,7 @@ problem: `opencode run` hangs
 cause-and-fix: The command waits for input. Add `< /dev/null`.
 --
 problem: `oc-sub status` shows nothing
-cause-and-fix: The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. `oc-sub status --all` shows the running sessions of all known servers, all projects, and their worktrees, each with its folder. From a host git worktree of the project, `status` resolves to the project root through the git common dir; if git fails there (for example a dubious-ownership error), it cannot, so run it with `--dir <root>` instead. `--json` prints the sessions as one JSON array.
+cause-and-fix: The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. `oc-sub status --all` shows the running sessions of all known servers, all projects, and their worktrees, each with its folder. From a host git worktree of the project, `status` resolves to the project root through the git common dir; if git fails there (for example a dubious-ownership error), it cannot, so run it with `--dir <root>` instead. `--json` prints one object, and the sessions are in its `items`.
 --
 problem: A run seems stuck
 cause-and-fix: The agent may wait for an answer to a question or a permission request. Run `oc-sub watch <session-id> --dir <worktree>` again. It ends with exit code 3 and prints the request.

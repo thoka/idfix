@@ -538,7 +538,29 @@ function routeRequest(pathname, search, upstream, deepinfraUpstream) {
   }
   return { upstream: "openrouter", target: upstream + pathname + search };
 }
-var decoder = new TextDecoder;
+function isHelloProbe(method, pathname) {
+  return method === "HEAD" && pathname === "/api/hello";
+}
+function mayCarryBodySession(method, pathname) {
+  return method === "POST" && pathname.endsWith("/messages");
+}
+function bodySessionId(body) {
+  try {
+    const parsed = JSON.parse(body);
+    const userId = parsed?.metadata?.user_id;
+    if (typeof userId !== "string")
+      return null;
+    const inner = JSON.parse(userId);
+    const session = inner?.session_id;
+    return typeof session === "string" && session !== "" ? session : null;
+  } catch {
+    return null;
+  }
+}
+function headerOf(headers, name) {
+  const value = headers.get(name);
+  return value === null || value === "" ? null : value;
+}
 function startProxy({
   port,
   hostname = "127.0.0.1",
@@ -557,6 +579,9 @@ function startProxy({
       upstream: state.upstream,
       session: state.session,
       parentSession: state.parentSession,
+      agent: state.agent,
+      idfxRun: state.idfxRun,
+      idfxProject: state.idfxProject,
       method: state.method,
       path: state.path,
       status,
@@ -583,12 +608,24 @@ function startProxy({
     idleTimeout: 0,
     async fetch(req) {
       const url = new URL(req.url);
+      if (isHelloProbe(req.method, url.pathname))
+        return new Response(null, { status: 200 });
       const route = routeRequest(url.pathname, url.search, upstream, deepinfraUpstream);
+      let session = headerOf(req.headers, "X-Session-Id") ?? headerOf(req.headers, "x-claude-code-session-id");
+      let body = req.body;
+      if (session === null && req.body !== null && mayCarryBodySession(req.method, url.pathname)) {
+        const bytes = await req.arrayBuffer();
+        session = bodySessionId(new TextDecoder().decode(bytes));
+        body = bytes;
+      }
       const state = {
         request: nextRequest++,
         upstream: route.upstream,
-        session: req.headers.get("X-Session-Id"),
-        parentSession: req.headers.get("x-parent-session-id"),
+        session,
+        parentSession: headerOf(req.headers, "x-parent-session-id"),
+        agent: headerOf(req.headers, "x-claude-code-agent-id"),
+        idfxRun: headerOf(req.headers, "x-idfx-run"),
+        idfxProject: headerOf(req.headers, "x-idfx-project"),
         method: req.method,
         path: url.pathname + url.search,
         startedAt: performance.now()
@@ -601,6 +638,9 @@ function startProxy({
         upstream: state.upstream,
         session: state.session,
         parentSession: state.parentSession,
+        agent: state.agent,
+        idfxRun: state.idfxRun,
+        idfxProject: state.idfxProject,
         method: state.method,
         path: state.path
       });
@@ -612,7 +652,7 @@ function startProxy({
         res = await fetchImpl(route.target, {
           method: req.method,
           headers,
-          body: req.body,
+          body,
           redirect: "manual"
         });
       } catch (error) {
@@ -628,6 +668,7 @@ function startProxy({
       responseHeaders.delete("transfer-encoding");
       if (contentType.includes("text/event-stream") && res.body !== null) {
         const tap = createSseTap();
+        const decoder = new TextDecoder;
         let firstByteAt = null;
         const reader = res.body.getReader();
         let settled = false;

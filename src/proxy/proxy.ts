@@ -1,14 +1,25 @@
 /**
- * The cost proxy: a small Bun HTTP pass-through between opencode and its
- * model providers, OpenRouter and DeepInfra. A request path that starts with
- * `/deepinfra/` goes to DeepInfra with that prefix removed; every other path
- * goes to OpenRouter. It forwards every request to the upstream base URL, streams the
+ * The cost proxy: a small Bun HTTP pass-through between a coding agent and
+ * its model providers, OpenRouter and DeepInfra. opencode calls the OpenAI
+ * shape (`/v1/chat/completions`), Claude Code calls the Anthropic shape
+ * (`/v1/messages`). A request path that starts with `/deepinfra/` goes to
+ * DeepInfra with that prefix removed. Every other path goes to OpenRouter.
+ * The proxy forwards every request to the upstream base URL, streams the
  * response back without buffering, and writes one JSON log line per request
  * event to stdout (tagged with `"source":"idfx-cost-proxy"`). See
- * .plan/research/cost-proxy.md.
+ * .plan/research/cost-proxy.md and .plan/design/driver-layer.md.
  *
- * Key safety: the proxy never logs the `Authorization` header or any other
- * header value except the two session headers, and never logs a body.
+ * Key safety: the proxy logs the value of no header outside this allowlist:
+ * `X-Session-Id`, `x-parent-session-id`, `x-claude-code-session-id`,
+ * `x-claude-code-agent-id`, `x-idfx-run`, and `x-idfx-project`. It never
+ * logs `Authorization`, `x-api-key`, or a body. The one body read is the
+ * session fallback of a Claude Code request: when the session headers are
+ * missing, the proxy parses `metadata.user_id` of a `POST .../messages` body
+ * in memory and logs only its `session_id`, never `device_id` or
+ * `account_uuid`.
+ *
+ * `HEAD /api/hello` is the reachability probe of Claude Code. The proxy
+ * answers it with 200 itself, with no upstream call and no log line.
  */
 import { applyChunk, createSseTap, type TapResult } from "./tap";
 
@@ -81,12 +92,52 @@ type RequestState = {
   upstream: UpstreamName;
   session: string | null;
   parentSession: string | null;
+  /** The subagent id of a Claude Code request (`x-claude-code-agent-id`). */
+  agent: string | null;
+  /** The idfx run id (`x-idfx-run`), set by the driver as a custom header. */
+  idfxRun: string | null;
+  /** The idfx project (`x-idfx-project`), set by the driver as a custom header. */
+  idfxProject: string | null;
   method: string;
   path: string;
   startedAt: number;
 };
 
-const decoder = new TextDecoder();
+/** Whether the proxy answers this request itself: the Claude Code probe `HEAD /api/hello`. Pure. */
+export function isHelloProbe(method: string, pathname: string): boolean {
+  return method === "HEAD" && pathname === "/api/hello";
+}
+
+/** Whether a request may carry the Claude Code session in its body. Pure. */
+export function mayCarryBodySession(method: string, pathname: string): boolean {
+  return method === "POST" && pathname.endsWith("/messages");
+}
+
+/**
+ * The `session_id` inside `metadata.user_id` of an Anthropic request body,
+ * else null. Claude Code sends `user_id` as a JSON string with `device_id`,
+ * `account_uuid`, and `session_id` (.plan/research/driver-interface.md
+ * sections 6.1 and 6.9). Only `session_id` leaves this function. Never
+ * throws. Pure.
+ */
+export function bodySessionId(body: string): string | null {
+  try {
+    const parsed = JSON.parse(body) as { metadata?: { user_id?: unknown } } | null;
+    const userId = parsed?.metadata?.user_id;
+    if (typeof userId !== "string") return null;
+    const inner = JSON.parse(userId) as { session_id?: unknown } | null;
+    const session = inner?.session_id;
+    return typeof session === "string" && session !== "" ? session : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The value of a header, null when it is absent or empty. */
+function headerOf(headers: Headers, name: string): string | null {
+  const value = headers.get(name);
+  return value === null || value === "" ? null : value;
+}
 
 export function startProxy({
   port,
@@ -113,6 +164,9 @@ export function startProxy({
       upstream: state.upstream,
       session: state.session,
       parentSession: state.parentSession,
+      agent: state.agent,
+      idfxRun: state.idfxRun,
+      idfxProject: state.idfxProject,
       method: state.method,
       path: state.path,
       status,
@@ -145,12 +199,28 @@ export function startProxy({
     idleTimeout: 0,
     async fetch(req) {
       const url = new URL(req.url);
+      // Claude Code probes the base URL before its first request. The probe
+      // is no model call, so it costs nothing and gets no log line.
+      if (isHelloProbe(req.method, url.pathname)) return new Response(null, { status: 200 });
       const route = routeRequest(url.pathname, url.search, upstream, deepinfraUpstream);
+      // The session: the opencode header, else the Claude Code header, else
+      // the session_id in the body of a Claude Code request. The body is
+      // read only in that last case, and the same bytes go upstream.
+      let session = headerOf(req.headers, "X-Session-Id") ?? headerOf(req.headers, "x-claude-code-session-id");
+      let body: ReadableStream<Uint8Array> | ArrayBuffer | null = req.body;
+      if (session === null && req.body !== null && mayCarryBodySession(req.method, url.pathname)) {
+        const bytes = await req.arrayBuffer();
+        session = bodySessionId(new TextDecoder().decode(bytes));
+        body = bytes;
+      }
       const state: RequestState = {
         request: nextRequest++,
         upstream: route.upstream,
-        session: req.headers.get("X-Session-Id"),
-        parentSession: req.headers.get("x-parent-session-id"),
+        session,
+        parentSession: headerOf(req.headers, "x-parent-session-id"),
+        agent: headerOf(req.headers, "x-claude-code-agent-id"),
+        idfxRun: headerOf(req.headers, "x-idfx-run"),
+        idfxProject: headerOf(req.headers, "x-idfx-project"),
         method: req.method,
         path: url.pathname + url.search,
         startedAt: performance.now(),
@@ -163,6 +233,9 @@ export function startProxy({
         upstream: state.upstream,
         session: state.session,
         parentSession: state.parentSession,
+        agent: state.agent,
+        idfxRun: state.idfxRun,
+        idfxProject: state.idfxProject,
         method: state.method,
         path: state.path,
       });
@@ -178,7 +251,7 @@ export function startProxy({
         res = await fetchImpl(route.target, {
           method: req.method,
           headers,
-          body: req.body,
+          body,
           redirect: "manual",
         });
       } catch (error) {
@@ -197,6 +270,9 @@ export function startProxy({
       if (contentType.includes("text/event-stream") && res.body !== null) {
         // Pass-through: every byte goes on at once, the tap only watches.
         const tap = createSseTap();
+        // One decoder per stream: a streaming decoder keeps a cut multibyte
+        // character between reads, so two streams must not share one.
+        const decoder = new TextDecoder();
         let firstByteAt: number | null = null;
         const reader = res.body.getReader();
         let settled = false;

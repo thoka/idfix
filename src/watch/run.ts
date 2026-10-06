@@ -30,7 +30,8 @@ import {
   type PlanCommitReader,
   type WatchRow,
 } from "./conditions";
-import { projectNameOfRun } from "../keys";
+import { sessionNamesSource, readTextSync, type SessionNamesReader } from "../folder-config";
+import { projectNameOf, projectRootOfRun } from "../keys";
 import { createWaker, nodeNotifier, type Notifier } from "./wake";
 import {
   acquireLock,
@@ -66,6 +67,11 @@ export type WatchAllDeps = {
   handoverCheck: HandoverCheck;
   /** The last commit of the plan (`PLAN.md` in the plan folder) of a folder, for `SessionHandedOff`. */
   planCommit: PlanCommitReader;
+  /**
+   * A reader of the extra session names of a main folder (`.idfix.toml`)
+   * for one poll. The watcher calls it once per poll.
+   */
+  sessionNames(): SessionNamesReader;
   /** Waits for `ms`, or less when the signal aborts. */
   sleep(ms: number, signal: AbortSignal | undefined): Promise<void>;
   stdout(line: string): void;
@@ -79,15 +85,20 @@ export type WatchAllDeps = {
 
 /**
  * The fields of a Claude row that the conditions read. A row with a PID has
- * a live process. `projectName` gives the project of the folder; tests
- * replace it, so that they need no real folders.
+ * a live process. `projectOf` gives the main folder of the project and its
+ * name; tests replace it, so that they need no real folders.
  */
-export function toWatchRow(row: ClaudeRow, projectName: (directory: string) => string = projectNameOfRun): WatchRow {
+export function toWatchRow(
+  row: ClaudeRow,
+  projectOf: (directory: string) => { root: string; name: string } = projectOfRun,
+): WatchRow {
+  const project = projectOf(row.directory);
   return {
     sessionId: row.sessionId,
     name: row.name,
     directory: row.directory,
-    project: projectName(row.directory),
+    project: project.name,
+    projectRoot: project.root,
     kind: row.kind,
     state: row.state,
     live: row.pid !== undefined,
@@ -102,6 +113,12 @@ export function toWatchRow(row: ClaudeRow, projectName: (directory: string) => s
     lastApiErrorText: row.lastApiErrorText,
     lastApiErrorMs: row.lastApiErrorMs,
   };
+}
+
+/** The main folder of the project of a run folder and its name, as `projectNameOfRun` finds them. */
+export function projectOfRun(directory: string): { root: string; name: string } {
+  const root = projectRootOfRun(directory);
+  return { root, name: projectNameOf(root) };
 }
 
 /** One short line for a person: the time, the severity, the subject, the condition, and its reason. */
@@ -146,7 +163,7 @@ export async function runWatchAll(options: { json: boolean; once: boolean }, dep
         const nowMs = deps.now();
         try {
           const rows = (await deps.loadRows(nowMs)).map((row) => toWatchRow(row));
-          const result = evaluate(state, rows, nowMs, deps.handoverCheck, deps.planCommit);
+          const result = evaluate(state, rows, nowMs, deps.handoverCheck, deps.planCommit, deps.sessionNames());
           state = result.state;
           for (const edge of result.edges) emit(writer.append((sequence) => conditionEvent(edge, sequence, source)));
           waker.afterPoll(result.edges, nowMs, baseline);
@@ -263,6 +280,7 @@ export async function watchAll(
   env: Record<string, string | undefined> = process.env,
 ): Promise<number> {
   const controller = new AbortController();
+  const names = sessionNamesSource(readTextSync, (line) => console.error(`idfx watch: ${line}`));
   const stop = () => controller.abort();
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
@@ -274,6 +292,7 @@ export async function watchAll(
       loadRows: claudeRowsLoader(env),
       handoverCheck: nodeHandoverCheck,
       planCommit: nodePlanCommit(env),
+      sessionNames: () => names.forTick(),
       sleep: abortableSleep,
       stdout: (line) => console.log(line),
       stderr: (line) => console.error(line),

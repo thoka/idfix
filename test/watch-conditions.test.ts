@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { SessionNamesReader } from "../src/folder-config";
 import {
   apiErrorReason,
   conditionKey,
@@ -32,6 +33,7 @@ function row(overrides: Partial<WatchRow> = {}): WatchRow {
     name: "meta",
     directory: "/home/user/src/meta",
     project: "meta",
+    projectRoot: "/home/user/src/meta",
     kind: "interactive",
     state: "idle",
     live: true,
@@ -56,12 +58,12 @@ const noCheck: HandoverCheck = () => {
 /** Runs the polls in order and returns the edges of each poll. */
 function polls(
   steps: Array<{ atMs: number; rows: WatchRow[] }>,
-  options: { state?: WatchState; check?: HandoverCheck } = {},
+  options: { state?: WatchState; check?: HandoverCheck; sessionNames?: SessionNamesReader } = {},
 ): { edges: Edge[][]; state: WatchState } {
   let state = options.state ?? emptyState(T0);
   const all: Edge[][] = [];
   for (const step of steps) {
-    const result = evaluate(state, step.rows, step.atMs, options.check ?? noCheck);
+    const result = evaluate(state, step.rows, step.atMs, options.check ?? noCheck, undefined, options.sessionNames);
     state = result.state;
     all.push(result.edges);
   }
@@ -347,6 +349,44 @@ describe("SessionUnnamed", () => {
     const project = "p".repeat(300);
     const { edges } = polls([{ atMs: T0, rows: [row({ name: "x", project })] }]);
     expect(only(edges[0] ?? [], "SessionUnnamed")[0]?.message.length).toBeLessThanOrEqual(MESSAGE_LENGTH);
+  });
+
+  test("extra names are valid, and the other rules stay", () => {
+    expect(nameFollowsRule("lead", "src", ["lead", "reviewer"])).toBe(true);
+    expect(nameFollowsRule("reviewer", "src", ["lead", "reviewer"])).toBe(true);
+    expect(nameFollowsRule("planner", "src", ["lead", "reviewer"])).toBe(false);
+    expect(nameFollowsRule("lead", "src")).toBe(false);
+    expect(nameFollowsRule("src-3", "src", ["lead"])).toBe(true);
+    expect(nameFollowsRule("supervisor", "src", ["lead"])).toBe(true);
+  });
+
+  test("a role name listed for the main folder is False", () => {
+    const folders: string[] = [];
+    const sessionNames: SessionNamesReader = (folder) => {
+      folders.push(folder);
+      return folder === "/home/user/src" ? ["lead", "reviewer"] : [];
+    };
+    const lead = row({ name: "lead", directory: "/home/user/src/.worktrees/x", project: "src", projectRoot: "/home/user/src" });
+    const { edges } = polls([{ atMs: T0, rows: [lead] }], { sessionNames });
+    expect(only(edges[0] ?? [], "SessionUnnamed")).toEqual([]);
+    expect(folders).toEqual(["/home/user/src"]);
+  });
+
+  test("a role name that is not listed is True, and the message names the listed names", () => {
+    const sessionNames: SessionNamesReader = () => ["lead", "reviewer"];
+    const planner = row({ name: "planner", directory: "/home/user/src", project: "src", projectRoot: "/home/user/src" });
+    const { edges } = polls([{ atMs: T0, rows: [planner] }], { sessionNames });
+    const unnamedEdges = only(edges[0] ?? [], "SessionUnnamed");
+    expect(summary(unnamedEdges)).toEqual([["SessionUnnamed", "True", REASON_NAME_OFF_RULE]]);
+    expect(unnamedEdges[0]?.message).toBe('expected "src" or "src-<step>" or one of: lead, reviewer');
+  });
+
+  test("a name that the rule allows does not read the session names", () => {
+    const sessionNames: SessionNamesReader = () => {
+      throw new Error("the session names must not be read");
+    };
+    const { edges } = polls([{ atMs: T0, rows: [row({ name: "meta-7" })] }], { sessionNames });
+    expect(only(edges[0] ?? [], "SessionUnnamed")).toEqual([]);
   });
 
   test("a rename from a name off the rule to a valid name gives False Cleared", () => {

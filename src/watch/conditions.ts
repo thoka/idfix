@@ -22,6 +22,7 @@
  * the first problem line of `handover check`, a commit hash, or numbers. It
  * never holds a prompt.
  */
+import { noSessionNames, type SessionNamesReader } from "../folder-config";
 import type { SessionRowState } from "../top/model";
 
 /** The seven condition types. */
@@ -102,6 +103,8 @@ export type WatchRow = {
   directory: string;
   /** The project of the folder, from `projectNameOfRun`. */
   project: string;
+  /** The main folder of the project (`projectRootOfRun`), which holds the optional `.idfix.toml`. */
+  projectRoot: string;
   kind: string;
   state: SessionRowState;
   /** Whether a live process belongs to the session. */
@@ -316,19 +319,28 @@ function apiError(row: WatchRow, seen: SeenSession | undefined, watermarkMs: num
 /**
  * The naming rule: a session name is its
  * project, or `<project>-<step>` with a non-empty step. The name
- * `supervisor` is valid in every folder.
+ * `supervisor` is valid in every folder. A name in `extraNames` (the key
+ * `session_names` of `.idfix.toml` in the main folder) is valid too.
  */
-export function nameFollowsRule(name: string, project: string): boolean {
-  if (name === SUPERVISOR_NAME || name === project) return true;
+export function nameFollowsRule(name: string, project: string, extraNames: readonly string[] = []): boolean {
+  if (name === SUPERVISOR_NAME || name === project || extraNames.includes(name)) return true;
   const prefix = `${project}-`;
   return name.startsWith(prefix) && name.length > prefix.length;
 }
 
-function unnamed(row: WatchRow): Wanted {
+function unnamed(row: WatchRow, sessionNames: SessionNamesReader): Wanted {
   if (!row.live) return FALSE;
   if (row.name === undefined) return { status: "True", reason: REASON_NO_NAME, message: "" };
   if (nameFollowsRule(row.name, row.project)) return FALSE;
-  return { status: "True", reason: REASON_NAME_OFF_RULE, message: cut(`expected "${row.project}" or "${row.project}-<step>"`) };
+  // The config is read only for a name that the rule alone does not allow.
+  const extra = sessionNames(row.projectRoot);
+  if (nameFollowsRule(row.name, row.project, extra)) return FALSE;
+  const listed = extra.length > 0 ? ` or one of: ${extra.join(", ")}` : "";
+  return {
+    status: "True",
+    reason: REASON_NAME_OFF_RULE,
+    message: cut(`expected "${row.project}" or "${row.project}-<step>"${listed}`),
+  };
 }
 
 /**
@@ -407,7 +419,10 @@ function handedOff(
  * per session and poll, and only at the edge to `ended` (`HandoverFailed`)
  * or from `busy` or `waiting` to `idle` or `ended` (`SessionHandedOff`).
  * `planCommit` reads the last commit of the plan, only after a clean
- * check at such an edge. The old state is not changed.
+ * check at such an edge. `sessionNames` gives the extra valid session
+ * names of a main folder (`.idfix.toml`), only for a live session whose
+ * name the rule alone does not allow.
+ * The old state is not changed.
  */
 export function evaluate(
   old: WatchState,
@@ -415,6 +430,7 @@ export function evaluate(
   nowMs: number,
   check: HandoverCheck,
   planCommit: PlanCommitReader = noPlanCommit,
+  sessionNames: SessionNamesReader = noSessionNames,
 ): { state: WatchState; edges: Edge[] } {
   const conditions = new Map(old.conditions);
   const sessions = new Map<string, SeenSession>();
@@ -478,7 +494,7 @@ export function evaluate(
     apply(row, "ContextHigh", contextHigh(row));
     apply(row, "HandoverFailed", handoverFailed(row, seen, oldHandover, old.watermarkMs, checkOnce));
     apply(row, "ApiError", apiError(row, seen, old.watermarkMs));
-    apply(row, "SessionUnnamed", unnamed(row));
+    apply(row, "SessionUnnamed", unnamed(row, sessionNames));
     apply(row, "SessionHandedOff", handedOff(row, seen, oldHandedOff, old.watermarkMs, checkOnce, planCommit));
     sessions.set(row.sessionId, { state: row.state, apiErrors: row.apiErrors });
   }

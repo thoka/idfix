@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { parsePriceFile } from "../src/claude/prices";
 import { createClaudeSource, loadClaudeRows, type ClaudeRow } from "../src/claude/rows";
+import type { SessionNamesReader } from "../src/folder-config";
 import type { HandoverCheck, PlanCommitReader } from "../src/watch/conditions";
 import { acquireLock, EVENTS_FILE, type LockProcess } from "../src/watch/log";
 import type { Notifier } from "../src/watch/wake";
@@ -29,6 +30,8 @@ type Harness = {
   checks: string[];
   planReads: string[];
   notices: string[];
+  /** The folders that the session name reader got, one list per poll. */
+  nameReads: string[][];
 };
 
 function harness(options: {
@@ -37,6 +40,7 @@ function harness(options: {
   loadRows?: WatchAllDeps["loadRows"];
   check?: HandoverCheck;
   planCommit?: PlanCommitReader;
+  sessionNames?: SessionNamesReader;
   signal?: AbortSignal;
   onSleep?: () => void;
   lockProcess?: LockProcess;
@@ -48,6 +52,7 @@ function harness(options: {
   const sleeps: number[] = [];
   const checks: string[] = [];
   const planReads: string[] = [];
+  const nameReads: string[][] = [];
   const source = createClaudeSource(FIXTURE_ROOT, fixtureFs());
   const deps: WatchAllDeps = {
     stateDir: options.stateDir ?? mkdtempSync(path.join(tmpdir(), "idfx-watch-run-")),
@@ -61,6 +66,14 @@ function harness(options: {
     planCommit: (cwd) => {
       planReads.push(cwd);
       return options.planCommit?.(cwd);
+    },
+    sessionNames: () => {
+      const reads: string[] = [];
+      nameReads.push(reads);
+      return (folder) => {
+        reads.push(folder);
+        return options.sessionNames?.(folder) ?? [];
+      };
     },
     sleep: async (ms) => {
       sleeps.push(ms);
@@ -76,7 +89,7 @@ function harness(options: {
     },
     signal: options.signal,
   };
-  return { deps, out, err, sleeps, checks, planReads, notices };
+  return { deps, out, err, sleeps, checks, planReads, notices, nameReads };
 }
 
 const fileEvents = (dir: string) =>
@@ -391,15 +404,15 @@ describe("toWatchRow", () => {
     const row = claudeRowOf(S1, { name: "idfix-36", directory: "/home/user/src/idfix/.worktrees/36-worker-names", pid: 1 });
     const watchRow = toWatchRow(row, (directory) => {
       seen.push(directory);
-      return "idfix";
+      return { root: "/home/user/src/idfix", name: "idfix" };
     });
     expect(seen).toEqual(["/home/user/src/idfix/.worktrees/36-worker-names"]);
-    expect(watchRow).toMatchObject({ project: "idfix", name: "idfix-36", live: true });
+    expect(watchRow).toMatchObject({ project: "idfix", projectRoot: "/home/user/src/idfix", name: "idfix-36", live: true });
   });
 
   test("the default project is the folder name when the folder does not exist", () => {
     const row = claudeRowOf(S1, { directory: "/nonexistent-idfix-test/dv/proj" });
-    expect(toWatchRow(row).project).toBe("proj");
+    expect(toWatchRow(row)).toMatchObject({ project: "proj", projectRoot: "/nonexistent-idfix-test/dv/proj" });
   });
 });
 
@@ -550,5 +563,29 @@ describe("nodePlanCommit", () => {
     commitAll(plan, "notes");
     expect(planHash).not.toBe(mainHash);
     expect(read(repo)).toBe(planHash);
+  });
+});
+
+describe("runWatchAll with session names", () => {
+  const lead = (name: string) =>
+    claudeRowOf(S1, { name, directory: "/nonexistent-idfix-test/home/user/src", pid: 1, state: "idle" });
+
+  test("a listed role name gives no SessionUnnamed event, and the reader starts once per poll", async () => {
+    const h = harness({
+      loadRows: async () => [lead("lead")],
+      sessionNames: (folder) => (folder === "/nonexistent-idfix-test/home/user/src" ? ["lead", "reviewer"] : []),
+    });
+    expect(await runWatchAll({ json: true, once: true }, h.deps)).toBe(0);
+    expect(h.out.filter((line) => line.includes("SessionUnnamed"))).toEqual([]);
+    expect(h.nameReads).toEqual([["/nonexistent-idfix-test/home/user/src"]]);
+  });
+
+  test("a role name that is not listed gives NameOffRule with the listed names", async () => {
+    const h = harness({ loadRows: async () => [lead("planner")], sessionNames: () => ["lead", "reviewer"] });
+    expect(await runWatchAll({ json: true, once: true }, h.deps)).toBe(0);
+    const events = h.out.map((line) => JSON.parse(line)).filter((event) => event.data?.condition === "SessionUnnamed");
+    expect(events.map((event) => [event.data.reason, event.data.message])).toEqual([
+      ["NameOffRule", 'expected "src" or "src-<step>" or one of: lead, reviewer'],
+    ]);
   });
 });

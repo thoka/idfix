@@ -11,7 +11,8 @@ import { listServers } from "./servers";
 import { readDirs, serveDirsPath } from "./state";
 import { claudeRowsLoader, inScope, type ClaudeRow, type ClaudeRowsLoader } from "./claude/rows";
 import { hostname } from "node:os";
-import { CONDITION_TYPES, conditionKey, evaluate, restoreState, type ConditionType } from "./watch/conditions";
+import { CONDITION_TYPES, conditionKey, evaluate, noPlanCommit, restoreState, type ConditionType } from "./watch/conditions";
+import { noSessionNames, readTextSync, sessionNamesSource, type SessionNamesReader } from "./folder-config";
 import { formatSequence, readLogState, sourceOf, watchStateDir, type LogState } from "./watch/log";
 import { toWatchRow } from "./watch/run";
 import { idfxVersion, TOOL } from "./protocol";
@@ -110,6 +111,8 @@ export type StatusDeps = {
   hostname?: () => string;
   /** The tool version of the `--json` snapshot. Default: `idfxVersion` of `src/protocol.ts`. */
   version?: () => string;
+  /** The extra session names of a main folder (`.idfix.toml`). Default: read the file, problems as warnings on stderr. */
+  sessionNames?: SessionNamesReader;
 };
 
 const defaultDeps: StatusDeps = {
@@ -314,10 +317,15 @@ export const STATUS_SKIPPED_CONDITIONS: ReadonlySet<ConditionType> = new Set(["H
  * `lastTransitionTime` from the log. A new condition gets `nowMs`. The
  * order is the order of the rows, then of `CONDITION_TYPES`.
  */
-export function statusConditions(rows: readonly ClaudeRow[], log: LogState, nowMs: number): StatusCondition[] {
+export function statusConditions(
+  rows: readonly ClaudeRow[],
+  log: LogState,
+  nowMs: number,
+  sessionNames: SessionNamesReader = noSessionNames,
+): StatusCondition[] {
   const old = restoreState(log.records, log.lastTimeMs ?? nowMs);
   // No `handover check` here: a code of -1 keeps the old value, and the result is left out below.
-  const { state } = evaluate(old, rows.map((row) => toWatchRow(row)), nowMs, () => ({ code: -1, firstLine: undefined }));
+  const { state } = evaluate(old, rows.map((row) => toWatchRow(row)), nowMs, () => ({ code: -1, firstLine: undefined }), noPlanCommit, sessionNames);
   const conditions: StatusCondition[] = [];
   for (const row of rows) {
     for (const type of CONDITION_TYPES) {
@@ -369,7 +377,7 @@ export function statusSnapshot(
     time: new Date(nowMs).toISOString(),
     source: sourceOf((deps.hostname ?? hostname)()),
     ...(log.lastSequence > 0 ? { sequence: formatSequence(log.lastSequence) } : {}),
-    conditions: statusConditions(claude, log, nowMs),
+    conditions: statusConditions(claude, log, nowMs, deps.sessionNames ?? sessionNamesSource(readTextSync, (line) => console.error(`warning: ${line}`)).forTick()),
     items,
   };
 }

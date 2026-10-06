@@ -2,17 +2,17 @@
 
 ## Hand-off
 
-Next step: 36. Stable names for workers: idfix starts every Claude worker with `-n <name>`.
+Next step: 29d. Find the memory leak of `top --all` with a heap snapshot, fix it, and add a test that memory stays flat.
 Waits for: nothing
-New context: yes. The context is long and held five topics (two flaky tests, steps 35, 37, 38).
+New context: yes. Step 29d has a new topic, and this context holds step 36.
 
 2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5).
 
-State: done and on `alpha`, see HISTORY: the flaky `restart` (8ae2dff, repeated SIGTERM, then SIGKILL), the flaky `watch-guards` (21c0db2, `watch` opens the event stream before its first check), the help under the called name (`idfix --help`), step 37 (wait reasons `input_required` and `auth_required` of protocol v0), step 38 (`SessionHandedOff` for Severin), and step 35 (pre-push hook with lefthook; `mise run hooks-install` ran in the main checkout). The suite has 1275 tests and passed twice in a row and once through the hook. Known risk: integration timeouts under heavy load (see Later). The watcher runs since 2026-10-06 10:38: arch-helper installed `contrib/systemd/idfx-watch.service` through a chezmoi link, and `idfx doctor` gives `pass watch-running`.
+State: step 36 is done and on `alpha` (ed0af5c, 5d20604, see HISTORY). `SessionUnnamed` now also reports a live session whose name is neither its project nor `<project>-<step>` (reason `NameOffRule`). The suite has 1284 tests and passes. The watcher `idfx-watch.service` runs since 2026-10-06 10:38 (installed by arch-helper). The outbox holds a task for meta (the check of meta step 26 is live) and a lesson (an optional parameter breaks `.map(fn)`).
 
-The next step is step 36 below. Read its section, then the start paths of Claude workers (grep `claude` spawns in `src/`), and hand the work to a subagent in `.worktrees/36-worker-names`. A fresh worktree needs `bun install --frozen-lockfile` (or `mise run test` does it).
+The next step is 29d in section 14 below. On 2026-10-04, `oc-sub top --all` used 7 GB RSS after 2 days in a tmux pane. `top` changed a lot since then (step 25g added Claude sessions), so first measure whether the leak still exists: run `idfx top --all` in a tmux pane for some minutes and sample its RSS, or take heap snapshots after many refreshes. Then hand the fix to a subagent in `.worktrees/29d-top-leak`. A fresh worktree needs `bun install --frozen-lockfile`.
 
-Open tasks of the user: section "Open tasks of the user" below, if any; the user has not yet tried the key `o` of `top` in real tmux.
+Open tasks of the user: none from idfix. The user has not yet tried the key `o` of `top` in real tmux.
 
 This file holds only the open work. Finished steps, their root causes, and their details are in [HISTORY.md](HISTORY.md), under the same step numbers. Measured runs and costs are in [EXPERIENCE.md](EXPERIENCE.md). How to use the tool is in [GUIDE.md](GUIDE.md).
 

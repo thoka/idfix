@@ -150,13 +150,30 @@ const cut = (text: string): string => text.trim().slice(0, MESSAGE_LENGTH);
 
 const minutes = (ms: number): number => Math.floor(ms / 60_000);
 
-/** The reason of a wait: a permission dialog, another input, a blocked job, or something else. */
+/**
+ * The fixed `waitingFor` texts of an interactive session and their reasons.
+ * Claude Code 2.1.285 sets `waitingFor` to one of these, or to the title of
+ * a permission dialog (research `docs/research/claude-session-sources.md`,
+ * section 2).
+ */
+export const WAIT_REASONS: Readonly<Record<string, string>> = {
+  "input needed": "InputNeeded",
+  "dialog open": "DialogOpen",
+  "sandbox request": "SandboxRequest",
+  "worker request": "WorkerRequest",
+};
+
+/**
+ * The reason of a wait. A blocked job gives `JobBlocked`. A session gives
+ * the reason of a fixed text of `WAIT_REASONS`; any other text is the title
+ * of a permission dialog, so it gives `PermissionDialog`. Without a text the
+ * reason is `Other`.
+ */
 export function waitReason(row: Pick<WatchRow, "waitingFor" | "waitingSource">): string {
   if (row.waitingSource === "job") return "JobBlocked";
-  const text = row.waitingFor ?? "";
-  if (/permission/i.test(text)) return "PermissionDialog";
-  if (text.length > 0) return "InputNeeded";
-  return "Other";
+  const text = (row.waitingFor ?? "").trim();
+  if (text.length === 0) return "Other";
+  return WAIT_REASONS[text.toLowerCase()] ?? "PermissionDialog";
 }
 
 /** The reason of an API error from its text (design section 3). */

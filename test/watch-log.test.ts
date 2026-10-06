@@ -12,6 +12,7 @@ import {
   formatSequence,
   heartbeatEvent,
   LOCK_FILE,
+  lockHolder,
   openEventWriter,
   readLogState,
   sourceOf,
@@ -253,5 +254,17 @@ describe("the lock", () => {
     acquireLock(dir, procs({ 200: "6000" }, 200));
     if (first.ok) first.lock.release();
     expect(JSON.parse(readFileSync(path.join(dir, LOCK_FILE), "utf8")).pid).toBe(200);
+  });
+
+  test("lockHolder reads the lock without taking it: none, live, or stale", () => {
+    const dir = tempDir();
+    expect(lockHolder(dir, procs({}, 1))).toEqual({ state: "none" });
+    acquireLock(dir, procs({ 100: "5000" }, 100));
+    expect(lockHolder(dir, procs({ 100: "5000" }, 1))).toEqual({ state: "live", pid: 100 });
+    // PID 100 was reused, or is gone.
+    expect(lockHolder(dir, procs({ 100: "9999" }, 1))).toEqual({ state: "stale", pid: 100 });
+    expect(lockHolder(dir, procs({}, 1))).toEqual({ state: "stale", pid: 100 });
+    // The read leaves the file alone.
+    expect(JSON.parse(readFileSync(path.join(dir, LOCK_FILE), "utf8")).pid).toBe(100);
   });
 });

@@ -86,9 +86,14 @@ describe("SessionWaitsForUser", () => {
     expect(edges[3]?.[0]?.severity).toEqual({ text: "INFO", number: 9 });
   });
 
-  test("the reasons: a permission dialog, another input, a blocked job, and other", () => {
+  test("the reasons: the fixed waitingFor texts, a permission dialog title, a blocked job, and other", () => {
     expect(waitReason({ waitingFor: "Bash permission", waitingSource: "session" })).toBe("PermissionDialog");
-    expect(waitReason({ waitingFor: "a question", waitingSource: "session" })).toBe("InputNeeded");
+    expect(waitReason({ waitingFor: "Allow edit of src/a.ts?", waitingSource: "session" })).toBe("PermissionDialog");
+    expect(waitReason({ waitingFor: "input needed", waitingSource: "session" })).toBe("InputNeeded");
+    expect(waitReason({ waitingFor: "Dialog open", waitingSource: "session" })).toBe("DialogOpen");
+    expect(waitReason({ waitingFor: "sandbox request", waitingSource: "session" })).toBe("SandboxRequest");
+    expect(waitReason({ waitingFor: " worker request ", waitingSource: "session" })).toBe("WorkerRequest");
+    expect(waitReason({ waitingFor: "", waitingSource: "session" })).toBe("Other");
     expect(waitReason({ waitingFor: "approve the push", waitingSource: "job" })).toBe("JobBlocked");
     expect(waitReason({ waitingFor: undefined, waitingSource: "session" })).toBe("Other");
   });

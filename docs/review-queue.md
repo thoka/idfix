@@ -2,6 +2,12 @@
 
 Decisions that a session made from the canon of values. Newest entry first.
 
+## 2026-10-06: technical choices of W2 of `idfx watch --all`
+
+- Decision: the watcher calls `notify-session --name supervisor -- none "<text>"`, because `notify-session` needs a session ID first, and `none` matches no session, so the name decides. A failed notice is dropped after a warning, because the log holds its events and a retry would pile up while no supervisor runs. The notice ends with the path of the log. The unit file sets `PATH` (`~/.local/bin`, `~/dv/meta/dv/bin`, the mise shims, `/usr/local/bin`, `/usr/bin`), because a user service gets only `/usr/local/bin:/usr/bin` and would find neither `notify-session` nor `handover`. A `waitingFor` text outside the four fixed texts counts as the title of a permission dialog (`PermissionDialog`), because the research names no other values. The `watch-running` check is a slow check (only `doctor` runs it).
+- Values: one state in one place (the log is the record, the notice only wakes). Use the platform (systemd). Deliver first.
+- Conditions: the CLI of `notify-session` in meta, and the `waitingFor` values of Claude Code 2.1.285. If `notify-session` gets a name-only form, or Claude Code adds a new fixed text, the choice is open again.
+
 ## 2026-10-06: technical choices of W1 of `idfx watch --all`
 
 - Decision: the lock is a file `events.lock`, created with `O_EXCL`, that holds the PID and the process start time (field 22 of `/proc/<pid>/stat`). A lock whose process is gone, or whose PID now belongs to another process, is stale, and the next watcher removes it. This replaces the `flock` of the design. Bun has no `flock` call without FFI, and `proper-lockfile` decides staleness by an age of the file, so it needs a refresh timer and a guess of the age. The start-time check is the same check that idfix already uses for the session files of Claude Code. The state of the conditions is keyed by condition and full session ID, not by subject, so two sessions with the same name stay apart. A new API error line counts by the line count between two polls. At the first sight of a session (after a start or a restart), an error line counts only when it is newer than the last event in the log. The same rule finds a session that ended while the watcher was down, so `handover check` runs for it. Without a log, the first poll only takes a baseline for these two conditions.

@@ -297,6 +297,16 @@ function holderLives(content: LockContent, proc: LockProcess): boolean {
   return content.procStart === undefined || procStartOf(stat) === content.procStart;
 }
 
+/** The holder of the lock in `dir`: none (no file, or a broken file), a live watcher, or a stale lock of a gone process. */
+export type LockHolder = { state: "none" } | { state: "live"; pid: number } | { state: "stale"; pid: number };
+
+/** Reads the lock of `dir` without taking it. The `watch-running` check of `doctor` uses it. */
+export function lockHolder(dir: string, proc: LockProcess = nodeLockProcess): LockHolder {
+  const holder = readLock(path.join(dir, LOCK_FILE));
+  if (holder === undefined) return { state: "none" };
+  return holderLives(holder, proc) ? { state: "live", pid: holder.pid } : { state: "stale", pid: holder.pid };
+}
+
 /**
  * Take the lock `events.lock` in `dir`. The file is created with `O_EXCL`
  * and holds the PID and the start time of the process. A lock of a dead

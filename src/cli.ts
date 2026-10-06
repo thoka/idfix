@@ -92,7 +92,10 @@ Watch all Claude Code sessions:
                   hand-off, hits an API error, or has no name) becomes one
                   CloudEvent in $XDG_STATE_HOME/idfx/events.jsonl. A
                   heartbeat follows every 5 minutes. Only one watcher runs at
-                  a time; a second one exits with code 1.
+                  a time; a second one exits with code 1. A session that
+                  waits for the user or hits an API error wakes the
+                  supervisor through notify-session, at most once per
+                  minute, never on the first run of a new log.
   --json          also prints each new event on stdout, one JSON line each.
   --once          polls one time and exits.
   watch SESSION follows one opencode run and cannot be combined with --all.

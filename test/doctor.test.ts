@@ -33,6 +33,8 @@ import {
   serverPluginFix,
   SLOW_CHECKS,
   TOP_RSS_LIMIT,
+  WATCH_SERVICE_FIX,
+  watchRunningCheck,
   orphanProcessesFix,
   topMemoryFix,
   type Check,
@@ -136,6 +138,9 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     serverBusy: async () => {
       throw new Error("no serverBusy check may run in this test");
     },
+    // A watcher runs by default, so watch-running passes.
+    watchLockFile: "/home/u/.local/state/idfx/events.lock",
+    watchLock: () => ({ state: "live", pid: 4242 }),
     recreateSandbox: async () => {
       throw new Error("no sandbox may be recreated in this test");
     },
@@ -2685,5 +2690,39 @@ describe("the process checks (step 30)", () => {
     expect(signals).toEqual(["42:SIGTERM", "43:SIGTERM"]);
     expect(lines.some((line) => line.startsWith("fixed top-memory:"))).toBe(true);
     expect(lines.some((line) => line.startsWith("fixed orphan-processes:"))).toBe(true);
+  });
+});
+
+describe("watch-running", () => {
+  test("passes while the holder of the lock lives", () => {
+    expect(watchRunningCheck(makeDeps())).toEqual({
+      name: "watch-running",
+      status: "pass",
+      message: "idfx watch --all runs (pid 4242)",
+      fix: undefined,
+    });
+  });
+
+  test("warns without a lock, and names the systemd unit in the fix", () => {
+    const check = watchRunningCheck(makeDeps({}, { watchLock: () => ({ state: "none" }) }));
+    expect(check.status).toBe("warn");
+    expect(check.message).toBe(
+      "no idfx watch --all runs: no lock /home/u/.local/state/idfx/events.lock; the supervisor gets no wake-up",
+    );
+    expect(check.fix).toBe(WATCH_SERVICE_FIX);
+    expect(check.fix).toContain("systemctl --user enable --now idfx-watch.service");
+  });
+
+  test("warns on a stale lock", () => {
+    const check = watchRunningCheck(makeDeps({}, { watchLock: () => ({ state: "stale", pid: 77 }) }));
+    expect(check.status).toBe("warn");
+    expect(check.message).toContain("names pid 77, which no longer runs");
+  });
+
+  test("is a slow check without an automatic fix", () => {
+    const entry = SLOW_CHECKS.find((check) => check.name === "watch-running");
+    expect(entry).toBeDefined();
+    expect(entry?.fix).toBeUndefined();
+    expect(entry?.rootFix).toBeUndefined();
   });
 });

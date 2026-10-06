@@ -11,8 +11,8 @@
  * one short line for each event. Warnings go to stderr. `--once` polls one
  * time and exits.
  *
- * The wake-up of the supervisor (design section 5) is not part of this
- * slice yet.
+ * After each poll, the waker (`wake.ts`, design section 5) may send one
+ * notice to the supervisor through `notify-session`.
  *
  * All processes, the clock, the host name, the state folder, and the Claude
  * files come in through `WatchAllDeps`, so the tests use fakes.
@@ -29,8 +29,10 @@ import {
   type HandoverResult,
   type WatchRow,
 } from "./conditions";
+import { createWaker, nodeNotifier, type Notifier } from "./wake";
 import {
   acquireLock,
+  EVENTS_FILE,
   conditionEvent,
   heartbeatEvent,
   LOCK_FILE,
@@ -63,6 +65,8 @@ export type WatchAllDeps = {
   stdout(line: string): void;
   stderr(line: string): void;
   lockProcess: LockProcess;
+  /** Sends one wake-up notice to the supervisor. Tests inject a fake; the real one runs `notify-session`. */
+  notify: Notifier;
   /** Stops the loop after the current poll. */
   signal?: AbortSignal;
 };
@@ -118,6 +122,9 @@ export async function runWatchAll(options: { json: boolean; once: boolean }, dep
     let lastHeartbeat = logState.lastHeartbeatMs;
     const source = sourceOf(deps.hostname());
     const writer = openEventWriter(deps.stateDir, logState.lastSequence);
+    const waker = createWaker(deps.notify, path.join(deps.stateDir, EVENTS_FILE), deps.stderr);
+    // A log without any event at start: the first poll is the baseline and wakes nobody.
+    let baseline = logState.lastSequence === 0;
     const emit = (event: CloudEvent): void => {
       deps.stdout(options.json ? JSON.stringify(event) : humanLine(event));
     };
@@ -131,6 +138,8 @@ export async function runWatchAll(options: { json: boolean; once: boolean }, dep
           const result = evaluate(state, rows, nowMs, deps.handoverCheck);
           state = result.state;
           for (const edge of result.edges) emit(writer.append((sequence) => conditionEvent(edge, sequence, source)));
+          waker.afterPoll(result.edges, nowMs, baseline);
+          baseline = false;
           if (lastHeartbeat === undefined || nowMs - lastHeartbeat >= HEARTBEAT_MS) {
             const counts = { sessions: rows.length, open: openCount(state) };
             emit(writer.append((sequence) => heartbeatEvent(sequence, source, nowMs, counts)));
@@ -203,6 +212,7 @@ export async function watchAll(
       stdout: (line) => console.log(line),
       stderr: (line) => console.error(line),
       lockProcess: nodeLockProcess,
+      notify: nodeNotifier(env),
       signal: controller.signal,
     });
   } finally {

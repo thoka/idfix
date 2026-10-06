@@ -16,6 +16,7 @@ import { deepinfraKeyPath, projectRootOfRun } from "./keys";
 import { parseResearchHead, recheckState, todayString } from "./research-head";
 import { sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
+import { LOCK_FILE, lockHolder, watchStateDir, type LockHolder } from "./watch/log";
 import { pluginDataDir, pluginDigest, syncPluginDir } from "./plugin-sync";
 import { busyCheck, busyCheckNote, findRunningServers, restartServer, serverLabel, type BusyCheck, type RunningServer } from "./server-plugin";
 
@@ -148,6 +149,10 @@ export type DoctorDeps = {
   killProcess: (pid: number, signal: "SIGTERM" | "SIGKILL") => boolean;
   /** Waits the given milliseconds (the fix of `orphan-processes` waits 5 s). */
   wait: (ms: number) => Promise<void>;
+  /** The lock file of `idfx watch --all`, named in the `watch-running` check. */
+  watchLockFile: string;
+  /** The holder of that lock: none, a live watcher, or a stale lock (PID plus start time). */
+  watchLock: () => LockHolder;
 };
 
 /** One process of the host, as the process checks of step 30 see it. */
@@ -361,6 +366,8 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     uid: process.getuid?.() ?? -1,
     killProcess: defaultKillProcess,
     wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    watchLockFile: path.join(watchStateDir(env), LOCK_FILE),
+    watchLock: () => lockHolder(watchStateDir(env)),
   };
   return { ...deps, ...overrides };
 }
@@ -1461,6 +1468,26 @@ export async function orphanProcessesFix(deps: DoctorDeps, _result: CheckResult,
   return { ok: true, note: `stopped ${stopped} orphaned process(es), SIGKILL after 5 s for ${killed}` };
 }
 
+/** The command that installs and starts the watcher as a systemd user service. */
+export const WATCH_SERVICE_FIX =
+  "systemctl --user enable --now idfx-watch.service (the unit is contrib/systemd/idfx-watch.service; arch-helper installs it through chezmoi)";
+
+/**
+ * The `watch-running` check (design docs/design/idfx-watch.md, section 6):
+ * a pass when the holder of `events.lock` lives (its PID exists and its
+ * start time matches), else a warn. There is no automatic fix, because
+ * arch-helper owns the install of the unit.
+ */
+export function watchRunningCheck(deps: DoctorDeps): CheckResult {
+  const holder = deps.watchLock();
+  if (holder.state === "live") return result("watch-running", "pass", `idfx watch --all runs (pid ${holder.pid})`);
+  const why =
+    holder.state === "stale"
+      ? `the lock ${deps.watchLockFile} names pid ${holder.pid}, which no longer runs`
+      : `no lock ${deps.watchLockFile}`;
+  return result("watch-running", "warn", `no idfx watch --all runs: ${why}; the supervisor gets no wake-up`, WATCH_SERVICE_FIX);
+}
+
 /** The fast checks: `up` and `run` run them on every invocation. */
 export const FAST_CHECKS: Check[] = [
   { name: "env-files", run: envFilesCheck },
@@ -1484,6 +1511,7 @@ export const SLOW_CHECKS: Check[] = [
   { name: "sandbox-mounts", run: sandboxMountsCheck, fix: sandboxMountsFix },
   { name: "deepinfra-key", run: deepinfraKeyCheck },
   { name: "research-due", run: researchDueCheck },
+  { name: "watch-running", run: watchRunningCheck },
   // Last: they scan /proc, and a fix must run after the plugin and sandbox fixes.
   { name: "top-memory", run: topMemoryCheck, fix: topMemoryFix },
   { name: "orphan-processes", run: orphanProcessesCheck, fix: orphanProcessesFix },

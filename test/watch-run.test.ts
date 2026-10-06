@@ -6,8 +6,9 @@ import { parsePriceFile } from "../src/claude/prices";
 import { createClaudeSource, loadClaudeRows, type ClaudeRow } from "../src/claude/rows";
 import type { HandoverCheck } from "../src/watch/conditions";
 import { acquireLock, EVENTS_FILE, type LockProcess } from "../src/watch/log";
+import type { Notifier } from "../src/watch/wake";
 import { HEARTBEAT_MS, humanLine, POLL_MS, runWatchAll, type WatchAllDeps } from "../src/watch/run";
-import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, MINUTE, NOW, S1, S5, statLine } from "./claude-fixture";
+import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, MINUTE, NOW, S1, S2, S5, statLine } from "./claude-fixture";
 import { claudeRowOf } from "./top-rows";
 
 /** Ten minutes after the fixture time: S1 waits 15 minutes, and S2 is busy without growth for 20 minutes. */
@@ -20,7 +21,7 @@ const proc = (pid: number, live: Record<number, string> = { [pid]: "1" }): LockP
   procStat: (p) => (live[p] === undefined ? undefined : statLine(p, live[p] as string)),
 });
 
-type Harness = { deps: WatchAllDeps; out: string[]; err: string[]; sleeps: number[]; checks: string[] };
+type Harness = { deps: WatchAllDeps; out: string[]; err: string[]; sleeps: number[]; checks: string[]; notices: string[] };
 
 function harness(options: {
   stateDir?: string;
@@ -30,7 +31,9 @@ function harness(options: {
   signal?: AbortSignal;
   onSleep?: () => void;
   lockProcess?: LockProcess;
+  notify?: Notifier;
 }): Harness {
+  const notices: string[] = [];
   const out: string[] = [];
   const err: string[] = [];
   const sleeps: number[] = [];
@@ -52,9 +55,14 @@ function harness(options: {
     stdout: (line) => out.push(line),
     stderr: (line) => err.push(line),
     lockProcess: options.lockProcess ?? proc(4242),
+    // Never the real notify-session: it would wake the supervisor.
+    notify: (text) => {
+      notices.push(text);
+      return options.notify?.(text) ?? { ok: true };
+    },
     signal: options.signal,
   };
-  return { deps, out, err, sleeps, checks };
+  return { deps, out, err, sleeps, checks, notices };
 }
 
 const fileEvents = (dir: string) =>
@@ -203,6 +211,92 @@ describe("the lock and the loop", () => {
     expect(failed.map((event) => [event.data.status, event.data.message, event.severitytext])).toEqual([
       ["True", "handover: not pushed", "WARN"],
     ]);
+  });
+});
+
+describe("the wake-up of the supervisor", () => {
+  /** A state folder whose log already holds one heartbeat, so the next run is no baseline. */
+  async function seededDir(): Promise<string> {
+    const dir = mkdtempSync(path.join(tmpdir(), "idfx-watch-run-"));
+    const seed = harness({ stateDir: dir, clock: () => NOW, loadRows: async () => [] });
+    await runWatchAll({ json: false, once: true }, seed.deps);
+    expect(seed.notices).toEqual([]);
+    return dir;
+  }
+
+  test("the first poll of a new log is the baseline: it writes the events but sends no notice", async () => {
+    const h = harness({});
+    await runWatchAll({ json: true, once: true }, h.deps);
+    expect(fileEvents(h.deps.stateDir).some((event) => event.data.condition === "SessionWaitsForUser")).toBe(true);
+    expect(h.notices).toEqual([]);
+  });
+
+  test("one notice for all notifying True edges of a poll, without the other conditions", async () => {
+    const dir = await seededDir();
+    const h = harness({ stateDir: dir });
+    await runWatchAll({ json: true, once: true }, h.deps);
+    // The fixture also gives SessionStalled (bg-worker); it goes only to the log.
+    expect(fileEvents(dir).some((event) => event.data.condition === "SessionStalled")).toBe(true);
+    expect(h.notices).toEqual([
+      `idfx watch: 2 events: proj waits for user (PermissionDialog), blocked-job waits for user (JobBlocked). Log: ${path.join(dir, EVENTS_FILE)}`,
+    ]);
+  });
+
+  test("a restart with open conditions sends no notice", async () => {
+    const dir = await seededDir();
+    await runWatchAll({ json: true, once: true }, harness({ stateDir: dir }).deps);
+    const again = harness({ stateDir: dir, clock: () => AT + MINUTE });
+    await runWatchAll({ json: true, once: true }, again.deps);
+    expect(again.notices).toEqual([]);
+  });
+
+  test("False edges and a condition that stays True send no notice", async () => {
+    const dir = await seededDir();
+    await runWatchAll({ json: true, once: true }, harness({ stateDir: dir }).deps);
+    const gone = harness({ stateDir: dir, clock: () => AT + MINUTE, loadRows: async () => [] });
+    await runWatchAll({ json: true, once: true }, gone.deps);
+    expect(gone.out.length).toBeGreaterThan(0);
+    expect(gone.notices).toEqual([]);
+  });
+
+  test("at most one notice per 60 seconds; edges in the pause go out with the next notice", async () => {
+    const dir = await seededDir();
+    const controller = new AbortController();
+    let now = AT;
+    let polls = 0;
+    const waiting = (id: string, name: string) =>
+      claudeRowOf(id, { name, directory: `/home/u/dv/${name}`, state: "waiting", pid: 1, stateSinceMs: AT - 20 * MINUTE, waitingFor: "input needed" });
+    const h = harness({
+      stateDir: dir,
+      clock: () => now,
+      loadRows: async () => {
+        polls += 1;
+        const rows = [waiting(S1, "alpha")];
+        if (polls >= 2) rows.push(waiting(S5, "beta"));
+        if (polls >= 3) rows.push(waiting(S2, "gamma"));
+        return rows;
+      },
+      signal: controller.signal,
+      onSleep: () => {
+        now += POLL_MS;
+        if (polls >= 6) controller.abort();
+      },
+    });
+    await runWatchAll({ json: true, once: false }, h.deps);
+    expect(h.err).toEqual([]);
+    // Poll 1 at 0 s sends; polls 2 and 3 wait; poll 5 at 60 s sends both.
+    expect(h.notices).toEqual([
+      `idfx watch: 1 event: alpha waits for user (InputNeeded). Log: ${path.join(dir, EVENTS_FILE)}`,
+      `idfx watch: 2 events: beta waits for user (InputNeeded), gamma waits for user (InputNeeded). Log: ${path.join(dir, EVENTS_FILE)}`,
+    ]);
+  });
+
+  test("a failing notify-session warns, and the watcher goes on", async () => {
+    const dir = await seededDir();
+    const h = harness({ stateDir: dir, notify: () => ({ ok: false, missing: false, message: "notify-session exited with code 1" }) });
+    expect(await runWatchAll({ json: true, once: true }, h.deps)).toBe(0);
+    expect(h.notices).toHaveLength(1);
+    expect(h.err).toEqual(["idfx watch: the wake-up failed: notify-session exited with code 1"]);
   });
 });
 

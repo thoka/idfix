@@ -107,6 +107,8 @@ claude plugin install idfix@idfix
 
    The check `research-due` reminds you when the facts of a research report went stale. It never fails. Reports without a recheck head do not count, and without any head in the project it passes with the note "no report has a recheck head". See "Recheck heads of research reports" below for the head and the recheck process.
 
+   The check `watch-running` tells whether `idfx watch --all` runs. It reads the lock file `$XDG_STATE_HOME/idfx/events.lock` (default `~/.local/state/idfx/events.lock`) and does not take it. It passes when the process in the lock lives: its PID exists, and its start time matches. Else it warns, because then the supervisor gets no wake-up. The fix text names `systemctl --user enable --now idfx-watch.service`. `--fix` does nothing here, because arch-helper owns the install of the unit (see "The systemd user service" below).
+
    Two checks look for leaked processes. `top-memory` warns when a process of your user runs the `top` command of oc-sub with more than 1 GiB of memory. A `top` that leaked keeps its whole table in memory, and one process can hold gigabytes. The fix sends SIGTERM to each such process, and it needs `--force`, because it ends a view of you: `oc-sub doctor --fix --force`. It never stops doctor itself. `orphan-processes` warns when a process of your user whose parent is PID 1 or `/init` (the WSL init) works in a folder that no longer exists, for example a deleted worktree. It lists at most 10 entries with PID, command, and folder, and the total count. The fix needs `--force` too. It sends SIGTERM to each listed process and to all descendants of your user, waits up to 5 seconds, and sends SIGKILL to each one that still runs. Both checks read `/proc`, so they skip on a platform without `/proc`, and they never touch a process of another user. Known gap: an orphan whose folder still exists is not found.
 
 ### Recheck heads of research reports
@@ -264,7 +266,7 @@ reason: Reasons
 type: SessionWaitsForUser
 true: the session waits for more than 10 minutes
 sev: WARN
-reason: PermissionDialog, InputNeeded, JobBlocked, Other
+reason: PermissionDialog, InputNeeded, DialogOpen, SandboxRequest, WorkerRequest, JobBlocked, Other
 --
 type: SessionStalled
 true: the session is busy, and its transcript (with its subagents) did not grow for 15 minutes
@@ -293,6 +295,7 @@ reason: NoName
 ```
 
 - An event reports a change, not each poll. A condition that stays True gives no second event. A condition that turns False gives an INFO event. Its reason is `Cleared`. If the session left the list, the reason is `SessionGone`.
+- The reason of a wait comes from the waiting text of the session. The texts `input needed`, `dialog open`, `sandbox request`, and `worker request` give `InputNeeded`, `DialogOpen`, `SandboxRequest`, and `WorkerRequest`. Another text is the title of a permission dialog and gives `PermissionDialog`. A blocked background job gives `JobBlocked`. No text gives `Other`.
 - At the end of a session, `handover check` runs one time. Exit code 2 (for example a folder outside git) gives no event.
 - An API error turns False at the next poll without a new error line, so each new error gives one True event.
 - `message` holds only the waiting text, the error text (at most 200 characters), the first line of `handover check`, or numbers. It never holds a prompt.
@@ -312,7 +315,39 @@ The log is `$XDG_STATE_HOME/idfx/events.jsonl` (default `~/.local/state/idfx/eve
 - At start, the watcher reads the last event of each condition and session from the log. So a restart does not repeat a True event, and a condition that cleared while the watcher was down gets its False event.
 - `idfx watch SESSION` keeps its old meaning (one opencode run). `watch SESSION --all` is a usage error with exit code 2.
 
-The design is `docs/design/idfx-watch.md`. The wake-up of the supervisor, the systemd unit, and the protocol form of `status --json` and `doctor --json` come in the next steps.
+#### The wake-up of the supervisor
+
+The watcher wakes the supervisor session with a short notice, so that the supervisor does not poll the log. Each notice costs context in the supervisor, so the watcher sends few:
+
+- Only a new True event of `SessionWaitsForUser` or `ApiError` gives a notice. All other conditions, and all False events, go only to the log.
+- One poll gives at most one notice, with all its new events.
+- At most one notice goes out per 60 seconds. The events of the pause go out with the next notice.
+- A condition that stays True gives no second notice, also not after a restart of the watcher.
+- On the first run with an empty or missing log, the first poll writes its events but sends no notice.
+
+The watcher runs `notify-session --name supervisor` (from `~/dv/meta/dv/bin`, which must be on the PATH). A notice reads for example:
+
+```
+idfx watch: 2 events: meta waits for user (PermissionDialog), grata API error (UsageLimit). Log: /home/u/.local/state/idfx/events.jsonl
+```
+
+The log is the record, and the notice is only a wake-up. If `notify-session` fails, the watcher writes a warning to stderr and goes on. If `notify-session` is not on the PATH, the watcher warns once. `--once` also sends a notice.
+
+#### The systemd user service
+
+The watcher should run all the time. idfix ships the unit file `contrib/systemd/idfx-watch.service` for a systemd user service. It runs `%h/.local/bin/idfx watch --all`, restarts it 10 seconds after a failure, and starts it with the session of the user (`WantedBy=default.target`). A user service gets a short PATH, so the unit sets `PATH` to include `~/.local/bin`, `~/dv/meta/dv/bin` (for `notify-session` and `handover`), and the mise shims.
+
+arch-helper installs the unit through chezmoi from the stable clone of idfix and enables it. By hand, the same is:
+
+```
+ln -s <idfix clone>/contrib/systemd/idfx-watch.service ~/.config/systemd/user/idfx-watch.service
+systemctl --user daemon-reload
+systemctl --user enable --now idfx-watch.service
+```
+
+`idfx doctor` shows in the check `watch-running` whether a watcher runs. `journalctl --user -u idfx-watch.service` shows its warnings.
+
+The design is `docs/design/idfx-watch.md`. The protocol form of `status --json` and `doctor --json` comes in the next step.
 
 ## Follow up, abort, and read the cost
 

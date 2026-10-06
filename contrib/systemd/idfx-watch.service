@@ -1,0 +1,19 @@
+# The watcher of all Claude Code sessions of this machine, as a systemd user
+# service. Design: docs/design/idfx-watch.md, section 7. idfix ships this file;
+# arch-helper installs it through chezmoi from the stable clone of idfix and
+# enables it. `idfx doctor` reports in the check `watch-running` whether it runs.
+
+[Unit]
+Description=idfx watch --all: watch the Claude Code sessions and wake the supervisor
+
+[Service]
+Type=simple
+# A user service gets a short PATH. The watcher needs bun (or mise) for idfx,
+# handover and notify-session from meta, so the PATH names their folders.
+Environment=PATH=%h/.local/bin:%h/dv/meta/dv/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin
+ExecStart=%h/.local/bin/idfx watch --all
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -28,7 +28,7 @@ reason: Reasons
 type: SessionWaitsForUser
 true: the row state is `waiting` for more than 10 minutes (from `statusUpdatedAt` of the session file, or `updatedAt` of a blocked job)
 sev: WARN 13
-reason: `PermissionDialog`, `InputNeeded`, `JobBlocked`, `Other`
+reason: `PermissionDialog`, `InputNeeded`, `DialogOpen`, `SandboxRequest`, `WorkerRequest`, `JobBlocked`, `Other`
 --
 type: SessionStalled
 true: the row state is `busy`, and the transcript did not grow for 15 minutes
@@ -56,6 +56,8 @@ sev: INFO 9
 reason: `NoName`
 ```
 
+The reason of `SessionWaitsForUser` comes from `waitingFor` (research `docs/research/claude-session-sources.md`, section 2). A blocked job gives `JobBlocked`. For an interactive session, the fixed texts `input needed`, `dialog open`, `sandbox request`, and `worker request` give `InputNeeded`, `DialogOpen`, `SandboxRequest`, and `WorkerRequest`. Any other text is the title of a permission dialog and gives `PermissionDialog`. No text gives `Other`.
+
 A condition that turns False gives an event with severity INFO 9. A session that disappears from the source sets its open conditions to False. `HandoverFailed` runs `handover check` once, at the edge to `ended`, not at each poll. An exit code 2 (for example a folder outside git) gives no event. `ApiError` turns False at the next poll without a new error line, so each new error gives one True event.
 
 The reasons of `ApiError` come from the error text: `usage limit` or `rate limit` gives `UsageLimit`, `401`, `403`, `login`, or `authentication` gives `AuthError`, and else `ApiError`. The transcript reader of 25g.1 keeps only a count of `api_error` lines today. This slice extends it to keep the text of the last error, cut to 200 characters.
@@ -74,7 +76,15 @@ The event file is the state of the watcher. At start, the watcher reads the last
 
 ## 5. Wake-up of the supervisor
 
-After a poll that wrote at least one event with severity WARN or higher, the watcher runs `notify-session --name supervisor "<text>"` once. The text names the count and the first three events, for example `idfx watch: 2 events: meta waits for user 12m, grata context 54%`. The log is the record, and the notice is only a wake-up. If `notify-session` fails, the watcher writes a warning to stderr and goes on. A notice goes out at most once per 60 seconds. The next poll after the pause sends the events that waited.
+Each notice costs context in the supervisor, so the watcher sends few notices (supervisor decision, 2026-10-06):
+
+- Only a True edge of `SessionWaitsForUser` or `ApiError` gives a notice. The set is the constant `NOTIFY_CONDITIONS` in `src/watch/wake.ts`. The other conditions (`SessionStalled`, `ContextHigh`, `HandoverFailed`, `SessionUnnamed`) and all False edges go only to the log.
+- One poll gives at most one notice, with all its notifying edges.
+- At most one notice goes out in 60 seconds. Edges that come in the pause wait, and the first poll after the pause sends them in one notice.
+- A known state never gives a second notice. A condition that stays True gives no edge. A restart restores the state from the log, so a condition that is still True gives no edge either.
+- If the event log was empty or missing at start (the first run), the first poll is the baseline. It writes its events to the log, but sends no notice.
+
+The watcher sends the notice with `notify-session --name supervisor -- none "<text>"` from the PATH. `notify-session` needs a session ID first, and `none` matches no session, so the name decides. The text names the count, the first three edges in short form, and the log, for example `idfx watch: 2 events: meta waits for user (PermissionDialog), grata API error (UsageLimit). Log: /home/u/.local/state/idfx/events.jsonl`. The log is the record, and the notice is only a wake-up. If `notify-session` fails, the watcher writes a warning to stderr, drops the notice, and goes on. If `notify-session` is not on the PATH, the watcher warns once. `--once` also sends a notice.
 
 ## 6. `status --json` and `doctor --json` in the protocol form
 
@@ -84,7 +94,7 @@ After a poll that wrote at least one event with severity WARN or higher, the wat
 
 ## 7. The systemd user service
 
-idfix gives the unit file `contrib/systemd/idfx-watch.service`: `ExecStart=%h/.local/bin/idfx watch --all`, `Restart=on-failure`, `RestartSec=10`. By the rule of 2026-10-05, arch-helper owns the links and the install of project commands. So an outbox task asks arch-helper to install and enable the unit through chezmoi. idfix does not install it. `doctor` only reports it.
+idfix gives the unit file `contrib/systemd/idfx-watch.service`: `ExecStart=%h/.local/bin/idfx watch --all`, `Restart=on-failure`, `RestartSec=10`, `WantedBy=default.target`. A user service gets a short PATH (`/usr/local/bin:/usr/bin`), so the unit sets `PATH` with `%h/.local/bin`, `%h/dv/meta/dv/bin` (`notify-session` and `handover`), and the mise shims. By the rule of 2026-10-05, arch-helper owns the links and the install of project commands. So an outbox task asks arch-helper to install and enable the unit through chezmoi. idfix does not install it. `doctor` only reports it.
 
 ## 8. Modules
 

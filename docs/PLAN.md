@@ -6,7 +6,7 @@
 
 State: the temp folder leak of the tests is fixed (900d438). `test/watch-guards.test.ts` is flaky under load (see Later). The Telegram work is stopped by the user, step 32 is dropped, and step 23 is paused (see Direction). A grill with the user on step 25g, "idfx top shows Claude sessions", is in progress. Settled: `top` and `status` show Claude sessions, interactive and background, from `claude agents --json`, `~/.claude/sessions/<pid>.json`, `~/.claude/jobs/<id>/state.json`, and the transcripts, by polling (no proxy, no hooks). Subagents show as children. The folder rule of `top` applies, and `--all` also shows sessions outside `~/dv`. The `o` key runs `claude attach <id>` for a background session and switches to the tmux pane of an interactive one. The facts on the data sources: [claude-session-sources.md](research/claude-session-sources.md).
 
-Asked, no answer yet: Q6, the cost column. The recommendation is A: the API price of the tokens in gray in the `¢` column, as the field `apiEquivalentUsd` in `status --json`. Q7, which sessions show. The recommendation: the 60-minute rule of `src/top/load.ts:30` for ended sessions, a live session always shows, and a waiting session always shows and sorts to the top.
+Answered by the user on 2026-10-06, both as recommended. Q6: the `¢` column shows the API price of the tokens in gray, and `status --json` names the field `apiEquivalentUsd`. Q7: an ended session shows for 60 minutes (`src/top/load.ts:30`), a live session always shows, and a waiting session always shows and sorts to the top. The grill of the read side of 25g is complete.
 
 Next step: step 24, sub-step 4b, the scan for the old name `opencode-subagents` (see that step). After it, get the answers to Q6 and Q7, write the design of step 25g into `docs/design/`, review it, and build the read side in a worktree. The watch slice of 25g comes after the scan.
 
@@ -197,7 +197,7 @@ Task from the supervisor, 2026-10-06. `mise run pre-push-scan` in meta lists idf
 
 ### 18. Step 36: stable names for workers
 
-User decision 2026-10-06 (meta plan, step 26). Each worker gets a stable name: its project folder, plus its step if a project runs more than one worker, for example `idfix-25g`. idfix starts every Claude worker with `-n <name>`. `idfx watch` (the watch slice of step 25g) reports a session without a name as an event. This session cannot run `/rename` on itself, so the next restart of the idfix main session uses `-n idfix`.
+User decision 2026-10-06 (meta plan, step 26). Each worker gets a stable name: its project folder, plus its step if a project runs more than one worker, for example `idfix-25g`. idfix starts every Claude worker with `-n <name>`. `idfx watch` (the watch slice of step 25g) reports a session without a name as an event. The user renamed the idfix main session to `idfix` on 2026-10-06, and each restart of it uses `-n idfix`.
 
 ### Later
 

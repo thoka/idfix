@@ -18,6 +18,7 @@ import { projectRootOfRun, projectNameOf } from "./keys";
 import { projectSetupCommand } from "./project-config";
 import {
   defaultRunner,
+  listsCloneRemote,
   miseBin,
   miseInstallsDir,
   projectToolPath,
@@ -353,6 +354,11 @@ export async function worktreeRm(
   return 0;
 }
 
+/** The hint of a failed fetch when the remote of the sandbox is missing. Pure. */
+export function stoppedSandboxHint(name: string): string {
+  return `the sandbox ${name} is stopped. Start it with oc-sub up, then fetch again.`;
+}
+
 /**
  * `oc-sub fetch [--dir ROOT]`: fetch the branches of the sandbox clone on
  * the host (`git fetch sandbox-NAME`), then list every fetched
@@ -372,7 +378,16 @@ export function fetch(
   const git = (...gitArgs: readonly string[]) => deps.runner(["git", "-C", root, ...gitArgs]);
 
   const fetchResult = git("fetch", remote);
-  if (fetchResult.exitCode !== 0) return fail(`git fetch ${remote} failed`);
+  if (fetchResult.exitCode !== 0) {
+    const code = fail(`git fetch ${remote} failed`);
+    // `sbx stop` removes the remote, and the next start adds it again
+    // (lesson sbx-stop-removes-clone-remote). A missing remote means that
+    // the sandbox is stopped, for example by the idle watchdog.
+    if (!listsCloneRemote(git("remote").stdout, state.name)) {
+      console.error(stoppedSandboxHint(state.name));
+    }
+    return code;
+  }
 
   const listing = git("for-each-ref", `refs/remotes/${remote}/feature/`, "--format=%(refname:short)");
   if (listing.exitCode !== 0) return fail(`git for-each-ref failed for ${remote}`);

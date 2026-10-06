@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fetch, HOST_REMOTE, HOST_SOURCE, runWorktreePath, worktree, worktreeRm, type CloneDeps } from "../src/clone";
+import { fetch, HOST_REMOTE, stoppedSandboxHint, HOST_SOURCE, runWorktreePath, worktree, worktreeRm, type CloneDeps } from "../src/clone";
 import { projectRootOfRun, projectNameOfRun } from "../src/keys";
 import { sandboxStatePath, writeSandboxState, type Runner, type SandboxState } from "../src/sandbox";
 
@@ -771,6 +771,42 @@ describe("fetch", () => {
       console.log = original;
     }
     expect(logs).toContain(`no feature branches on sandbox-${NAME}`);
+  });
+
+  test("a failed fetch without the sandbox remote names the stopped sandbox and the start", async () => {
+    const deps = await makeDeps();
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (line: string) => errors.push(line);
+    try {
+      const { runner } = fakeRunner((cmd) =>
+        cmd[3] === "fetch" ? { exitCode: 1 } : cmd[3] === "remote" ? { stdout: "origin\n" } : {},
+      );
+      expect(fetch({}, deps.env as never, { ...deps, runner })).toBe(1);
+    } finally {
+      console.error = original;
+    }
+    expect(errors).toEqual([
+      `error: git fetch sandbox-${NAME} failed`,
+      `the sandbox ${NAME} is stopped. Start it with oc-sub up, then fetch again.`,
+    ]);
+    expect(stoppedSandboxHint(NAME)).toBe(errors[1]!);
+  });
+
+  test("a failed fetch with the sandbox remote gives no hint", async () => {
+    const deps = await makeDeps();
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (line: string) => errors.push(line);
+    try {
+      const { runner } = fakeRunner((cmd) =>
+        cmd[3] === "fetch" ? { exitCode: 1 } : cmd[3] === "remote" ? { stdout: `origin\nsandbox-${NAME}\n` } : {},
+      );
+      expect(fetch({}, deps.env as never, { ...deps, runner })).toBe(1);
+    } finally {
+      console.error = original;
+    }
+    expect(errors).toEqual([`error: git fetch sandbox-${NAME} failed`]);
   });
 
   test("stops with a clear error in host mode", async () => {

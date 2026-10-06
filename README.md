@@ -379,7 +379,7 @@ bun run src/cli.ts fetch [--dir ROOT]
 
 Sandbox clone mode only. Runs `git fetch sandbox-<name>` on the host and prints every fetched `feature/*` branch with its commit count over `alpha`, plus the review and merge commands. Exit 1 without a sandbox state file.
 
-`sbx stop` removes the remote `sandbox-<name>` from the host repository, and the next start of the sandbox adds it again. So `fetch` fails while the sandbox is stopped, for example after an idle stop. Start the sandbox first with `oc-sub up`.
+`sbx stop` removes the remote `sandbox-<name>` from the host repository, and the next start of the sandbox adds it again. So `fetch` fails while the sandbox is stopped, for example after an idle stop. Then `fetch` prints the hint `the sandbox <name> is stopped. Start it with oc-sub up, then fetch again.`
 
 ### Typical flow
 

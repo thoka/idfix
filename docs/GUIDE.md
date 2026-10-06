@@ -205,7 +205,10 @@ A long model request is not a stall. While a session waits for the model, for ex
 - Below the table, the detail pane shows the selected run: a pending question or permission request, the subagent sessions as a tree, and the last events.
 - The footer shows each server and its state (`up`, `down`, or `reconnecting`), the number of runs, their cost, and the keys.
 
-Keys: `j`/`k` or the arrow keys select a run. `o` opens the selected run: inside tmux, a new pane attaches to it. Outside tmux, the footer shows the attach command. `a` switches between this project and all projects. `q` or Ctrl-C quit. The view only shows. Claude still answers, aborts, and follows up.
+- A row is active when a process belongs to it. An opencode run comes from a running server, so it is active. A Claude session is active when its process runs. A row without a process is inactive: only its job file or its transcript is left, for example a blocked background job whose process ended. An `ended` row is always inactive.
+- An inactive row shows dim, and its state has the mark `·` ("no process"). In the live view the mark follows the CODE, for example `✳ abc123·`, because the color of the `id` shows the state. `top --once` in a pipe puts the mark in the `state` column, for example `waiting·`. The detail pane adds `(no process)`. An `ended` row gets no mark, because it is gray already.
+
+Keys: `j`/`k` or the arrow keys select a run. `o` opens the selected run: inside tmux, a new pane attaches to it. Outside tmux, the footer shows the attach command. `h` hides or shows the inactive rows. They show by default. While they are hidden, the footer shows `h: show 3 inactive` with the number of hidden rows, else `h: hide inactive`. If the selected row hides, the selection moves to the nearest row that still shows. `a` switches between this project and all projects. `q` or Ctrl-C quit. The view only shows. Claude still answers, aborts, and follows up.
 
 With `--all`, the `where` column shows the full project name. A project can set a short name for it in the file `.opencode/oc-sub.json` of the project root: `{ "shortName": "opsub" }`. Without the file, the full name shows. The column is as wide as its longest value, like the other columns.
 
@@ -216,7 +219,7 @@ With `--all`, the `where` column shows the full project name. A project can set 
 - The icon `✳` marks a Claude session. The CODE is the last 6 characters of its session ID.
 - The `¢` cell of a Claude session is the API price of its tokens and its subagents. On a plan, this is not a real charge, so the cell is gray. `top --once` without color puts `~` in front of it, for example `~43`. Without a known price, the cell is empty.
 - The `ctx` cell shows the context size and its share of the model window, for example `123k 62%`. Without a known window, it shows only the size. This rule applies to opencode runs too.
-- The rows sort in three groups: `waiting` first, then the working and idle rows, and `ended` last. Inside a group, the newest start comes first. This order applies to opencode runs too.
+- The rows sort in two parts: the active rows first, then the inactive rows (see above). Inside each part, `waiting` comes first, then the working and idle rows, and `ended` last. Inside a group, the newest start comes first. So a waiting session without a process comes after a busy session with a process. This order applies to opencode runs too.
 - A waiting Claude session gets a pending line under its row: `waiting for:` and what it waits for.
 - The state `ended` is gray, and in the live view the whole row is gray.
 - The detail pane shows the kind (`interactive` or `background`), the model, the pending text, and the subagents as a tree. It shows no log lines for a Claude session yet.

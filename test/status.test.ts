@@ -1056,13 +1056,13 @@ describe("Claude sessions in status", () => {
         {
           type: "SessionWaitsForUser",
           status: "True",
-          reason: "PermissionDialog",
-          message: "waits 11 min: Bash permission",
+          reason: "input_required",
+          message: "permission dialog: Bash permission, waits for the user since 11 min",
           lastTransitionTime: new Date(LATER).toISOString(),
           subject: "proj",
           session: S1,
         },
-        expect.objectContaining({ type: "SessionWaitsForUser", reason: "JobBlocked", subject: "blocked-job", session: S5 }),
+        expect.objectContaining({ type: "SessionWaitsForUser", reason: "input_required", subject: "blocked-job", session: S5 }),
         expect.objectContaining({ type: "SessionStalled", reason: "NoTranscriptGrowth", subject: "bg-worker", session: S2 }),
       ]);
       expect((out.items as Array<{ id: string }>).map((item) => item.id)).toEqual([S1, S5, S2, S7]);
@@ -1083,8 +1083,8 @@ describe("Claude sessions in status", () => {
           {
             condition: "SessionWaitsForUser",
             status: "True",
-            reason: "JobBlocked",
-            message: "waits 4410 min: approve the push",
+            reason: "input_required",
+            message: "blocked job: approve the push, waits for the user since 4410 min",
             lastTransitionMs: since,
             session: S5,
             subject: "blocked-job",
@@ -1117,7 +1117,7 @@ describe("Claude sessions in status", () => {
       expect(out.sequence).toBe("00000000000000000042");
       const s5 = out.conditions.find((condition) => condition.session === S5);
       // The condition stays True since the log, so it keeps the time and the message of the log.
-      expect(s5).toMatchObject({ lastTransitionTime: new Date(since).toISOString(), message: "waits 4410 min: approve the push" });
+      expect(s5).toMatchObject({ lastTransitionTime: new Date(since).toISOString(), message: "blocked job: approve the push, waits for the user since 4410 min" });
       expect(out.conditions.some((condition) => condition.type === "HandoverFailed")).toBe(false);
       expect(validator()(out)).toBe(true);
     });

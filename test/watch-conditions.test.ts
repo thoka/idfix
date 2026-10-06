@@ -6,6 +6,8 @@ import {
   restoreState,
   STALL_THRESHOLD_MS,
   WAIT_THRESHOLD_MS,
+  waitKind,
+  waitKindOfMessage,
   waitReason,
   type ConditionType,
   type Edge,
@@ -73,29 +75,59 @@ describe("SessionWaitsForUser", () => {
       { atMs: T0 + 31 * MIN, rows: [row({ state: "busy", stateSinceMs: T0 + 31 * MIN, transcriptGrowthMs: T0 + 31 * MIN })] },
     ]);
     expect(edges[0]).toEqual([]);
-    expect(summary(edges[1] ?? [])).toEqual([["SessionWaitsForUser", "True", "PermissionDialog"]]);
+    expect(summary(edges[1] ?? [])).toEqual([["SessionWaitsForUser", "True", "input_required"]]);
     expect(edges[1]?.[0]).toMatchObject({
       severity: { text: "WARN", number: 13 },
       subject: "meta",
       session: ID,
       cwd: "/home/u/dv/meta",
-      message: "waits 10 min: Bash permission",
+      message: "permission dialog: Bash permission, waits for the user since 10 min",
     });
     expect(edges[2]).toEqual([]);
     expect(summary(edges[3] ?? [])).toEqual([["SessionWaitsForUser", "False", "Cleared"]]);
     expect(edges[3]?.[0]?.severity).toEqual({ text: "INFO", number: 9 });
   });
 
-  test("the reasons: the fixed waitingFor texts, a permission dialog title, a blocked job, and other", () => {
-    expect(waitReason({ waitingFor: "Bash permission", waitingSource: "session" })).toBe("PermissionDialog");
-    expect(waitReason({ waitingFor: "Allow edit of src/a.ts?", waitingSource: "session" })).toBe("PermissionDialog");
-    expect(waitReason({ waitingFor: "input needed", waitingSource: "session" })).toBe("InputNeeded");
-    expect(waitReason({ waitingFor: "Dialog open", waitingSource: "session" })).toBe("DialogOpen");
-    expect(waitReason({ waitingFor: "sandbox request", waitingSource: "session" })).toBe("SandboxRequest");
-    expect(waitReason({ waitingFor: " worker request ", waitingSource: "session" })).toBe("WorkerRequest");
-    expect(waitReason({ waitingFor: "", waitingSource: "session" })).toBe("Other");
-    expect(waitReason({ waitingFor: "approve the push", waitingSource: "job" })).toBe("JobBlocked");
-    expect(waitReason({ waitingFor: undefined, waitingSource: "session" })).toBe("Other");
+  test("the reasons of protocol v0: input_required for every wait without a login text", () => {
+    for (const waitingFor of ["Bash permission", "Allow edit of src/a.ts?", "Allow edit of src/login.ts?", "input needed", "Dialog open", "sandbox request", " worker request ", "", undefined]) {
+      expect(waitReason({ waitingFor, waitingSource: "session" })).toBe("input_required");
+    }
+    expect(waitReason({ waitingFor: "approve the push", waitingSource: "job" })).toBe("input_required");
+  });
+
+  test("the reason auth_required for a login or a key text", () => {
+    for (const waitingFor of [
+      "Invalid API key · Please run /login",
+      "API Error: 401 Unauthorized",
+      "OAuth token has expired",
+      "Authentication failed",
+      "not logged in",
+      "login required",
+      "expired key",
+    ]) {
+      expect(waitReason({ waitingFor, waitingSource: "session" })).toBe("auth_required");
+    }
+    expect(waitReason({ waitingFor: "API Error: 401", waitingSource: "job" })).toBe("auth_required");
+  });
+
+  test("the kind of wait for humans", () => {
+    expect(waitKind({ waitingFor: "Bash permission", waitingSource: "session" })).toBe("permission dialog: Bash permission");
+    expect(waitKind({ waitingFor: "Dialog open", waitingSource: "session" })).toBe("dialog open");
+    expect(waitKind({ waitingFor: " worker request ", waitingSource: "session" })).toBe("worker request");
+    expect(waitKind({ waitingFor: "approve the push", waitingSource: "job" })).toBe("blocked job: approve the push");
+    expect(waitKind({ waitingFor: undefined, waitingSource: "job" })).toBe("blocked job");
+    expect(waitKind({ waitingFor: "", waitingSource: "session" })).toBe("unknown wait");
+    expect(waitKind({ waitingFor: "Please run /login", waitingSource: "session" })).toBe("login needed: Please run /login");
+    expect(waitKindOfMessage("dialog open, waits for the user since 12 min")).toBe("dialog open");
+    expect(waitKindOfMessage("other text")).toBe("other text");
+  });
+
+  test("a long title is cut, and the message keeps its suffix", () => {
+    const long = row({ state: "waiting", waitingFor: "x".repeat(400), waitingSource: "session" });
+    const { edges } = polls([{ atMs: T0 + 11 * MIN, rows: [long] }]);
+    const message = edges[0]?.[0]?.message ?? "";
+    expect(message.length).toBeLessThanOrEqual(200);
+    expect(message).toEndWith(", waits for the user since 11 min");
   });
 
   test("the message holds the waiting text cut to 200 characters", () => {
@@ -310,8 +342,8 @@ describe("restart and disappearance", () => {
         {
           condition: "SessionWaitsForUser",
           status: "True",
-          reason: "JobBlocked",
-          message: "waits 12 min",
+          reason: "input_required",
+          message: "blocked job, waits for the user since 12 min",
           lastTransitionMs: T0 - 10 * MIN,
           session: "gone-session-id",
           subject: "gone",

@@ -2,6 +2,12 @@
 
 Decisions that a session made from the canon of values. Newest entry first.
 
+## 2026-10-06: step 37, the reasons of `SessionWaitsForUser` follow protocol v0
+
+- Decision: `SessionWaitsForUser` has the reason `auth_required` when its waiting text asks for a login or a key, and else `input_required`. No `waitingFor` value of Claude Code 2.1.285 means a login (research `claude-session-sources.md`, section 2), so the watcher matches phrases (`401`, `/login`, `not logged in`, `login required`, `authentication failed`, an invalid or expired key or token). A bare word `login` does not count, so a dialog for `src/login.ts` stays `input_required`. The kind of wait goes into `message` (`<kind>, waits for the user since <n> min`), and the wake-up notice shows the kind. The event type of the condition changes from `dv.idfx.session.waits-for-user` to `dv.idfx.session.waiting`, the type of the protocol report; the restore reads `data.condition`, so old logs still restore. The reasons of `ApiError` stay, because the protocol report names no values for them. The test schema of `status --json` now also allows a snake_case reason.
+- Values: use the standard (MCP tasks and A2A words). Deliver first (text match instead of a new source).
+- Conditions: protocol v0 and the `waitingFor` values of Claude Code 2.1.285. If Claude Code gets a fixed text for a login, or protocol v1 changes the reasons or the type, this is open again.
+
 ## 2026-10-06: open points of W3
 
 - Decision: a doctor check with `error` counts as `warn` at the top level, as the health-check draft defines `warn`. A doctor that cannot run exits with 2 and prints nothing on stdout. The version is the short git sha until `package.json` gets a version from release-please (meta plan step 16c).
@@ -10,7 +16,7 @@ Decisions that a session made from the canon of values. Newest entry first.
 
 ## 2026-10-06: technical choices of W2 of `idfx watch --all`
 
-- Decision: the watcher calls `notify-session --name supervisor -- none "<text>"`, because `notify-session` needs a session ID first, and `none` matches no session, so the name decides. A failed notice is dropped after a warning, because the log holds its events and a retry would pile up while no supervisor runs. The notice ends with the path of the log. The unit file sets `PATH` (`~/.local/bin`, `~/dv/meta/dv/bin`, the mise shims, `/usr/local/bin`, `/usr/bin`), because a user service gets only `/usr/local/bin:/usr/bin` and would find neither `notify-session` nor `handover`. A `waitingFor` text outside the four fixed texts counts as the title of a permission dialog (`PermissionDialog`), because the research names no other values. The `watch-running` check is a slow check (only `doctor` runs it).
+- Decision: the watcher calls `notify-session --name supervisor -- none "<text>"`, because `notify-session` needs a session ID first, and `none` matches no session, so the name decides. A failed notice is dropped after a warning, because the log holds its events and a retry would pile up while no supervisor runs. The notice ends with the path of the log. The unit file sets `PATH` (`~/.local/bin`, `~/dv/meta/dv/bin`, the mise shims, `/usr/local/bin`, `/usr/bin`), because a user service gets only `/usr/local/bin:/usr/bin` and would find neither `notify-session` nor `handover`. A `waitingFor` text outside the four fixed texts counts as the title of a permission dialog (`PermissionDialog`), because the research names no other values. Note 2026-10-06 (step 37): the reasons `PermissionDialog`, `InputNeeded`, `DialogOpen`, `SandboxRequest`, `WorkerRequest`, `JobBlocked`, and `Other` are gone. The reason is now `input_required` or `auth_required` (tool protocol v0), and the kind of wait moved into `message`. The `watch-running` check is a slow check (only `doctor` runs it).
 - Values: one state in one place (the log is the record, the notice only wakes). Use the platform (systemd). Deliver first.
 - Conditions: the CLI of `notify-session` in meta, and the `waitingFor` values of Claude Code 2.1.285. If `notify-session` gets a name-only form, or Claude Code adds a new fixed text, the choice is open again.
 

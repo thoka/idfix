@@ -79,8 +79,8 @@ describe("runWatchAll --once over the Claude fixture", () => {
     expect(h.out.map((line) => JSON.parse(line))).toEqual(events);
     const summary = events.map((event) => [event.subject, event.data.condition, event.data.status, event.data.reason]);
     // S1 waits 15 minutes for a Bash permission; S5 is a job that is blocked for 3 days.
-    expect(summary).toContainEqual(["proj", "SessionWaitsForUser", "True", "PermissionDialog"]);
-    expect(summary).toContainEqual(["blocked-job", "SessionWaitsForUser", "True", "JobBlocked"]);
+    expect(summary).toContainEqual(["proj", "SessionWaitsForUser", "True", "input_required"]);
+    expect(summary).toContainEqual(["blocked-job", "SessionWaitsForUser", "True", "input_required"]);
     expect(summary).toContainEqual(["bg-worker", "SessionStalled", "True", "NoTranscriptGrowth"]);
     expect(events.at(-1)).toMatchObject({
       type: "dv.idfx.watch.heartbeat",
@@ -130,7 +130,7 @@ describe("runWatchAll --once over the Claude fixture", () => {
   test("without --json, one short line per event", async () => {
     const h = harness({});
     await runWatchAll({ json: false, once: true }, h.deps);
-    expect(h.out.some((line) => /WARN proj SessionWaitsForUser=True \(PermissionDialog\) - waits 15 min: Bash permission/.test(line))).toBe(
+    expect(h.out.some((line) => /WARN proj SessionWaitsForUser=True \(input_required\) - permission dialog: Bash permission, waits for the user since 15 min/.test(line))).toBe(
       true,
     );
     expect(h.out.at(-1)).toMatch(/INFO heartbeat: 4 sessions/);
@@ -238,7 +238,7 @@ describe("the wake-up of the supervisor", () => {
     // The fixture also gives SessionStalled (bg-worker); it goes only to the log.
     expect(fileEvents(dir).some((event) => event.data.condition === "SessionStalled")).toBe(true);
     expect(h.notices).toEqual([
-      `idfx watch: 2 events: proj waits for user (PermissionDialog), blocked-job waits for user (JobBlocked). Log: ${path.join(dir, EVENTS_FILE)}`,
+      `idfx watch: 2 events: proj waits for user (permission dialog: Bash permission), blocked-job waits for user (blocked job: approve the push). Log: ${path.join(dir, EVENTS_FILE)}`,
     ]);
   });
 
@@ -286,8 +286,8 @@ describe("the wake-up of the supervisor", () => {
     expect(h.err).toEqual([]);
     // Poll 1 at 0 s sends; polls 2 and 3 wait; poll 5 at 60 s sends both.
     expect(h.notices).toEqual([
-      `idfx watch: 1 event: alpha waits for user (InputNeeded). Log: ${path.join(dir, EVENTS_FILE)}`,
-      `idfx watch: 2 events: beta waits for user (InputNeeded), gamma waits for user (InputNeeded). Log: ${path.join(dir, EVENTS_FILE)}`,
+      `idfx watch: 1 event: alpha waits for user (input needed). Log: ${path.join(dir, EVENTS_FILE)}`,
+      `idfx watch: 2 events: beta waits for user (input needed), gamma waits for user (input needed). Log: ${path.join(dir, EVENTS_FILE)}`,
     ]);
   });
 

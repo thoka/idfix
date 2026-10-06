@@ -20,7 +20,7 @@
  * the log holds them.
  */
 import { spawnSync } from "node:child_process";
-import type { ConditionType, Edge } from "./conditions";
+import { type ConditionType, type Edge, waitKindOfMessage } from "./conditions";
 
 /** The conditions whose True edge wakes the supervisor. */
 export const NOTIFY_CONDITIONS: ReadonlySet<ConditionType> = new Set<ConditionType>(["SessionWaitsForUser", "ApiError"]);
@@ -48,11 +48,21 @@ export function notifies(edge: Pick<Edge, "condition" | "status">): boolean {
   return edge.status === "True" && NOTIFY_CONDITIONS.has(edge.condition);
 }
 
-/** One edge in short form, for example `meta waits for user (PermissionDialog)`. */
-export function shortEdge(edge: Pick<Edge, "condition" | "subject" | "reason">): string {
+/** The longest kind of wait in a notice. */
+export const NOTICE_KIND_LENGTH = 80;
+
+/**
+ * One edge in short form, for example
+ * `meta waits for user (permission dialog: Bash permission)`. A wait shows
+ * its kind from the message, not only its reason `input_required` or
+ * `auth_required`, so the supervisor sees what to do.
+ */
+export function shortEdge(edge: Pick<Edge, "condition" | "subject" | "reason" | "message">): string {
   switch (edge.condition) {
-    case "SessionWaitsForUser":
-      return `${edge.subject} waits for user (${edge.reason})`;
+    case "SessionWaitsForUser": {
+      const kind = waitKindOfMessage(edge.message).trim().slice(0, NOTICE_KIND_LENGTH);
+      return `${edge.subject} waits for user (${kind.length > 0 ? kind : edge.reason})`;
+    }
     case "ApiError":
       return `${edge.subject} API error (${edge.reason})`;
     default:
@@ -63,7 +73,7 @@ export function shortEdge(edge: Pick<Edge, "condition" | "subject" | "reason">):
 /**
  * The notice text: the count, the first three edges in short form, and the
  * path of the log. For example
- * `idfx watch: 2 events: meta waits for user (PermissionDialog), grata API error (UsageLimit). Log: /home/u/.local/state/idfx/events.jsonl`.
+ * `idfx watch: 2 events: meta waits for user (permission dialog: Bash permission), grata API error (UsageLimit). Log: /home/u/.local/state/idfx/events.jsonl`.
  */
 export function noticeText(edges: readonly Edge[], logFile: string): string {
   const named = edges.slice(0, NOTICE_NAMED).map(shortEdge);

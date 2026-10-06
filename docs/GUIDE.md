@@ -242,8 +242,8 @@ With `--json`, the command prints one JSON object as the whole stdout. It is the
   "source": "//mini-arch/idfx",
   "sequence": "00000000000000000042",
   "conditions": [
-    {"type": "SessionWaitsForUser", "status": "True", "reason": "PermissionDialog",
-     "message": "waits 11 min: Bash permission", "lastTransitionTime": "2026-10-06T11:06:00.000Z",
+    {"type": "SessionWaitsForUser", "status": "True", "reason": "input_required",
+     "message": "permission dialog: Bash permission, waits for the user since 11 min", "lastTransitionTime": "2026-10-06T11:06:00.000Z",
      "subject": "proj", "session": "11111111-0000-4000-8000-000000000001"}
   ],
   "items": [
@@ -309,7 +309,7 @@ reason: Reasons
 type: SessionWaitsForUser
 true: the session waits for more than 10 minutes
 sev: WARN
-reason: PermissionDialog, InputNeeded, DialogOpen, SandboxRequest, WorkerRequest, JobBlocked, Other
+reason: input_required, auth_required
 --
 type: SessionStalled
 true: the session is busy, and its transcript (with its subagents) did not grow for 15 minutes
@@ -338,7 +338,8 @@ reason: NoName
 ```
 
 - An event reports a change, not each poll. A condition that stays True gives no second event. A condition that turns False gives an INFO event. Its reason is `Cleared`. If the session left the list, the reason is `SessionGone`.
-- The reason of a wait comes from the waiting text of the session. The texts `input needed`, `dialog open`, `sandbox request`, and `worker request` give `InputNeeded`, `DialogOpen`, `SandboxRequest`, and `WorkerRequest`. Another text is the title of a permission dialog and gives `PermissionDialog`. A blocked background job gives `JobBlocked`. No text gives `Other`.
+- The reason of a wait has two values, the same words as MCP tasks and A2A. `auth_required` means that the session waits for a login or a new key: its waiting text holds for example `401`, `/login`, `not logged in`, `authentication failed`, or an invalid or expired key or token. Claude Code has no fixed waiting text for a login, so idfx matches these words. Every other wait is `input_required`: a permission dialog, a question, an open dialog, a sandbox or worker request, a blocked background job, or a wait without a text.
+- The kind of the wait is in `message`, for example `permission dialog: Bash permission, waits for the user since 12 min`, `input needed, waits for the user since 11 min`, `blocked job: approve the push, waits for the user since 40 min`, or `login needed: Please run /login, waits for the user since 15 min`.
 - At the end of a session, `handover check` runs one time. Exit code 2 (for example a folder outside git) gives no event.
 - An API error turns False at the next poll without a new error line, so each new error gives one True event.
 - `message` holds only the waiting text, the error text (at most 200 characters), the first line of `handover check`, or numbers. It never holds a prompt.
@@ -346,7 +347,7 @@ reason: NoName
 The log is `$XDG_STATE_HOME/idfx/events.jsonl` (default `~/.local/state/idfx/events.jsonl`). Each line is one CloudEvents 1.0 event in JSON. Its fields:
 
 - `source`: `//<hostname>/idfx`.
-- `type`: for example `dv.idfx.session.waits-for-user`.
+- `type`: for example `dv.idfx.session.waiting` (the condition `SessionWaitsForUser`) or `dv.idfx.session.stalled`.
 - `subject`: the session name, else the first 8 characters of the session ID.
 - `sequence`: a number with 20 digits. `id` is the same number without the leading zeros.
 - `severitytext` and `severitynumber`: INFO 9, WARN 13, or ERROR 17.
@@ -371,7 +372,7 @@ The watcher wakes the supervisor session with a short notice, so that the superv
 The watcher runs `notify-session --name supervisor` (from `~/dv/meta/dv/bin`, which must be on the PATH). A notice reads for example:
 
 ```
-idfx watch: 2 events: meta waits for user (PermissionDialog), grata API error (UsageLimit). Log: /home/u/.local/state/idfx/events.jsonl
+idfx watch: 2 events: meta waits for user (permission dialog: Bash permission), grata API error (UsageLimit). Log: /home/u/.local/state/idfx/events.jsonl
 ```
 
 The log is the record, and the notice is only a wake-up. If `notify-session` fails, the watcher writes a warning to stderr and goes on. If `notify-session` is not on the PATH, the watcher warns once. `--once` also sends a notice.

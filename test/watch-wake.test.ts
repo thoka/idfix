@@ -7,12 +7,18 @@ import { createWaker, noticeText, nodeNotifier, notifies, NOTIFY_CONDITIONS, NOT
 
 const LOG = "/state/idfx/events.jsonl";
 
-function edge(subject: string, condition: ConditionType = "SessionWaitsForUser", status: "True" | "False" = "True", reason = "InputNeeded"): Edge {
+function edge(
+  subject: string,
+  condition: ConditionType = "SessionWaitsForUser",
+  status: "True" | "False" = "True",
+  reason = "input_required",
+  message = "input needed, waits for the user since 12 min",
+): Edge {
   return {
     condition,
     status,
     reason,
-    message: "",
+    message,
     lastTransitionMs: 0,
     session: `${subject}-id`,
     subject,
@@ -36,11 +42,23 @@ describe("which edges notify", () => {
 
 describe("noticeText", () => {
   test("names the count, the first three edges, and the log", () => {
-    const edges = [edge("meta", "SessionWaitsForUser", "True", "PermissionDialog"), edge("grata", "ApiError", "True", "UsageLimit"), edge("c"), edge("d")];
+    const edges = [
+      edge("meta", "SessionWaitsForUser", "True", "input_required", "permission dialog: Bash permission, waits for the user since 12 min"),
+      edge("grata", "ApiError", "True", "UsageLimit", "API Error: usage limit"),
+      edge("c"),
+      edge("d"),
+    ];
     expect(noticeText(edges, LOG)).toBe(
-      `idfx watch: 4 events: meta waits for user (PermissionDialog), grata API error (UsageLimit), c waits for user (InputNeeded), and 1 more. Log: ${LOG}`,
+      `idfx watch: 4 events: meta waits for user (permission dialog: Bash permission), grata API error (UsageLimit), c waits for user (input needed), and 1 more. Log: ${LOG}`,
     );
-    expect(noticeText([edge("meta")], LOG)).toBe(`idfx watch: 1 event: meta waits for user (InputNeeded). Log: ${LOG}`);
+    expect(noticeText([edge("meta")], LOG)).toBe(`idfx watch: 1 event: meta waits for user (input needed). Log: ${LOG}`);
+  });
+
+  test("a wait shows its kind; without a message it shows the reason", () => {
+    expect(noticeText([edge("k", "SessionWaitsForUser", "True", "auth_required", "login needed: Please run /login, waits for the user since 11 min")], LOG)).toBe(
+      `idfx watch: 1 event: k waits for user (login needed: Please run /login). Log: ${LOG}`,
+    );
+    expect(noticeText([edge("e", "SessionWaitsForUser", "True", "input_required", "")], LOG)).toBe(`idfx watch: 1 event: e waits for user (input_required). Log: ${LOG}`);
   });
 });
 
@@ -75,7 +93,7 @@ describe("createWaker", () => {
     w.afterPoll([edge("b")], NOTICE_PAUSE_MS - 1, false);
     expect(texts).toHaveLength(1);
     w.afterPoll([], NOTICE_PAUSE_MS, false);
-    expect(texts).toEqual([`idfx watch: 1 event: a waits for user (InputNeeded). Log: ${LOG}`, `idfx watch: 1 event: b waits for user (InputNeeded). Log: ${LOG}`]);
+    expect(texts).toEqual([`idfx watch: 1 event: a waits for user (input needed). Log: ${LOG}`, `idfx watch: 1 event: b waits for user (input needed). Log: ${LOG}`]);
   });
 
   test("a missing notify-session warns once", () => {

@@ -150,30 +150,68 @@ const cut = (text: string): string => text.trim().slice(0, MESSAGE_LENGTH);
 
 const minutes = (ms: number): number => Math.floor(ms / 60_000);
 
-/**
- * The fixed `waitingFor` texts of an interactive session and their reasons.
- * Claude Code 2.1.285 sets `waitingFor` to one of these, or to the title of
- * a permission dialog (research `docs/research/claude-session-sources.md`,
- * section 2).
- */
-export const WAIT_REASONS: Readonly<Record<string, string>> = {
-  "input needed": "InputNeeded",
-  "dialog open": "DialogOpen",
-  "sandbox request": "SandboxRequest",
-  "worker request": "WorkerRequest",
-};
+/** The reason of a wait that the user ends with an answer, a choice, or an approval (MCP task status, A2A `TASK_STATE_INPUT_REQUIRED`). */
+export const INPUT_REQUIRED = "input_required";
+/** The reason of a wait for a login or a new key (A2A `TASK_STATE_AUTH_REQUIRED`). */
+export const AUTH_REQUIRED = "auth_required";
+
+/** The two reasons of `SessionWaitsForUser`, from tool protocol v0 (meta `docs/research/tool-protocol.md`, section 1). */
+export type WaitReason = typeof INPUT_REQUIRED | typeof AUTH_REQUIRED;
 
 /**
- * The reason of a wait. A blocked job gives `JobBlocked`. A session gives
- * the reason of a fixed text of `WAIT_REASONS`; any other text is the title
- * of a permission dialog, so it gives `PermissionDialog`. Without a text the
- * reason is `Other`.
+ * The fixed `waitingFor` texts of an interactive session. Claude Code
+ * 2.1.285 sets `waitingFor` to one of these, or to the title of a
+ * permission dialog (research `docs/research/claude-session-sources.md`,
+ * section 2). All of them are `input_required`; the text goes into the
+ * message as the kind of wait.
  */
-export function waitReason(row: Pick<WatchRow, "waitingFor" | "waitingSource">): string {
-  if (row.waitingSource === "job") return "JobBlocked";
+export const FIXED_WAIT_TEXTS: readonly string[] = ["input needed", "dialog open", "sandbox request", "worker request"];
+
+/**
+ * A text that asks for a login or a new key. The research names no
+ * `waitingFor` value for a login, so no fixed text means `auth_required`.
+ * We match the text instead: an HTTP 401, the `/login` command, a failed or
+ * required authentication, or an invalid or expired key or token. The words
+ * must stand as a phrase, so a permission dialog for a file `login.ts` does
+ * not match.
+ */
+export const AUTH_TEXT =
+  /\b401\b|(^|\s)\/login\b|\bnot logged in\b|\blog ?in (is )?(required|needed)\b|\bauthentication (failed|required|error)\b|\b(invalid|expired) (api |oauth )?(key|token)\b|\b(key|token) (has )?expired\b/i;
+
+/** The suffix of the message of `SessionWaitsForUser`, after the kind of wait. */
+const waitSuffix = (min: number): string => `, waits for the user since ${min} min`;
+
+/**
+ * The reason of a wait: `auth_required` when the waiting text asks for a
+ * login or a key (`AUTH_TEXT`), else `input_required`. This covers a
+ * permission dialog, a question, the fixed texts, a blocked job, and a wait
+ * without a text.
+ */
+export function waitReason(row: Pick<WatchRow, "waitingFor" | "waitingSource">): WaitReason {
+  return AUTH_TEXT.test(row.waitingFor ?? "") ? AUTH_REQUIRED : INPUT_REQUIRED;
+}
+
+/**
+ * The kind of a wait for humans, the first part of the message. For
+ * example `permission dialog: Bash permission`, `input needed`,
+ * `blocked job: approve the push`, `login needed: Please run /login`, or
+ * `unknown wait`.
+ */
+export function waitKind(row: Pick<WatchRow, "waitingFor" | "waitingSource">): string {
   const text = (row.waitingFor ?? "").trim();
-  if (text.length === 0) return "Other";
-  return WAIT_REASONS[text.toLowerCase()] ?? "PermissionDialog";
+  if (row.waitingSource === "job") return text.length === 0 ? "blocked job" : `blocked job: ${text}`;
+  if (text.length === 0) return "unknown wait";
+  if (AUTH_TEXT.test(text)) return `login needed: ${text}`;
+  if (FIXED_WAIT_TEXTS.includes(text.toLowerCase())) return text.toLowerCase();
+  return `permission dialog: ${text}`;
+}
+
+/**
+ * The kind of wait from a message of `SessionWaitsForUser`: the message
+ * without its suffix. A message in another form comes back whole.
+ */
+export function waitKindOfMessage(message: string): string {
+  return message.replace(/, waits for the user since \d+ min$/, "");
 }
 
 /** The reason of an API error from its text (design section 3). */
@@ -192,8 +230,9 @@ function waitsForUser(row: WatchRow, nowMs: number): Wanted {
   if (row.state !== "waiting") return FALSE;
   const since = row.stateSinceMs ?? row.lastActivityMs;
   if (since === undefined || nowMs - since <= WAIT_THRESHOLD_MS) return FALSE;
-  const text = row.waitingFor === undefined ? "" : `: ${row.waitingFor}`;
-  return { status: "True", reason: waitReason(row), message: cut(`waits ${minutes(nowMs - since)} min${text}`) };
+  const suffix = waitSuffix(minutes(nowMs - since));
+  const kind = cut(waitKind(row)).slice(0, MESSAGE_LENGTH - suffix.length).trim();
+  return { status: "True", reason: waitReason(row), message: `${kind}${suffix}` };
 }
 
 function stalled(row: WatchRow, nowMs: number): Wanted {

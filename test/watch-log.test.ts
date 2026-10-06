@@ -31,8 +31,8 @@ function edge(overrides: Partial<Edge> = {}): Edge {
   return {
     condition: "SessionWaitsForUser",
     status: "True",
-    reason: "PermissionDialog",
-    message: "waits 12 min: Bash permission",
+    reason: "input_required",
+    message: "permission dialog: Bash permission, waits for the user since 12 min",
     lastTransitionMs: T0,
     session: "14930230-7d4a-43c8-8d36-3498b1e09305",
     subject: "meta-f2",
@@ -65,7 +65,7 @@ describe("the envelope", () => {
       specversion: "1.0",
       id: "413",
       source: "//mini-arch/idfx",
-      type: "dv.idfx.session.waits-for-user",
+      type: "dv.idfx.session.waiting",
       time: "2026-10-06T10:00:00.000Z",
       subject: "meta-f2",
       sequence: "00000000000000000413",
@@ -74,8 +74,8 @@ describe("the envelope", () => {
       data: {
         condition: "SessionWaitsForUser",
         status: "True",
-        reason: "PermissionDialog",
-        message: "waits 12 min: Bash permission",
+        reason: "input_required",
+        message: "permission dialog: Bash permission, waits for the user since 12 min",
         lastTransitionTime: "2026-10-06T10:00:00.000Z",
         session: "14930230-7d4a-43c8-8d36-3498b1e09305",
         cwd: "/home/u/dv/meta",
@@ -157,7 +157,7 @@ describe("the writer", () => {
 
   test("above the size limit the file is renamed to events.<first sequence>.jsonl, and the sequence continues", () => {
     const dir = tempDir();
-    const writer = openEventWriter(dir, 0, 500);
+    const writer = openEventWriter(dir, 0, 1000);
     for (let i = 0; i < 4; i++) writer.append((seq) => conditionEvent(edge(), seq, SOURCE));
     writer.close();
     const files = readdirSync(dir).sort();

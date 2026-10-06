@@ -59,9 +59,15 @@ export function watchStateDir(env: Record<string, string | undefined>, home: str
   return path.join(base, "idfx");
 }
 
-/** The event type of each condition: `dv.idfx.session.<condition in kebab case>`. */
+/**
+ * The event type of each condition: `dv.idfx.session.<condition in kebab
+ * case>`. `SessionWaitsForUser` uses `dv.idfx.session.waiting`, the type of
+ * tool protocol v0 (meta `docs/research/tool-protocol.md`, section 6). The
+ * restore of the state reads `data.condition`, not the type, so an old log
+ * with `waits-for-user` still restores.
+ */
 export const EVENT_TYPES: Record<ConditionType, string> = {
-  SessionWaitsForUser: "dv.idfx.session.waits-for-user",
+  SessionWaitsForUser: "dv.idfx.session.waiting",
   SessionStalled: "dv.idfx.session.stalled",
   ContextHigh: "dv.idfx.session.context-high",
   HandoverFailed: "dv.idfx.session.handover-failed",

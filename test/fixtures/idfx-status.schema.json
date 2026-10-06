@@ -20,7 +20,7 @@
         "properties": {
           "type": { "enum": ["SessionWaitsForUser", "SessionStalled", "ContextHigh", "ApiError", "SessionUnnamed"] },
           "status": { "const": "True" },
-          "reason": { "type": "string", "pattern": "^[A-Z][A-Za-z]*$" },
+          "reason": { "type": "string", "pattern": "^([A-Z][A-Za-z]*|[a-z]+(_[a-z]+)*)$" },
           "message": { "type": "string", "maxLength": 200 },
           "lastTransitionTime": { "type": "string", "format": "date-time" },
           "subject": { "type": "string", "minLength": 1 },

@@ -28,7 +28,7 @@ reason: Reasons
 type: SessionWaitsForUser
 true: the row state is `waiting` for more than 10 minutes (from `statusUpdatedAt` of the session file, or `updatedAt` of a blocked job)
 sev: WARN 13
-reason: `PermissionDialog`, `InputNeeded`, `DialogOpen`, `SandboxRequest`, `WorkerRequest`, `JobBlocked`, `Other`
+reason: `input_required`, `auth_required`
 --
 type: SessionStalled
 true: the row state is `busy`, and the transcript did not grow for 15 minutes
@@ -56,7 +56,12 @@ sev: INFO 9
 reason: `NoName`
 ```
 
-The reason of `SessionWaitsForUser` comes from `waitingFor` (research `docs/research/claude-session-sources.md`, section 2). A blocked job gives `JobBlocked`. For an interactive session, the fixed texts `input needed`, `dialog open`, `sandbox request`, and `worker request` give `InputNeeded`, `DialogOpen`, `SandboxRequest`, and `WorkerRequest`. Any other text is the title of a permission dialog and gives `PermissionDialog`. No text gives `Other`.
+The reason of `SessionWaitsForUser` has exactly two values, from tool protocol v0 (meta `docs/research/tool-protocol.md`, section 1). They are the words of MCP tasks (status `input_required`) and of A2A (`TASK_STATE_INPUT_REQUIRED`, `TASK_STATE_AUTH_REQUIRED`), so a consumer needs no table of names:
+
+- `auth_required`: the waiting text asks for a login or a key. The research (`docs/research/claude-session-sources.md`, section 2) names no `waitingFor` value for a login, so the watcher matches the text: `401`, `/login`, `not logged in`, `login required` or `login needed`, `authentication failed`, `required`, or `error`, an invalid or expired key or token, or `key expired` and `token has expired`. A dialog title such as `Allow edit of src/login.ts?` does not match.
+- `input_required`: every other wait. That is a permission dialog, the fixed texts `input needed`, `dialog open`, `sandbox request`, and `worker request`, a blocked job, and a wait without a text.
+
+The kind of wait goes into `message`, for people: `<kind>, waits for the user since <n> min`. The kind is `permission dialog: <title>`, one of the fixed texts, `blocked job: <needs>`, `login needed: <text>`, or `unknown wait`. For example `permission dialog: Bash permission, waits for the user since 12 min`. A long kind is cut so that the message stays at 200 characters with its suffix.
 
 A condition that turns False gives an event with severity INFO 9. A session that disappears from the source sets its open conditions to False. `HandoverFailed` runs `handover check` once, at the edge to `ended`, not at each poll. An exit code 2 (for example a folder outside git) gives no event. `ApiError` turns False at the next poll without a new error line, so each new error gives one True event.
 
@@ -68,7 +73,7 @@ The envelope and the file follow section 6 of the meta report:
 
 - File: `$XDG_STATE_HOME/idfx/events.jsonl`, append only, one full line per `write` call. One writer: the watcher. A file lock (`flock` on `events.lock`) stops a second watcher, which exits with code 1 and a message.
 - Envelope: CloudEvents 1.0 JSON. The attributes are `specversion`, `id`, `source` (`//<hostname>/idfx`), `type`, `time`, `subject` (the session name, else the first 8 characters of the session id), `sequence` (20 digits with leading zeros), `severitytext`, `severitynumber`, and `data`.
-- `type`: `dv.idfx.session.<condition in kebab case>`, for example `dv.idfx.session.waits-for-user`. The heartbeat is `dv.idfx.watch.heartbeat`, every 5 minutes, severity INFO 9.
+- `type`: `dv.idfx.session.<condition in kebab case>`, for example `dv.idfx.session.stalled`. `SessionWaitsForUser` uses `dv.idfx.session.waiting`, the type of tool protocol v0. A log line from before that change has `dv.idfx.session.waits-for-user`; the restore reads `data.condition`, so it still counts. The heartbeat is `dv.idfx.watch.heartbeat`, every 5 minutes, severity INFO 9.
 - `data`: `condition`, `status` (`True` or `False`), `reason`, `message`, `lastTransitionTime`, `session` (the full id), `cwd`, and `kind`.
 - Rotation: above 10 MB the watcher renames the file to `events.<first sequence>.jsonl` and starts a new file. The sequence continues.
 
@@ -84,7 +89,7 @@ Each notice costs context in the supervisor, so the watcher sends few notices (s
 - A known state never gives a second notice. A condition that stays True gives no edge. A restart restores the state from the log, so a condition that is still True gives no edge either.
 - If the event log was empty or missing at start (the first run), the first poll is the baseline. It writes its events to the log, but sends no notice.
 
-The watcher sends the notice with `notify-session --name supervisor -- "<text>"` from the PATH. Without a session ID, `notify-session` finds the live session by its name (meta af773a4). The `--` keeps a text that starts with `-` from being read as an option. The text names the count, the first three edges in short form, and the log, for example `idfx watch: 2 events: meta waits for user (PermissionDialog), grata API error (UsageLimit). Log: /home/u/.local/state/idfx/events.jsonl`. The log is the record, and the notice is only a wake-up. If `notify-session` fails, the watcher writes a warning to stderr, drops the notice, and goes on. If `notify-session` is not on the PATH, the watcher warns once. `--once` also sends a notice.
+The watcher sends the notice with `notify-session --name supervisor -- "<text>"` from the PATH. Without a session ID, `notify-session` finds the live session by its name (meta af773a4). The `--` keeps a text that starts with `-` from being read as an option. The text names the count, the first three edges in short form, and the log, for example `idfx watch: 2 events: meta waits for user (permission dialog: Bash permission), grata API error (UsageLimit). Log: /home/u/.local/state/idfx/events.jsonl`. A wait shows its kind from the message (at most 80 characters), not only its reason, so the supervisor sees what to do. Without a message, it shows the reason. The log is the record, and the notice is only a wake-up. If `notify-session` fails, the watcher writes a warning to stderr, drops the notice, and goes on. If `notify-session` is not on the PATH, the watcher warns once. `--once` also sends a notice.
 
 ## 6. `status --json` and `doctor --json` in the protocol form
 

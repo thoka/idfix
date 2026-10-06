@@ -33,7 +33,7 @@ To update at every start instead, open `/plugin`, select the marketplace, and en
 - `skills/oc-sub/SKILL.md` — the skill: when to delegate, the workflow, and the rules
 - `skills/oc-sub/reference.md` — the full command reference and the details
 - `opencode/agents/` — the agents of the plugin: `coder`, `researcher`, and its hidden subagent `reader`. `oc-sub up` serves them through `OPENCODE_CONFIG_DIR`.
-- `bin/idfx` — a second launcher with the name of the project. It calls `bin/oc-sub`.
+- `bin/idfx` — a second launcher with the short name of the project idfix. It calls `bin/oc-sub`. The link `~/.local/bin/idfix` also calls it.
 - `bin/oc-sub` — the launcher. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), installs the locked dependencies on the first call, and runs `src/cli.ts`.
 
 Check the plugin with `claude plugin validate .` and `claude --plugin-dir . plugin details idfix`.
@@ -47,7 +47,7 @@ mise install
 bun install
 ```
 
-The project gives only its start scripts `bin/oc-sub` and `bin/idfx`. Both run the same CLI. It does not link them into a folder on your PATH. On the machines of the user, arch-helper owns the links `~/.local/bin/oc-sub` and `~/.local/bin/idfx` through chezmoi. The launcher follows a symlink back to this repository, so updates to the repository take effect at once. The help and the usage hints show the name that you called, for example `idfix` for a link `~/.local/bin/idfix` to `bin/idfx`. Each launcher passes the base name of its `$0` in the variable `IDFX_PROG`. Without it, the CLI uses `oc-sub`.
+The project gives only its start scripts `bin/oc-sub` and `bin/idfx`. Both run the same CLI. It does not link them into a folder on your PATH. On the machines of the user, arch-helper owns the links `~/.local/bin/oc-sub`, `~/.local/bin/idfx`, and `~/.local/bin/idfix` through chezmoi. The link `idfix` points to `bin/idfx`. The launcher follows a symlink back to this repository, so updates to the repository take effect at once. The help and the usage hints show the name that you called, for example `idfix` for a link `~/.local/bin/idfix` to `bin/idfx`. Each launcher passes the base name of its `$0` in the variable `IDFX_PROG`. Without it, the CLI uses `oc-sub`.
 
 `mise.toml` pins `bun` and `opencode`. Check the setup with:
 

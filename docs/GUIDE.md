@@ -332,9 +332,9 @@ sev: ERROR
 reason: UsageLimit, AuthError, ApiError
 --
 type: SessionUnnamed
-true: a live session has no name
+true: a live session has no name, or its name breaks the naming rule
 sev: INFO
-reason: NoName
+reason: NoName, NameOffRule
 --
 type: SessionHandedOff
 true: the session ended a turn, `handover check <folder>` exits with code 0, and `docs/PLAN.md` has a new commit since the last event of this session
@@ -345,6 +345,7 @@ reason: HandoverCheckPassed
 - An event reports a change, not each poll. A condition that stays True gives no second event. A condition that turns False gives an INFO event. Its reason is `Cleared`. If the session left the list, the reason is `SessionGone`.
 - The reason of a wait has two values, the same words as MCP tasks and A2A. `auth_required` means that the session waits for a login or a new key: its waiting text holds for example `401`, `/login`, `not logged in`, `authentication failed`, or an invalid or expired key or token. Claude Code has no fixed waiting text for a login, so idfx matches these words. Every other wait is `input_required`: a permission dialog, a question, an open dialog, a sandbox or worker request, a blocked background job, or a wait without a text.
 - The kind of the wait is in `message`, for example `permission dialog: Bash permission, waits for the user since 12 min`, `input needed, waits for the user since 11 min`, `blocked job: approve the push, waits for the user since 40 min`, or `login needed: Please run /login, waits for the user since 15 min`.
+- The naming rule: the name of a session is its project, or `<project>-<step>`, for example `idfix` or `idfix-36`. The step is not empty. The project is the folder of the main repository, so a session in a worktree of idfix also has the project `idfix`. The name `supervisor` is valid in every folder. A live session without a name gives the reason `NoName`. A live session with another name gives the reason `NameOffRule`, and `message` names the expected form, for example `expected "meta" or "meta-<step>"`. When the session gets a valid name, the condition turns False.
 - At the end of a session, `handover check` runs one time. Exit code 2 (for example a folder outside git) gives no event.
 - `SessionHandedOff` tells that a session ended a step with a clean hand-off. When a session goes from `busy` or `waiting` to `idle` or `ended`, `handover check` runs one time. If it exits with 0, the watcher reads `git log -1 --format=%H -- docs/PLAN.md` in the folder of the session. If that commit differs from `data.planCommit` of the last `SessionHandedOff` event of this session, the watcher writes a True event with the new `data.planCommit`. A session goes `idle` after each turn, also after a question, so the same plan commit never gives a second event, also not after a restart of the watcher. Exit code 1 at an `idle` edge gives no event: a session in the middle of a step is not a failure. `HandoverFailed` still comes only at the end of a session.
 - `SessionHandedOff` is a one-shot event: it has no False event, also not when the session leaves the list. It does not count as an open condition, and `status --json` does not show it.

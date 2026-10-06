@@ -51,9 +51,9 @@ sev: ERROR 17
 reason: `UsageLimit`, `AuthError`, `ApiError`
 --
 type: SessionUnnamed
-true: a live session has no `name` (user decision 2026-10-06, meta plan step 26)
+true: a live session has no `name` (user decision 2026-10-06, meta plan step 26), or its name breaks the naming rule (idfix step 36)
 sev: INFO 9
-reason: `NoName`
+reason: `NoName`, or `NameOffRule` with `expected "<project>" or "<project>-<step>"` in `message`
 --
 type: SessionHandedOff
 true: one-shot: at the edge of a session from `busy` or `waiting` to `idle` or `ended`, `handover check <cwd>` exits with 0, and the last commit of `docs/PLAN.md` differs from `data.planCommit` of the last True event of this session (step 38, task of Severin)
@@ -69,6 +69,8 @@ The reason of `SessionWaitsForUser` has exactly two values, from tool protocol v
 The kind of wait goes into `message`, for people: `<kind>, waits for the user since <n> min`. The kind is `permission dialog: <title>`, one of the fixed texts, `blocked job: <needs>`, `login needed: <text>`, or `unknown wait`. For example `permission dialog: Bash permission, waits for the user since 12 min`. A long kind is cut so that the message stays at 200 characters with its suffix.
 
 A condition that turns False gives an event with severity INFO 9. A session that disappears from the source sets its open conditions to False. `HandoverFailed` runs `handover check` once, at the edge to `ended`, not at each poll. An exit code 2 (for example a folder outside git) gives no event. `ApiError` turns False at the next poll without a new error line, so each new error gives one True event.
+
+The naming rule of `SessionUnnamed` (`nameFollowsRule` in `src/watch/conditions.ts`): a valid name is the project of the session, or `<project>-<step>` with a step that is not empty. The project is `projectNameOfRun` of the folder, so a worktree counts as its main repository. The name `supervisor` is valid in every folder (`~/dv/AGENTS.md`). A change from `NoName` to `NameOffRule` keeps the condition True, so it gives no new event and keeps the first reason.
 
 `SessionHandedOff` tells Severin that a session ended a step with a clean hand-off (Severin `docs/research/driver-loop-inputs.md`, section 1). It has these rules:
 

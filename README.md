@@ -206,6 +206,12 @@ The command prints, one per line:
 
 The run record is a JSON file `.opencode/runs/<session-id>.json` in the current directory, with the session ID, directory, agent, title (`null` when unset), and start time. It also holds the first 8 hex digits of the SHA-256 of the key (`keyFingerprint`, never the key) and the key usage at the start in USD (`usageAtStart`, `null` without an answer). A copy goes to `~/.local/state/idfx/runs/` (or `$XDG_STATE_HOME/idfx/runs/`), so `watch` and `log` find the record from any working directory.
 
+The record also names the agent CLI of the run in `driver`. `run` writes `"opencode"`. A record without the field is an opencode record. The other names are `"claude-glm"` and `"claude"`.
+
+#### Drivers
+
+A driver is the code that runs one agent CLI. `src/driver.ts` keeps the drivers in a registry. Each driver implements the commands `run`, `say`, `abort`, `watch`, and `log`. `run` always uses the `opencode` driver. `say`, `abort`, `watch`, and `log` load the run record of the session from the state folder or from `.opencode/runs/` of `--dir` (default: the current directory). They then call the driver that the record names. No record means `opencode`. Today only the `opencode` driver exists. A record that names `claude` or `claude-glm` gives the error `idfx cannot drive <name> sessions yet` and exit code 1. `top` and `status` read Claude Code sessions without a driver, from `src/claude/`. A new CLI adds its name and one driver object to the registry.
+
 ### idfx attach
 
 ```
@@ -492,6 +498,7 @@ A git hook sets repository-local git variables such as `GIT_DIR` and `GIT_INDEX_
 - `src/requests.ts` — pending questions and permissions: list, filter, format, answer
 - `src/keys.ts` — OpenRouter key handling: fingerprint, key sources, key check, shared-key refusal; the DeepInfra key path and placeholder
 - `src/runs.ts` — run records in `.opencode/runs/` and in the state folder, real-cost line
+- `src/driver.ts`: the driver registry and the `opencode` driver, which `run`, `say`, `abort`, `watch`, and `log` go through
 - `src/realcost.ts` — the real-cost output of `watch` and `log`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
 - `src/units.ts`: the start and the stop of the `idfx-*` systemd user units (and of the old `ocsub-*` units), with the fallback to a detached process (`src/spawn.ts`)

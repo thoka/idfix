@@ -5,23 +5,19 @@ import { up } from "./up";
 import { down } from "./down";
 import { downAll } from "./down-all";
 import { upSandbox, downSandbox } from "./sandbox";
-import { run } from "./run";
 import { attach } from "./attach";
 import { status } from "./status";
 import { top } from "./top/load";
 import { ping } from "./ping";
 import { pingRules } from "./rules";
-import { watch } from "./watch";
 import { watchAll } from "./watch/run";
-import { log } from "./log";
 import { trace } from "./trace";
-import { abort } from "./abort";
 import { answer } from "./answer";
-import { say } from "./say";
 import { doctor, gateForCommand } from "./doctor";
 import { fetch, worktree, worktreeRm } from "./clone";
 import { runIdleWatch } from "./idle";
 import { hostProxyCommand } from "./host-proxy";
+import { dispatchSession, opencodeDriver } from "./driver";
 
 /** The command name when the launcher does not pass one. */
 export const DEFAULT_PROG = "idfx";
@@ -201,7 +197,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return stopped === 0 ? up(args) : stopped;
     }
     case "run":
-      return run(args);
+      // `run` always starts an opencode session for now.
+      return opencodeDriver.run(args);
     case "attach":
       return attach(args);
     case "status":
@@ -211,19 +208,19 @@ export async function main(argv: readonly string[]): Promise<number> {
     case "ping":
       return args.rules ? pingRules(args) : ping(args);
     case "watch":
-      return watch(args);
+      return dispatchSession(args, (driver) => driver.watch(args));
     case "watch-all":
       return watchAll(args, process.env);
     case "log":
-      return log(args);
+      return dispatchSession(args, (driver) => driver.log(args));
     case "trace":
       return trace(args);
     case "abort":
-      return abort(args);
+      return dispatchSession(args, (driver) => driver.abort(args));
     case "answer":
       return answer(args);
     case "say":
-      return say(args);
+      return dispatchSession(args, (driver) => driver.say(args));
     case "worktree":
       return args.remove ? await worktreeRm(args, process.env) : await worktree(args, process.env);
     case "fetch":

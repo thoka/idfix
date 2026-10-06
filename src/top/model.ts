@@ -18,6 +18,7 @@
  * `src/events.ts`.
  */
 import type { Event, Message, Part, Session, SessionStatus } from "@opencode-ai/sdk";
+import type { DriverName } from "../driver";
 import { createGuard, REASONING_LIMIT, type Finding, type GuardOptions } from "../detect";
 import { eventSessionId, watchEventLine, type WatchLine } from "../events";
 import type { PendingRequest, PermissionRequest, QuestionRequest } from "../requests";
@@ -38,7 +39,7 @@ import {
 export type SessionRowState = "waiting" | "looping" | "stalled" | "reasoning" | "retry" | "busy" | "idle" | "ended";
 
 /** The agent program behind a row: an opencode session or a Claude Code session. */
-export type SessionDriver = "opencode" | "claude";
+export type SessionDriver = Extract<DriverName, "opencode" | "claude">;
 
 /**
  * What the cost of a row means. `real`: the money that the provider charged

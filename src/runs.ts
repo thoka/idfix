@@ -6,6 +6,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Env } from "./config";
+import type { DriverName } from "./driver";
 import { stateDir } from "./state";
 
 export type RunRecord = {
@@ -18,7 +19,19 @@ export type RunRecord = {
   keyFingerprint?: string;
   /** The cumulative key usage in USD when the run started, or null when OpenRouter did not answer. */
   usageAtStart?: number | null;
+  /** The agent CLI of the run. Missing on old records, which are opencode records. */
+  driver?: DriverName;
 };
+
+/**
+ * The driver name of a record. A record without a `driver` string is an
+ * opencode record. The name can be one that this version does not know.
+ * Pure function.
+ */
+export function recordDriver(record: RunRecord): string {
+  const name: unknown = record.driver;
+  return typeof name === "string" && name !== "" ? name : "opencode";
+}
 
 export function makeRunRecord(input: {
   sessionId: string;
@@ -28,6 +41,7 @@ export function makeRunRecord(input: {
   startedAt?: Date;
   keyFingerprint?: string;
   usageAtStart?: number | null;
+  driver?: DriverName;
 }): RunRecord {
   return {
     sessionId: input.sessionId,
@@ -37,6 +51,7 @@ export function makeRunRecord(input: {
     startedAt: (input.startedAt ?? new Date()).toISOString(),
     ...(input.keyFingerprint === undefined ? {} : { keyFingerprint: input.keyFingerprint }),
     ...(input.usageAtStart === undefined ? {} : { usageAtStart: input.usageAtStart }),
+    ...(input.driver === undefined ? {} : { driver: input.driver }),
   };
 }
 

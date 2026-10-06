@@ -208,6 +208,30 @@ describe("idfx run and the shared OpenRouter key", () => {
     }
   });
 
+  test("names the opencode driver in both run records", async () => {
+    reset();
+    projectKey("alpha", KEY_A);
+    projectKey("beta", KEY_B);
+    const server = startFakeServer((directory) => (directory === DIR_A ? KEY_A : KEY_B));
+    writeDirsFile(server.url, [DIR_B]);
+    const captured = capture();
+    try {
+      const code = await run(
+        { agent: "coder", dir: DIR_A, text: "brief", url: server.url },
+        ENV,
+        makeDeps(openrouterFetch({ usage: 1 })),
+      );
+      expect(code).toBe(0);
+      const record = JSON.parse(readFileSync(path.join(CWD, ".opencode", "runs", "ses_new.json"), "utf8"));
+      const stateRecord = JSON.parse(readFileSync(path.join(STATE, "idfx", "runs", "ses_new.json"), "utf8"));
+      expect(record.driver).toBe("opencode");
+      expect(stateRecord.driver).toBe("opencode");
+    } finally {
+      captured.restore();
+      server.stop();
+    }
+  });
+
   test("starts the run with usageAtStart null when OpenRouter does not answer", async () => {
     reset();
     projectKey("alpha", KEY_A);

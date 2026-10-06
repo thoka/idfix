@@ -16,6 +16,7 @@ import { noSessionNames, readTextSync, sessionNamesSource, type SessionNamesRead
 import { formatSequence, readLogState, sourceOf, watchStateDir, type LogState } from "./watch/log";
 import { toWatchRow } from "./watch/run";
 import { idfxVersion, TOOL } from "./protocol";
+import type { SessionDriver } from "./top/model";
 
 /**
  * One status line: `<id> <state> <title>`, plus ` (<folder>)` for a session
@@ -223,7 +224,7 @@ export type StatusRow = {
   /** The server URL that listed the session, only for an opencode session in the listing of `--all`. */
   server?: string;
   /** The agent program of the session. */
-  driver: "opencode" | "claude";
+  driver: SessionDriver;
   /** The fields below exist only for a Claude session. */
   name?: string | null;
   kind?: "interactive" | "background";

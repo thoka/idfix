@@ -307,6 +307,7 @@ async function runLocked(
     title: args.title,
     keyFingerprint: fingerprint,
     usageAtStart,
+    driver: "opencode",
   });
   const recordPath = await writeRunRecord(deps.cwd, record);
   const stateRecordPath = await writeStateRunRecord(env, record);

@@ -216,7 +216,6 @@ User decision 2026-10-06 (meta plan, step 26). Each worker gets a stable name: i
 
 ## Open tasks of the user
 
-- Reinstall the Claude Code plugin under its new name. `oc-sub doctor` names the commands under `plugin-fresh`. The old marketplace URL redirects, so this is not urgent.
 - Decide on the upgrade to Claude Max 5x. Step 23 starts after it. The current plan is Pro. September used about $804 at API prices.
 - Run the `!` command for the OpenRouter usage per project, for [claude-max-vs-openrouter.md](research/claude-max-vs-openrouter.md).
 - Make the access to `/dev/kvm` permanent. [wsl-kvm-access.md](research/wsl-kvm-access.md), section 7: the `kvm` group exists here with gid 990, and the udev rule of this distro already sets mode 0666. So the state of 2026-09-30 (gid 109, mode 0660) likely came from another WSL distro that shares the device node. Run `wsl.exe -l -v` on Windows and name the distros that run. The guard of this session blocked that command.

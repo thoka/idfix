@@ -1,7 +1,8 @@
 /**
- * The CLI is now named idfx. `oc-sub` still works as an alias, but no help,
- * message, comment, or doc tells the user to run `oc-sub <command>`. This
- * test reads the sources and the docs and fails on each such line.
+ * The CLI is named idfx, and `oc-sub` is no longer a command. No launcher,
+ * package bin, help, message, comment, or doc offers `oc-sub <command>`. This
+ * test reads the sources and the docs and fails on each such line. It also
+ * fails when the launcher bin/oc-sub or a package bin `oc-sub` comes back.
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -102,6 +103,27 @@ describe("the old name oc-sub", () => {
     const hits = files.flatMap((file) => oldNameHits(file, readFileSync(path.join(ROOT, file), "utf8")));
     const report = hits.map((hit) => `${hit.file}:${hit.line}: ${hit.text}`).join("\n");
     expect(report).toBe("");
+  });
+});
+
+describe("the command name idfx", () => {
+  test("the launcher bin/oc-sub does not exist, and bin/idfx does", () => {
+    expect(existsSync(path.join(ROOT, "bin", "oc-sub"))).toBe(false);
+    expect(existsSync(path.join(ROOT, "bin", "idfx"))).toBe(true);
+  });
+
+  test("package.json has the bin idfx and no bin oc-sub", () => {
+    const pkg = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")) as { bin?: Record<string, string> };
+    expect(Object.keys(pkg.bin ?? {})).toContain("idfx");
+    expect(Object.keys(pkg.bin ?? {})).not.toContain("oc-sub");
+  });
+
+  test("bin/idfx does not call or name oc-sub", () => {
+    expect(readFileSync(path.join(ROOT, "bin", "idfx"), "utf8")).not.toContain("oc-sub");
+  });
+
+  test("the help of the CLI does not name oc-sub", () => {
+    expect(readFileSync(path.join(ROOT, "src", "cli.ts"), "utf8")).not.toContain("oc-sub");
   });
 });
 

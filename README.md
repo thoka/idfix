@@ -2,7 +2,7 @@
 
 Status: experimental alpha. The tool and the skill were built in September 2026 and have few real runs so far. The command line and the file formats can change.
 
-This project makes cheap opencode subagents usable from Claude Code. Its name is idfix 🐕, after the dog Idefix in Asterix, because it will support clients other than opencode. Until 2026-10-05 its name was opencode-subagents. It contains a small command line tool `idfx` and a Claude Code skill `idfx`, packaged as a Claude Code plugin. `oc-sub` is the old name of the tool `idfx`, and it still works as an alias. The research of the design is in [.plan/research/prior-art.md](.plan/research/prior-art.md). The lessons from the first use are in [.plan/EXPERIENCE.md](.plan/EXPERIENCE.md).
+This project makes cheap opencode subagents usable from Claude Code. Its name is idfix 🐕, after the dog Idefix in Asterix, because it will support clients other than opencode. Until 2026-10-05 its name was opencode-subagents. It contains a small command line tool `idfx` and a Claude Code skill `idfx`, packaged as a Claude Code plugin. The old name of the tool was `oc-sub`. It is no longer a command, and `idfx` is the only command name. The research of the design is in [.plan/research/prior-art.md](.plan/research/prior-art.md). The lessons from the first use are in [.plan/EXPERIENCE.md](.plan/EXPERIENCE.md).
 
 ## Use it in another project
 
@@ -33,8 +33,7 @@ To update at every start instead, open `/plugin`, select the marketplace, and en
 - `skills/idfx/SKILL.md` — the skill: when to delegate, the workflow, and the rules
 - `skills/idfx/reference.md` — the full command reference and the details
 - `opencode/agents/` — the agents of the plugin: `coder`, `researcher`, and its hidden subagent `reader`. `idfx up` serves them through `OPENCODE_CONFIG_DIR`.
-- `bin/idfx` — the launcher of `idfx`. It calls `bin/oc-sub`. The link `~/.local/bin/idfix` also calls it.
-- `bin/oc-sub` — the launcher under the old name, which `bin/idfx` calls. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), runs `bun install --frozen-lockfile --production` on each call (a few milliseconds when nothing changed), and runs `src/cli.ts`.
+- `bin/idfx` — the launcher of `idfx`. The link `~/.local/bin/idfix` also calls it. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), runs `bun install --frozen-lockfile --production` on each call (a few milliseconds when nothing changed), and runs `src/cli.ts`.
 
 Check the plugin with `claude plugin validate .` and `claude --plugin-dir . plugin details idfix`.
 
@@ -48,7 +47,7 @@ bun install
 mise run hooks-install   # once after clone: the pre-push hook runs the tests
 ```
 
-The project gives only its start scripts `bin/idfx` and `bin/oc-sub`. Both run the same CLI. It does not link them into a folder on your PATH. To use them from any folder, link them yourself, for example `~/.local/bin/oc-sub`, `~/.local/bin/idfx`, and `~/.local/bin/idfix`, or let your dotfiles manager make the links. The link `idfix` points to `bin/idfx`. The launcher follows a symlink back to this repository, so updates to the repository take effect at once. The help and the usage hints show the name that you called, for example `idfix` for a link `~/.local/bin/idfix` to `bin/idfx`. Each launcher passes the base name of its `$0` in the variable `IDFX_PROG`. Without it, the CLI uses `idfx`.
+The project gives only its start script `bin/idfx`. It does not link it into a folder on your PATH. To use it from any folder, link it yourself, for example `~/.local/bin/idfx` and `~/.local/bin/idfix`, or let your dotfiles manager make the links. Both links point to `bin/idfx`. The launcher follows a symlink back to this repository, so updates to the repository take effect at once. The help and the usage hints show the name that you called, for example `idfix` for a link `~/.local/bin/idfix` to `bin/idfx`. The launcher passes the base name of its `$0` in the variable `IDFX_PROG`. Without it, the CLI uses `idfx`.
 
 `mise.toml` pins `bun`, `opencode`, and `lefthook`. Check the setup with:
 
@@ -60,11 +59,11 @@ mise run test       # bun install --frozen-lockfile, then typecheck and bun test
 
 This repository is public, so its tracked files name no local path of a developer and no private project. The pre-commit hook runs `public-check` on the staged files when that tool is on your PATH, and else prints a note and passes. `test/public.test.ts` checks the paths of all tracked files in every test run, also without the tool. The file `.public-check-allow` lists the exact strings that both checks allow, for example the example home folder `/home/user` of the tests.
 
-The CLI has the name `idfx`, and `oc-sub` is only its old name. `test/old-name.test.ts` fails when a file in `src/`, this README, `docs/GUIDE.md`, or the skill names the old name with a command, and it names each file and line.
+The CLI has the name `idfx`. `oc-sub` was its old name, and it is no longer a command. `test/old-name.test.ts` fails when a file in `src/`, this README, `docs/GUIDE.md`, or the skill names the old name with a command, and it names each file and line. It also fails when `bin/oc-sub` exists or `package.json` lists an `oc-sub` bin.
 
 ## idfx
 
-`idfx` drives an opencode server: start it, launch subagent runs, watch them live, and read the results. Entry point: `src/cli.ts`. Run it with `bin/idfx`, `bin/oc-sub`, `bun run src/cli.ts`, or `bun src/cli.ts`. With the plugin enabled, Claude runs it as `idfx`.
+`idfx` drives an opencode server: start it, launch subagent runs, watch them live, and read the results. Entry point: `src/cli.ts`. Run it with `bin/idfx`, `bun run src/cli.ts`, or `bun src/cli.ts`. With the plugin enabled, Claude runs it as `idfx`.
 
 The server URL comes from `--url` or the environment variable `IDFX_URL`, default `http://127.0.0.1:8767`. `up`, `down`, and `restart` run the server in sandbox mode by default (one Docker Sandbox per project, in clone mode: the agent works in a private clone of the repository; see `docs/GUIDE.md`). `--no-sandbox` selects the host server, which the sections below describe. `--port N` and `--url URL` name a host server, so they imply `--no-sandbox`. With `--port N`, they target port N and keep the host of the URL; a `--url` flag whose port differs from `--port` is a usage error. When `OPENCODE_SERVER_PASSWORD` is set, every request uses HTTP basic auth (username from `OPENCODE_SERVER_USERNAME`, default `opencode`, as opencode itself does). The secret is never printed. Every command except `up`, `down`, and `restart` first checks the health of the server. If no server answers within 2 seconds, `status` prints `no server on <url>` and exits with code 0. The other commands print `error: no server on <url>. Start it with: idfx up` and exit with code 1. If a server answers with HTTP 401 or 403, every command exits with code 1 and says that the server rejected the password in `OPENCODE_SERVER_PASSWORD`, or that it needs one. `up` then does not start a second server. Sessions belong to a project directory, so `run` needs `--dir`; `status`, `ping`, `watch`, `log`, `abort`, and `answer` take an optional `--dir` (default: the current directory). Run the commands from the same directory that started the run, or pass the same `--dir`.
 

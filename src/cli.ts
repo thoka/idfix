@@ -23,8 +23,8 @@ import { dispatchSession, opencodeDriver } from "./driver";
 export const DEFAULT_PROG = "idfx";
 
 /**
- * The name the user called: idfx, idfix, or the old name oc-sub. The launchers in bin/
- * pass the base name of their $0 in IDFX_PROG, so a symlink name survives.
+ * The name the user called, for example idfx or idfix. The launcher bin/idfx
+ * passes the base name of its $0 in IDFX_PROG, so a symlink name survives.
  * Without it, the name is DEFAULT_PROG.
  */
 export function progName(env: Record<string, string | undefined>): string {
@@ -35,7 +35,6 @@ export function progName(env: Record<string, string | undefined>): string {
 /** The help text, with the command name `prog` in each usage line. */
 export function helpText(prog: string = DEFAULT_PROG): string {
   return `${prog} - drive an opencode server for subagent runs
-oc-sub is the old name of idfx and still works.
 
 Usage:
   ${prog} up [--dir DIR] [--no-cost-proxy] [--idle-minutes N]

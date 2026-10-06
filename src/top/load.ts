@@ -17,7 +17,7 @@
  *
  * The live view needs the production build of React, because the development
  * build keeps data of every render and leaks memory. The start script
- * `bin/oc-sub` sets `NODE_ENV=production` when the user did not set it. It
+ * `bin/idfx` sets `NODE_ENV=production` when the user did not set it. It
  * must not change later, because bun picks its JSX transform at the start.
  */
 import path from "node:path";
@@ -261,7 +261,7 @@ export type TopUi = {
 /**
  * Load the module of the live view dynamically, so that `top --once` does not
  * load Ink and React. React picks its build from `NODE_ENV`, which the start
- * script `bin/oc-sub` sets.
+ * script `bin/idfx` sets.
  */
 export async function loadView(): Promise<typeof import("./app")> {
   return import("./app");

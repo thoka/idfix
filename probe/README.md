@@ -73,7 +73,7 @@ run number, strictly one run at a time, so the real-cost delta of the project
 key belongs to exactly one run. One run does, in order:
 
 1. Create the run worktree `probe-<provider>-<n>-<HHMMSS>` inside the sandbox
-   clone with the same code as `oc-sub worktree` (branch `feature/probe-...`
+   clone with the same code as `idfx worktree` (branch `feature/probe-...`
    from `host/alpha`, no setup command). The `HHMMSS` stamp comes from the
    start time of the batch, so a step name is unique per batch and a leftover
    of an older batch is never reused.
@@ -87,7 +87,7 @@ key belongs to exactly one run. One run does, in order:
    `realcost.ts` uses), create the session in the worktree, and send the
    text of `probe/task.md` to the agent `coder` with the model alias
    (`model: { providerID: "openrouter", modelID: "glm-probe-<provider>" }`).
-4. Wait until the session tree is settled (the logic of `oc-sub watch` as a
+4. Wait until the session tree is settled (the logic of `idfx watch` as a
    poll loop, with the guards: status map, descendant sessions, pending
    question and permission requests, and the missing-session grace). The
    time limit is 15 minutes; after it, the run is aborted and counts as
@@ -103,7 +103,7 @@ key belongs to exactly one run. One run does, in order:
    (probe-routing.md section 2). The real cost delta can be low by a
    request or two, because OpenRouter counts a request a minute or two
    late.
-7. Remove the run worktree (`oc-sub worktree rm` code).
+7. Remove the run worktree (`idfx worktree rm` code).
 
 A run that fails at any step writes a result line with the error and the
 loop goes on with the next run. A failure in a worktree step (create, config
@@ -115,7 +115,7 @@ provider, because they are not provider failures.
 `no-such-provider`. The pin must make OpenRouter refuse the request, so the
 control counts as passed when the run fails without answering, and as
 failed when the run answers. If it answers, the provider pin does not
-reach OpenRouter and the whole oc-sub-based probe is invalid.
+reach OpenRouter and the whole idfx-based probe is invalid.
 
 **CLI**:
 

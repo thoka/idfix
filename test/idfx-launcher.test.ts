@@ -24,13 +24,16 @@ function link(target: string, name: string): string {
 }
 
 describe("bin/idfx", () => {
-  test("runs the same CLI as bin/oc-sub, with its own name", () => {
+  test("runs the CLI and shows its own name", () => {
     const idfx = runHelp(path.join(ROOT, "bin", "idfx"));
-    const ocSub = runHelp(path.join(ROOT, "bin", "oc-sub"));
     expect(idfx.code).toBe(0);
-    expect(ocSub.code).toBe(0);
     expect(idfx.out).toBe(helpText("idfx") + "\n");
-    expect(ocSub.out).toBe(helpText("oc-sub") + "\n");
+  });
+
+  test("a symlink idfx to bin/idfx runs the CLI", () => {
+    const { code, out } = runHelp(link("idfx", "idfx"));
+    expect(code).toBe(0);
+    expect(out).toBe(helpText("idfx") + "\n");
   });
 });
 
@@ -41,11 +44,6 @@ describe("the command name in the help", () => {
     expect(out.startsWith("idfix - drive an opencode server")).toBe(true);
     expect(out).toContain("\n  idfix up [--dir DIR] [--no-cost-proxy] [--idle-minutes N]\n");
     expect(out).not.toContain("\n  oc-sub ");
-  });
-
-  test("a symlink oc-sub to bin/oc-sub shows oc-sub", () => {
-    const { out } = runHelp(link("oc-sub", "oc-sub"));
-    expect(out).toContain("\n  oc-sub status [--dir DIR | --all] [--json]\n");
   });
 
   test("a usage error names the called command in the hint", () => {
@@ -66,7 +64,6 @@ describe("progName", () => {
   test("takes the base name of IDFX_PROG", () => {
     expect(progName({ IDFX_PROG: "idfx" })).toBe("idfx");
     expect(progName({ IDFX_PROG: "/home/user/.local/bin/idfix" })).toBe("idfix");
-    expect(progName({ IDFX_PROG: "oc-sub" })).toBe("oc-sub");
   });
 
   test("helpText and helpExitHint default to idfx", () => {
@@ -75,14 +72,15 @@ describe("progName", () => {
     expect(helpExitHint()).toBe("run `idfx --help` for usage");
   });
 
-  test("the help names oc-sub as the old name that still works", () => {
-    for (const prog of ["idfx", "oc-sub", "idfix"]) {
-      expect(helpText(prog).split("\n")[1]).toBe("oc-sub is the old name of idfx and still works.");
+  test("the help does not name the old name oc-sub", () => {
+    for (const prog of ["idfx", "idfix"]) {
+      expect(helpText(prog)).not.toContain("oc-sub");
+      expect(helpText(prog).split("\n")[1]).toBe("");
     }
   });
 });
 
-describe("the dependency install of bin/oc-sub", () => {
+describe("the dependency install of bin/idfx", () => {
   /**
    * Builds a copy of the launcher next to a tiny package with one local
    * dependency, so that bun installs it without the network.
@@ -90,7 +88,7 @@ describe("the dependency install of bin/oc-sub", () => {
   function fakeProject(): string {
     const dir = mkdtempSync(path.join(os.tmpdir(), "idfx-install-"));
     mkdirSync(path.join(dir, "bin"));
-    copyFileSync(path.join(ROOT, "bin", "oc-sub"), path.join(dir, "bin", "oc-sub"));
+    copyFileSync(path.join(ROOT, "bin", "idfx"), path.join(dir, "bin", "idfx"));
     mkdirSync(path.join(dir, "src"));
     writeFileSync(path.join(dir, "src", "cli.ts"), 'console.log(JSON.stringify({ ok: true }));\n');
     mkdirSync(path.join(dir, "dep"));
@@ -112,7 +110,7 @@ describe("the dependency install of bin/oc-sub", () => {
       rmSync(path.join(dir, "node_modules", "dep"), { recursive: true, force: true });
       mkdirSync(path.join(dir, "node_modules", "@opencode-ai", "sdk"), { recursive: true });
       const env = { ...process.env, PATH: `${path.dirname(process.execPath)}:${process.env.PATH ?? ""}` };
-      const result = Bun.spawnSync([path.join(dir, "bin", "oc-sub")], { env });
+      const result = Bun.spawnSync([path.join(dir, "bin", "idfx")], { env });
       expect(result.exitCode).toBe(0);
       expect(existsSync(path.join(dir, "node_modules", "dep", "package.json"))).toBe(true);
       expect(result.stdout.toString()).toBe('{"ok":true}\n');

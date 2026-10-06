@@ -22,7 +22,6 @@
     "string-width": "8.3.0"
   },
   "bin": {
-    "oc-sub": "src/cli.ts",
     "idfx": "src/cli.ts"
   },
   "scripts": {

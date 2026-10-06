@@ -4,10 +4,10 @@
  *
  * The development build of React keeps data of every render, so a long `top`
  * leaked gigabytes. Bun picks its JSX transform, and React picks
- * its build, from `NODE_ENV` when the process starts. So `bin/oc-sub` must
+ * its build, from `NODE_ENV` when the process starts. So `bin/idfx` must
  * set `NODE_ENV`, and nothing may change it later.
  *
- * Each test runs the real `bin/oc-sub` in a temp folder, with a fake `bun`
+ * Each test runs the real `bin/idfx` in a temp folder, with a fake `bun`
  * first on the PATH. The fake answers `--version` with the real bun. For the
  * final `exec`, it runs a child script instead of `src/cli.ts`, with the same
  * environment and folder. The child loads the view like `top` does, renders
@@ -100,9 +100,9 @@ function startEnv(nodeEnv?: string): Record<string, string> {
 
 type ChildResult = { nodeEnv?: string; threw: string | null; frame: string; files: string[] };
 
-/** Run `bin/oc-sub top --all` in the temp folder, outside the repository. */
+/** Run `bin/idfx top --all` in the temp folder, outside the repository. */
 function startTop(nodeEnv?: string): ChildResult {
-  const child = Bun.spawnSync([path.join(ROOT, "bin/oc-sub"), "top", "--all"], {
+  const child = Bun.spawnSync([path.join(ROOT, "bin/idfx"), "top", "--all"], {
     cwd: TEMP,
     env: startEnv(nodeEnv),
   });

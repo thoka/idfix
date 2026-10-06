@@ -1,0 +1,7 @@
+# Allowed strings for public-check, one on each line.
+# The neutral example home folder of the tests and the docs.
+/home/user
+# The home folder of the user inside a Docker sandbox, not a host path.
+/home/agent
+# The default of OC_SUB_SHARED_DIR, until step 39e removes it.
+~/dv/meta/agents

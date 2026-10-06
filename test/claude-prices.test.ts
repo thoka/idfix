@@ -108,8 +108,8 @@ function fakeDeps(options: { cached?: { text: string; mtimeMs: number }; fetch?:
 describe("loadPrices", () => {
   test("the cache path is $XDG_CACHE_HOME/idfix/litellm-prices.json, else ~/.cache", () => {
     expect(priceCachePath({ XDG_CACHE_HOME: "/cache" })).toBe("/cache/idfix/litellm-prices.json");
-    expect(priceCachePath({ HOME: "/home/u" })).toBe("/home/u/.cache/idfix/litellm-prices.json");
-    expect(priceCachePath({ HOME: "/home/u", XDG_CACHE_HOME: "relative" })).toBe("/home/u/.cache/idfix/litellm-prices.json");
+    expect(priceCachePath({ HOME: "/home/user" })).toBe("/home/user/.cache/idfix/litellm-prices.json");
+    expect(priceCachePath({ HOME: "/home/user", XDG_CACHE_HOME: "relative" })).toBe("/home/user/.cache/idfix/litellm-prices.json");
   });
 
   test("a fresh cache serves without a download", async () => {

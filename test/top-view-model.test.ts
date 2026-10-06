@@ -177,10 +177,10 @@ describe("footer", () => {
       servers,
       rows: [row("ses_a", { cost: 0.01 }), row("ses_b", { cost: 0.0025 })],
       all: false,
-      scopeLabel: "~/dv/p",
+      scopeLabel: "~/src/p",
     });
-    expect(footer).toEqual(["servers: host :8767 up", "2 sessions  cost $0.0125  scope: ~/dv/p", KEY_HELP]);
-    const withMessage = footerLines({ servers: [], rows: [row("ses_a")], all: true, scopeLabel: "~/dv/p", message: "hi" });
+    expect(footer).toEqual(["servers: host :8767 up", "2 sessions  cost $0.0125  scope: ~/src/p", KEY_HELP]);
+    const withMessage = footerLines({ servers: [], rows: [row("ses_a")], all: true, scopeLabel: "~/src/p", message: "hi" });
     expect(withMessage).toEqual(["servers: no known server", "1 session  cost $0.0000  scope: all projects", "hi"]);
   });
 });
@@ -239,7 +239,7 @@ describe("Claude sessions (step 25g.2)", () => {
       servers: [],
       rows: [row("ses_a", { cost: 0.5 }), claudeRowOf("c1", { cost: 2 }), claudeRowOf("c2", { cost: 0, costKind: "none" })],
       all: true,
-      scopeLabel: "~/dv/p",
+      scopeLabel: "~/src/p",
     });
     expect(footer[1]).toBe("3 sessions  cost $0.5000  api ~$2.0000  scope: all projects");
     const opencodeOnly = footerLines({ servers: [], rows: [row("ses_a", { cost: 0.5 })], all: true, scopeLabel: "" });

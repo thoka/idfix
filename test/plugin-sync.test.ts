@@ -26,8 +26,8 @@ describe("pluginDataDir", () => {
   });
 
   test("falls back to HOME/.local/share", () => {
-    expect(pluginDataDir({ HOME: "/home/u" })).toBe("/home/u/.local/share/oc-sub/opencode");
-    expect(pluginDataDir({ HOME: "/home/u", XDG_DATA_HOME: "relative" })).toBe("/home/u/.local/share/oc-sub/opencode");
+    expect(pluginDataDir({ HOME: "/home/user" })).toBe("/home/user/.local/share/oc-sub/opencode");
+    expect(pluginDataDir({ HOME: "/home/user", XDG_DATA_HOME: "relative" })).toBe("/home/user/.local/share/oc-sub/opencode");
   });
 
   test("proxyBundleIn names the bundle inside the folder", () => {

@@ -14,8 +14,8 @@ describe("test preload and the git hook environment", () => {
   });
 
   test("clearLocalGitEnv removes GIT_DIR and GIT_INDEX_FILE and keeps other variables", () => {
-    const env: Record<string, string | undefined> = { GIT_DIR: "/x/.git", GIT_INDEX_FILE: "/x/.git/index", HOME: "/home/u" };
+    const env: Record<string, string | undefined> = { GIT_DIR: "/x/.git", GIT_INDEX_FILE: "/x/.git/index", HOME: "/home/user" };
     clearLocalGitEnv(env);
-    expect(env).toEqual({ HOME: "/home/u" });
+    expect(env).toEqual({ HOME: "/home/user" });
   });
 });

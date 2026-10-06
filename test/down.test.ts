@@ -8,7 +8,7 @@ import { servePidPath } from "../src/state";
 describe("isOpencodeServe", () => {
   test("accepts opencode serve on the port", () => {
     expect(isOpencodeServe("opencode serve --port 8767 --hostname 127.0.0.1", 8767)).toBe(true);
-    expect(isOpencodeServe("/home/u/.local/share/mise/installs/opencode/1.18.32/bin/opencode serve --port 8767", 8767)).toBe(true);
+    expect(isOpencodeServe("/home/user/.local/share/mise/installs/opencode/1.18.32/bin/opencode serve --port 8767", 8767)).toBe(true);
     expect(isOpencodeServe("opencode serve --port=8767", 8767)).toBe(true);
   });
 

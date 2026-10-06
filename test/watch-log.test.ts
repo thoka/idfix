@@ -36,7 +36,7 @@ function edge(overrides: Partial<Edge> = {}): Edge {
     lastTransitionMs: T0,
     session: "14930230-7d4a-43c8-8d36-3498b1e09305",
     subject: "meta-f2",
-    cwd: "/home/u/dv/meta",
+    cwd: "/home/user/src/meta",
     kind: "interactive",
     severity: WARN,
     ...overrides,
@@ -78,7 +78,7 @@ describe("the envelope", () => {
         message: "permission dialog: Bash permission, waits for the user since 12 min",
         lastTransitionTime: "2026-10-06T10:00:00.000Z",
         session: "14930230-7d4a-43c8-8d36-3498b1e09305",
-        cwd: "/home/u/dv/meta",
+        cwd: "/home/user/src/meta",
         kind: "interactive",
       },
     });

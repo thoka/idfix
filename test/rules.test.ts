@@ -3,7 +3,7 @@ import { pingRules, RULES_AGENT, RULES_PROMPT, RULES_VARIANT, type RulesClient, 
 import type { MessageEntry } from "../src/summary";
 
 const HEADING = "# ZEPHYR-8817 scratch rules";
-const SHARED_FILE = "/home/u/dv/meta/agents/AGENTS.md";
+const SHARED_FILE = "/home/user/dv/meta/agents/AGENTS.md";
 const DIR = "/repo";
 
 /** A message entry with one text part, in the shape of the SDK. */
@@ -78,7 +78,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/u" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n\nbody\n` }, client));
+      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n\nbody\n` }, client));
     } finally {
       printed.restore();
     }
@@ -93,7 +93,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/u" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
+      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
     } finally {
       printed.restore();
     }
@@ -105,7 +105,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/u" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
+      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
     } finally {
       printed.restore();
     }
@@ -120,7 +120,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/u" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
+      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
     } finally {
       printed.restore();
     }
@@ -132,7 +132,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/u" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
+      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: `${HEADING}\n` }, client));
     } finally {
       printed.restore();
     }
@@ -145,7 +145,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/u" }, makeDeps({}, client));
+      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({}, client));
     } finally {
       printed.restore();
     }
@@ -161,7 +161,7 @@ describe("pingRules", () => {
     const printed = capturePrint();
     let code: number;
     try {
-      code = await pingRules({ dir: DIR }, { HOME: "/home/u" }, makeDeps({ [SHARED_FILE]: "no heading here\n" }, client));
+      code = await pingRules({ dir: DIR }, { HOME: "/home/user" }, makeDeps({ [SHARED_FILE]: "no heading here\n" }, client));
     } finally {
       printed.restore();
     }
@@ -177,7 +177,7 @@ describe("pingRules", () => {
     try {
       code = await pingRules(
         { dir: DIR },
-        { HOME: "/home/u", OC_SUB_SHARED_DIR: "/srv/agents" },
+        { HOME: "/home/user", OC_SUB_SHARED_DIR: "/srv/agents" },
         makeDeps({ "/srv/agents/AGENTS.md": `${HEADING}\n` }, client),
       );
     } finally {

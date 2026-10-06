@@ -4,9 +4,9 @@ import { isStreamAbort, tildeFolder } from "../src/top/app";
 
 describe("tildeFolder", () => {
   test("shows the home directory as ~", () => {
-    expect(tildeFolder("/home/u/dv/p", "/home/u")).toBe("~/dv/p");
-    expect(tildeFolder("/home/u", "/home/u")).toBe("~");
-    expect(tildeFolder("/home/user2/p", "/home/u")).toBe("/home/user2/p");
+    expect(tildeFolder("/home/user/src/p", "/home/user")).toBe("~/src/p");
+    expect(tildeFolder("/home/user", "/home/user")).toBe("~");
+    expect(tildeFolder("/home/user2/p", "/home/user")).toBe("/home/user2/p");
     expect(tildeFolder("/srv/p", "")).toBe("/srv/p");
   });
 });

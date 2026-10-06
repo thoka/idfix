@@ -41,7 +41,7 @@ function makeDeps(overrides: Partial<UpDeps> = {}): UpDeps {
 
 describe("serveEnv with the cost proxy (host mode)", () => {
   test("merges the openrouter baseURL into the config content", () => {
-    const { env, warnings } = serveEnv({ HOME: "/home/u" }, "/plugin/opencode", "/srv/agents", {
+    const { env, warnings } = serveEnv({ HOME: "/home/user" }, "/plugin/opencode", "/srv/agents", {
       proxyUrl: "http://127.0.0.1:8768/v1",
     });
     expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT as string)).toEqual({
@@ -53,7 +53,7 @@ describe("serveEnv with the cost proxy (host mode)", () => {
   });
 
   test("no proxyUrl keeps the content without a provider block", () => {
-    const { env } = serveEnv({ HOME: "/home/u" }, "/plugin/opencode", "/srv/agents");
+    const { env } = serveEnv({ HOME: "/home/user" }, "/plugin/opencode", "/srv/agents");
     expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT as string)).not.toHaveProperty("provider");
   });
 });
@@ -480,14 +480,14 @@ describe("DeepInfra in host mode (step 16)", () => {
   });
 
   test("serveEnv sets the deepinfra entries only with their options", () => {
-    const { env } = serveEnv({ HOME: "/home/u" }, "/plugin/opencode", "/srv/agents", {
+    const { env } = serveEnv({ HOME: "/home/user" }, "/plugin/opencode", "/srv/agents", {
       proxyUrl: "http://127.0.0.1:8791/v1",
       deepinfraProxyUrl: "http://127.0.0.1:8791/deepinfra/v1",
       deepinfraKey: "k",
     });
     expect(env.DEEPINFRA_API_KEY).toBe("k");
     expect(providerOf(env)?.deepinfra).toEqual({ options: { baseURL: "http://127.0.0.1:8791/deepinfra/v1" } });
-    const plain = serveEnv({ HOME: "/home/u" }, "/plugin/opencode", "/srv/agents").env;
+    const plain = serveEnv({ HOME: "/home/user" }, "/plugin/opencode", "/srv/agents").env;
     expect(plain.DEEPINFRA_API_KEY).toBeUndefined();
   });
 });

@@ -64,7 +64,7 @@ import {
 } from "../src/sandbox";
 
 /** The synced plugin folder of the fake deps. */
-const PLUGIN_DIR = "/home/u/.local/share/oc-sub/opencode";
+const PLUGIN_DIR = "/home/user/.local/share/oc-sub/opencode";
 
 function tempDir(): string {
   return mkdtempSync(path.join(tmpdir(), "oc-sub-doctor-"));
@@ -97,15 +97,15 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
       const target = files.get(entry.link);
       return target === undefined ? null : path.resolve(entry.link);
     },
-    home: "/home/u",
+    home: "/home/user",
     root: "/repo",
-    sharedDir: "/home/u/dv/meta/agents",
-    installsDir: "/home/u/.local/share/mise/installs",
+    sharedDir: "/home/user/src/meta/agents",
+    installsDir: "/home/user/.local/share/mise/installs",
     pluginSource: "/plugin/opencode",
     pluginDir: PLUGIN_DIR,
     projectName: "repo",
     pluginRepoRoot: "/plugin",
-    installedPluginsFile: "/home/u/.claude/plugins/installed_plugins.json",
+    installedPluginsFile: "/home/user/.claude/plugins/installed_plugins.json",
     originAlphaSha: () => "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     sandboxState: () => null,
     sandboxBin: "sbx",
@@ -118,7 +118,7 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     miseRunner: () => {
       throw new Error("the mise runner must not run in this test");
     },
-    globalMiseConfig: "/home/u/.config/mise/config.toml",
+    globalMiseConfig: "/home/user/.config/mise/config.toml",
     // The fake swap turns the file entry into a symlink entry, so a re-run of
     // the checks sees the fixed state.
     replaceWithSymlink: (file, target) => files.set(file, { link: target }),
@@ -146,14 +146,14 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
       throw new Error("no serverBusy check may run in this test");
     },
     // A watcher runs by default, so watch-running passes.
-    watchLockFile: "/home/u/.local/state/idfx/events.lock",
+    watchLockFile: "/home/user/.local/state/idfx/events.lock",
     watchLock: () => ({ state: "live", pid: 4242 }),
     toolVersion: () => "abc1234",
     recreateSandbox: async () => {
       throw new Error("no sandbox may be recreated in this test");
     },
     // No DeepInfra key file by default, so deepinfra-key skips.
-    deepinfraKeyFile: "/home/u/.config/repo/deepinfra.key",
+    deepinfraKeyFile: "/home/user/.config/repo/deepinfra.key",
     fileMode: () => null,
     // The fake project writes go into the file map, and every file is clean in git.
     writeText: (file, content) => files.set(file, { content }),
@@ -272,11 +272,11 @@ describe("agents-md", () => {
 });
 
 describe("global-rules", () => {
-  const sharedFile = "/home/u/dv/meta/agents/AGENTS.md";
+  const sharedFile = "/home/user/src/meta/agents/AGENTS.md";
   const links = {
-    "/home/u/.claude/CLAUDE.md": { link: sharedFile },
-    "/home/u/.config/opencode/AGENTS.md": { link: sharedFile },
-    "/home/u/.codex/AGENTS.md": { link: sharedFile },
+    "/home/user/.claude/CLAUDE.md": { link: sharedFile },
+    "/home/user/.config/opencode/AGENTS.md": { link: sharedFile },
+    "/home/user/.codex/AGENTS.md": { link: sharedFile },
   };
 
   test("passes when all three are symlinks to the shared file", () => {
@@ -291,7 +291,7 @@ describe("global-rules", () => {
 
   test("fails for a regular file copy", () => {
     const deps = makeDeps({
-      files: map({ ...links, [sharedFile]: { content: "# rules" }, "/home/u/.codex/AGENTS.md": { content: "# copy" } }),
+      files: map({ ...links, [sharedFile]: { content: "# rules" }, "/home/user/.codex/AGENTS.md": { content: "# copy" } }),
     });
     const check = byName(results(deps), "global-rules");
     expect(check?.status).toBe("fail");
@@ -303,7 +303,7 @@ describe("global-rules", () => {
       files: map({
         ...links,
         [sharedFile]: { content: "# rules" },
-        "/home/u/.codex/AGENTS.md": { link: "/nowhere/AGENTS.md" },
+        "/home/user/.codex/AGENTS.md": { link: "/nowhere/AGENTS.md" },
       }),
     });
     const check = byName(results(deps), "global-rules");
@@ -319,9 +319,9 @@ describe("skill-links", () => {
 
   test("passes when every symlink resolves", () => {
     const deps = makeDeps({
-      folders: map({ "/home/u/.claude/skills": ["oc-sub"], "/home/u/.agents/skills": [] }),
+      folders: map({ "/home/user/.claude/skills": ["oc-sub"], "/home/user/.agents/skills": [] }),
       files: map({
-        "/home/u/.claude/skills/oc-sub": { link: "/skills/oc-sub" },
+        "/home/user/.claude/skills/oc-sub": { link: "/skills/oc-sub" },
         "/skills/oc-sub": {},
       }),
     });
@@ -330,8 +330,8 @@ describe("skill-links", () => {
 
   test("fails for a broken link and names it", () => {
     const deps = makeDeps({
-      folders: map({ "/home/u/.claude/skills": ["gone"] }),
-      files: map({ "/home/u/.claude/skills/gone": { link: "/nowhere/skill" } }),
+      folders: map({ "/home/user/.claude/skills": ["gone"] }),
+      files: map({ "/home/user/.claude/skills/gone": { link: "/nowhere/skill" } }),
     });
     const check = byName(results(deps), "skill-links");
     expect(check?.status).toBe("fail");
@@ -371,18 +371,18 @@ describe("plugin-fresh", () => {
   });
 
   test("skips when the file has no plugins object", () => {
-    const deps = makeDeps({ files: map({ "/home/u/.claude/plugins/installed_plugins.json": { content: '{"version": 2}' } }) });
+    const deps = makeDeps({ files: map({ "/home/user/.claude/plugins/installed_plugins.json": { content: '{"version": 2}' } }) });
     expect(byName(results(deps, SLOW_CHECKS), "plugin-fresh")?.status).toBe("skip");
   });
 
   test("skips when the plugins object has no entry for the plugin", () => {
     const other = JSON.stringify({ version: 2, plugins: { "other@market": [{ gitCommitSha: "aaaa" }] } });
-    const deps = makeDeps({ files: map({ "/home/u/.claude/plugins/installed_plugins.json": { content: other } }) });
+    const deps = makeDeps({ files: map({ "/home/user/.claude/plugins/installed_plugins.json": { content: other } }) });
     expect(byName(results(deps, SLOW_CHECKS), "plugin-fresh")?.status).toBe("skip");
   });
 
   test("passes when the installed commit matches origin/alpha", () => {
-    const deps = makeDeps({ files: map({ "/home/u/.claude/plugins/installed_plugins.json": { content: installed } }) });
+    const deps = makeDeps({ files: map({ "/home/user/.claude/plugins/installed_plugins.json": { content: installed } }) });
     const check = byName(results(deps, SLOW_CHECKS), "plugin-fresh");
     expect(check?.status).toBe("pass");
   });
@@ -393,7 +393,7 @@ describe("plugin-fresh", () => {
       plugins: { [PLUGIN_KEY]: [{ scope: "user", gitCommitSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }] },
     });
     const deps = makeDeps({
-      files: map({ "/home/u/.claude/plugins/installed_plugins.json": { content: old } }),
+      files: map({ "/home/user/.claude/plugins/installed_plugins.json": { content: old } }),
     });
     const check = byName(results(deps, SLOW_CHECKS), "plugin-fresh");
     expect(check?.status).toBe("warn");
@@ -402,7 +402,7 @@ describe("plugin-fresh", () => {
 
   test("warns and names the reinstall when only the old plugin name is installed", () => {
     const old = JSON.stringify({ version: 2, plugins: { [OLD_PLUGIN_KEY]: [{ scope: "user", gitCommitSha: "aaaa" }] } });
-    const deps = makeDeps({ files: map({ "/home/u/.claude/plugins/installed_plugins.json": { content: old } }) });
+    const deps = makeDeps({ files: map({ "/home/user/.claude/plugins/installed_plugins.json": { content: old } }) });
     const check = byName(results(deps, SLOW_CHECKS), "plugin-fresh");
     expect(check?.status).toBe("warn");
     expect(check?.message).toContain(OLD_PLUGIN_KEY);
@@ -414,8 +414,8 @@ describe("sandbox-mounts", () => {
   const mounts = requiredSandboxMounts(
     "/repo",
     PLUGIN_DIR,
-    "/home/u/.local/share/mise/installs",
-    "/home/u/dv/meta/agents",
+    "/home/user/.local/share/mise/installs",
+    "/home/user/src/meta/agents",
   ).join(", ");
   const lsWithMounts = `NAME STATUS WORKSPACE\noc-sub-repo running /repo, ${mounts}\n`;
   const lsWithout = `NAME STATUS WORKSPACE\noc-sub-repo running /repo\n`;
@@ -454,7 +454,7 @@ describe("sandbox-mounts", () => {
 
   test("names the synced plugin mount that a sandbox from before step 15c lacks", () => {
     // An old sandbox mounts the plugin folder of the oc-sub checkout, not the synced folder.
-    const old = `NAME STATUS WORKSPACE\noc-sub-repo running /repo, /plugin/opencode:ro, /home/u/.local/share/mise/installs:ro, /home/u/dv/meta/agents:ro\n`;
+    const old = `NAME STATUS WORKSPACE\noc-sub-repo running /repo, /plugin/opencode:ro, /home/user/.local/share/mise/installs:ro, /home/user/src/meta/agents:ro\n`;
     const deps = makeDeps(
       {},
       {
@@ -529,8 +529,8 @@ describe("sandbox-mounts", () => {
   test("passes without the mount of a folder inside the project root", () => {
     // The project meta: the shared agents folder lies inside the root, so
     // `up` does not mount it and the check must not ask for it.
-    const root = "/home/u/dv/meta";
-    const ls = `NAME STATUS WORKSPACE\noc-sub-repo running ${root}, ${PLUGIN_DIR}:ro, /home/u/.local/share/mise/installs:ro\n`;
+    const root = "/home/user/src/meta";
+    const ls = `NAME STATUS WORKSPACE\noc-sub-repo running ${root}, ${PLUGIN_DIR}:ro, /home/user/.local/share/mise/installs:ro\n`;
     const deps = makeDeps(
       {},
       {
@@ -570,9 +570,9 @@ describe("runFastChecksFor with the real file system", () => {
       mkdirSync(path.join(dir, ".worktrees"), { recursive: true });
       writeFileSync(path.join(dir, "AGENTS.md"), "# rules\n");
       const { results: list } = runFastChecksFor(
-        { HOME: "/home/u" } as Record<string, string>,
+        { HOME: "/home/user" } as Record<string, string>,
         dir,
-        { home: "/home/u" },
+        { home: "/home/user" },
       );
       expect(list).toHaveLength(FAST_CHECKS.length);
       expect(byName(list, "agents-md")?.status).toBe("pass");
@@ -629,10 +629,10 @@ describe("main stops up and run on a failed fast check", () => {
       const runFolder = path.join(dir, ".worktrees", "14b");
       const errorSpy = spyOn(console, "error").mockImplementation(() => {});
       try {
-        const ok = gateForCommand({ dir: runFolder }, { HOME: "/home/u" }, {
-          home: "/home/u",
+        const ok = gateForCommand({ dir: runFolder }, { HOME: "/home/user" }, {
+          home: "/home/user",
           root: dir,
-          sharedDir: "/home/u/dv/meta/agents",
+          sharedDir: "/home/user/src/meta/agents",
         });
         expect(ok).toBe(true);
         expect(errorSpy.mock.calls.map(String).join("\n")).not.toContain("FAIL");
@@ -672,10 +672,10 @@ describe("main stops up and run on a failed fast check", () => {
       writeFileSync(path.join(dir, "AGENTS.md"), "# rules\n");
       const errorSpy = spyOn(console, "error").mockImplementation(() => {});
       try {
-        const ok = gateForCommand({ dir }, { HOME: "/home/u" }, {
-          home: "/home/u",
+        const ok = gateForCommand({ dir }, { HOME: "/home/user" }, {
+          home: "/home/user",
           root: dir,
-          sharedDir: "/home/u/dv/meta/agents",
+          sharedDir: "/home/user/src/meta/agents",
         });
         expect(ok).toBe(true);
         expect(errorSpy.mock.calls.map(String).join("\n")).not.toContain("FAIL");
@@ -768,7 +768,7 @@ describe("the plugin-fresh fix", () => {
   test("runs nothing and names the reinstall for an install under the old name", () => {
     const calls: string[] = [];
     const old = JSON.stringify({ version: 2, plugins: { [OLD_PLUGIN_KEY]: [{ scope: "user", gitCommitSha: "aaaa" }] } });
-    const deps = makeDeps({ files: map({ "/home/u/.claude/plugins/installed_plugins.json": { content: old } }) });
+    const deps = makeDeps({ files: map({ "/home/user/.claude/plugins/installed_plugins.json": { content: old } }) });
     const check = byName(results(deps, SLOW_CHECKS), "plugin-fresh") as CheckResult;
     const outcome = pluginFreshFix(depsWithClaude(calls, [0, 0]), check, { force: false });
     expect(outcome.ok).toBe(false);
@@ -786,10 +786,10 @@ describe("the plugin-fresh fix", () => {
 });
 
 describe("the global-rules fix", () => {
-  const sharedFile = "/home/u/dv/meta/agents/AGENTS.md";
-  const claudeMd = "/home/u/.claude/CLAUDE.md";
-  const opencodeMd = "/home/u/.config/opencode/AGENTS.md";
-  const codexMd = "/home/u/.codex/AGENTS.md";
+  const sharedFile = "/home/user/src/meta/agents/AGENTS.md";
+  const claudeMd = "/home/user/.claude/CLAUDE.md";
+  const opencodeMd = "/home/user/.config/opencode/AGENTS.md";
+  const codexMd = "/home/user/.codex/AGENTS.md";
   const base = map({ [sharedFile]: { content: "# rules" } });
 
   test("replaces an equal copy with a symlink", () => {
@@ -811,7 +811,7 @@ describe("the global-rules fix", () => {
 
   test("re-points a wrong or broken symlink", () => {
     const wrong = makeDeps({
-      files: map({ ...Object.fromEntries(base), [codexMd]: { link: "/home/u/other/AGENTS.md" }, "/home/u/other/AGENTS.md": { content: "x" } }),
+      files: map({ ...Object.fromEntries(base), [codexMd]: { link: "/home/user/other/AGENTS.md" }, "/home/user/other/AGENTS.md": { content: "x" } }),
     });
     const outcomeWrong = globalRulesFix(wrong, {} as CheckResult, { force: false });
     expect(outcomeWrong.ok).toBe(true);
@@ -880,8 +880,8 @@ describe("runFixes", () => {
 });
 
 describe("doctor --fix", () => {
-  const sharedFile = "/home/u/dv/meta/agents/AGENTS.md";
-  const codexMd = "/home/u/.codex/AGENTS.md";
+  const sharedFile = "/home/user/src/meta/agents/AGENTS.md";
+  const codexMd = "/home/user/.codex/AGENTS.md";
   // The installed plugin commit differs from origin/alpha, so plugin-fresh warns.
   const installedOld = JSON.stringify({
     version: 2,
@@ -894,19 +894,19 @@ describe("doctor --fix", () => {
         files: map({ [sharedFile]: { content: "# rules" }, ...files }),
       },
       {
-        installedPluginsFile: "/home/u/.claude/plugins/installed_plugins.json",
+        installedPluginsFile: "/home/user/.claude/plugins/installed_plugins.json",
         claudeRunner: (cmd) => ({ stdout: cmd.join(" "), exitCode: claudeExitCode }),
       },
     );
   }
 
   test("fixes global-rules and plugin-fresh in registry order and prints the lines", async () => {
-    const deps = fixDeps({ [codexMd]: { content: "# rules" }, "/home/u/.claude/plugins/installed_plugins.json": { content: installedOld } });
+    const deps = fixDeps({ [codexMd]: { content: "# rules" }, "/home/user/.claude/plugins/installed_plugins.json": { content: installedOld } });
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     let code: number;
     try {
-      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -933,7 +933,7 @@ describe("doctor --fix", () => {
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     let code: number;
     try {
-      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -947,7 +947,7 @@ describe("doctor --fix", () => {
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     let code: number;
     try {
-      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -957,14 +957,14 @@ describe("doctor --fix", () => {
   test("prints one object {tool, version, status, checks, fixes} with --fix --json", async () => {
     const deps = fixDeps({
       [codexMd]: { content: "# rules" },
-      "/home/u/.claude/plugins/installed_plugins.json": { content: installedOld },
+      "/home/user/.claude/plugins/installed_plugins.json": { content: installedOld },
     });
     const lines: string[] = [];
     const errors: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     const errorSpy = spyOn(console, "error").mockImplementation((line) => errors.push(String(line)));
     try {
-      await doctor({ fix: true, json: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      await doctor({ fix: true, json: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
       errorSpy.mockRestore();
@@ -989,7 +989,7 @@ describe("doctor --fix", () => {
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     try {
-      await doctor({ json: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      await doctor({ json: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -1016,7 +1016,7 @@ describe("doctor --json in the tool protocol", () => {
     const logSpy = spyOn(console, "log").mockImplementation((...parts: unknown[]) => lines.push(parts.map(String).join(" ")));
     const errorSpy = spyOn(console, "error").mockImplementation((...parts: unknown[]) => errors.push(parts.map(String).join(" ")));
     try {
-      const code = await doctor(args, { HOME: "/home/u" } as Record<string, string>, makeDeps({}, overrides));
+      const code = await doctor(args, { HOME: "/home/user" } as Record<string, string>, makeDeps({}, overrides));
       return { code, lines, errors };
     } finally {
       logSpy.mockRestore();
@@ -1080,7 +1080,7 @@ describe("doctor --json in the tool protocol", () => {
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     let code: number;
     try {
-      code = await doctor({ json: true }, { HOME: "/home/u" } as Record<string, string>, makeDeps({ files: new Map([["/repo/CLAUDE.md", { content: "# x" }]]) }));
+      code = await doctor({ json: true }, { HOME: "/home/user" } as Record<string, string>, makeDeps({ files: new Map([["/repo/CLAUDE.md", { content: "# x" }]]) }));
     } finally {
       logSpy.mockRestore();
     }
@@ -1186,7 +1186,7 @@ describe("the kvm-access root fix", () => {
     let fixed = false;
     // The shared rules file exists, so no other fix runs or fails.
     const deps = makeDeps(
-      { files: map({ "/home/u/dv/meta/agents/AGENTS.md": { content: "# rules" } }) },
+      { files: map({ "/home/user/src/meta/agents/AGENTS.md": { content: "# rules" } }) },
       {
         kvm: {
           platform: "linux",
@@ -1208,7 +1208,7 @@ describe("the kvm-access root fix", () => {
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     try {
-      return { code: await doctor(args, { HOME: "/home/u" } as Record<string, string>, deps), lines };
+      return { code: await doctor(args, { HOME: "/home/user" } as Record<string, string>, deps), lines };
     } finally {
       logSpy.mockRestore();
     }
@@ -1315,7 +1315,7 @@ describe("doctor --fix-as-root argument parsing", () => {
 
 describe("sandbox-mounts when the sandbox does not start", () => {
   test("names the stderr of sbx exec instead of a missing clone", () => {
-    const mounts = requiredSandboxMounts("/repo", PLUGIN_DIR, "/home/u/.local/share/mise/installs", "/home/u/dv/meta/agents").join(", ");
+    const mounts = requiredSandboxMounts("/repo", PLUGIN_DIR, "/home/user/.local/share/mise/installs", "/home/user/src/meta/agents").join(", ");
     const deps = makeDeps(
       {},
       {
@@ -1348,7 +1348,7 @@ describe("server-plugin", () => {
     dir === "/plugin/opencode" ? source : dir === PLUGIN_DIR ? synced : null;
   const check = (deps: DoctorDeps) => byName(results(deps, SLOW_CHECKS), "server-plugin");
   /** The shared rules file exists, so the other fixes of a doctor run succeed. */
-  const withRules = { files: map({ "/home/u/dv/meta/agents/AGENTS.md": { content: "# rules" } }) };
+  const withRules = { files: map({ "/home/user/src/meta/agents/AGENTS.md": { content: "# rules" } }) };
 
   test("comes right after plugin-fresh in the order", () => {
     const names = ALL_CHECKS.map((c) => c.name);
@@ -1444,7 +1444,7 @@ describe("server-plugin", () => {
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     let code: number;
     try {
-      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -1459,7 +1459,7 @@ describe("server-plugin", () => {
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     let code: number;
     try {
-      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -1529,7 +1529,7 @@ describe("parseWorktrees", () => {
 });
 
 describe("the sandbox-mounts fix (step 15d)", () => {
-  const MOUNTS = requiredSandboxMounts("/repo", PLUGIN_DIR, "/home/u/.local/share/mise/installs", "/home/u/dv/meta/agents").join(", ");
+  const MOUNTS = requiredSandboxMounts("/repo", PLUGIN_DIR, "/home/user/.local/share/mise/installs", "/home/user/src/meta/agents").join(", ");
   const LS_OK = `NAME STATUS WORKSPACE\noc-sub-repo running /repo, ${MOUNTS}\n`;
   const LS_MISSING = `NAME STATUS WORKSPACE\noc-sub-repo running /repo\n`;
   const SANDBOX_SERVER: RunningServer = {
@@ -1823,7 +1823,7 @@ describe("the sandbox-mounts fix (step 15d)", () => {
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     let code: number;
     try {
-      code = await doctor({ fix: true, force: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true, force: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -1841,7 +1841,7 @@ describe("the sandbox-mounts fix (step 15d)", () => {
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     let code: number;
     try {
-      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -2000,7 +2000,7 @@ describe("the opencode-version check", () => {
     const res = check(deps);
     expect(res?.status).toBe("warn");
     expect(res?.message).toContain("global mise configuration");
-    expect(res?.fix).toBe('set opencode = "1.18.32" in /home/u/.config/mise/config.toml and run mise install');
+    expect(res?.fix).toBe('set opencode = "1.18.32" in /home/user/.config/mise/config.toml and run mise install');
   });
 
   test("warns when the project pins latest, even if it resolves to the tested version now", () => {
@@ -2018,15 +2018,15 @@ describe("the opencode-version check", () => {
 
   test("warns when the global configuration pins latest and the project has no pin", () => {
     const { deps } = versionDeps(
-      { "/plugin/mise.toml": TESTED, "/home/u/.config/mise/config.toml": '[tools]\nopencode = "latest"\n' },
+      { "/plugin/mise.toml": TESTED, "/home/user/.config/mise/config.toml": '[tools]\nopencode = "latest"\n' },
       "1.18.32\n",
     );
     const res = check(deps);
     expect(res?.status).toBe("warn");
     expect(res?.message).toContain('opencode = "latest"');
-    expect(res?.message).toContain("global mise configuration /home/u/.config/mise/config.toml");
+    expect(res?.message).toContain("global mise configuration /home/user/.config/mise/config.toml");
     expect(res?.message).toContain("resolves to opencode 1.18.32");
-    expect(res?.fix).toBe('set opencode = "1.18.32" in /home/u/.config/mise/config.toml and run mise install');
+    expect(res?.fix).toBe('set opencode = "1.18.32" in /home/user/.config/mise/config.toml and run mise install');
   });
 
   test("passes when the project pins the tested version, whatever the global pin is", () => {
@@ -2034,7 +2034,7 @@ describe("the opencode-version check", () => {
       {
         "/plugin/mise.toml": TESTED,
         "/repo/mise.toml": '[tools]\nopencode = "1.18.32"\n',
-        "/home/u/.config/mise/config.toml": '[tools]\nopencode = "latest"\n',
+        "/home/user/.config/mise/config.toml": '[tools]\nopencode = "latest"\n',
       },
       "1.18.32\n",
     );
@@ -2189,7 +2189,7 @@ describe("deepinfra-key check (step 16)", () => {
   test("skips without the key file", () => {
     const check = byName(results(makeDeps(), SLOW_CHECKS), "deepinfra-key");
     expect(check?.status).toBe("skip");
-    expect(check?.message).toContain("/home/u/.config/repo/deepinfra.key");
+    expect(check?.message).toContain("/home/user/.config/repo/deepinfra.key");
   });
 
   test("passes with mode 600", () => {
@@ -2202,7 +2202,7 @@ describe("deepinfra-key check (step 16)", () => {
     const check = byName(results(makeDeps({}, { fileMode: () => 0o644 }), SLOW_CHECKS), "deepinfra-key");
     expect(check?.status).toBe("warn");
     expect(check?.message).toContain("mode 644");
-    expect(check?.fix).toBe("chmod 600 /home/u/.config/repo/deepinfra.key");
+    expect(check?.fix).toBe("chmod 600 /home/user/.config/repo/deepinfra.key");
   });
 
   test("only looks at the mode, never at the content", () => {
@@ -2219,7 +2219,7 @@ describe("deepinfra-key check (step 16)", () => {
   });
 
   test("makeDoctorDeps puts the key file into the config folder of the project", () => {
-    const deps = makeDoctorDeps({ XDG_CONFIG_HOME: "/cfg", HOME: "/home/u" }, "/work/myproj");
+    const deps = makeDoctorDeps({ XDG_CONFIG_HOME: "/cfg", HOME: "/home/user" }, "/work/myproj");
     expect(deps.deepinfraKeyFile).toBe("/cfg/myproj/deepinfra.key");
   });
 });
@@ -2289,7 +2289,7 @@ describe("the agent-copies fix", () => {
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     let code: number;
     try {
-      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -2302,7 +2302,7 @@ describe("the agent-copies fix", () => {
   test("doctor --renovate passes force, so the file is rewritten", async () => {
     const deps = makeDeps({
       files: map({
-        "/home/u/dv/meta/agents/AGENTS.md": { content: "# rules" },
+        "/home/user/src/meta/agents/AGENTS.md": { content: "# rules" },
         "/repo/.opencode/agents/coder.md": { content: FULL_AGENT },
       }),
     });
@@ -2310,7 +2310,7 @@ describe("the agent-copies fix", () => {
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     let code: number;
     try {
-      code = await doctor({ renovate: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ renovate: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -2359,7 +2359,7 @@ describe("the opencode-version fix", () => {
   });
 
   test("the global pin is reported, not changed", () => {
-    const globalFile = "/home/u/.config/mise/config.toml";
+    const globalFile = "/home/user/.config/mise/config.toml";
     const { deps, calls } = fixDeps({ [globalFile]: '[tools]\nopencode = "latest"\n' });
     const outcome = opencodeVersionFix(deps, {} as CheckResult, { force: false });
     expect(outcome.ok).toBe(false);
@@ -2391,7 +2391,7 @@ describe("the opencode-version fix", () => {
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     let code: number;
     try {
-      code = await doctor({ fix: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ fix: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -2431,7 +2431,7 @@ describe("the per-file git precondition", () => {
     const deps = makeDeps(
       {
         files: map({
-          "/home/u/dv/meta/agents/AGENTS.md": { content: "# rules" },
+          "/home/user/src/meta/agents/AGENTS.md": { content: "# rules" },
           "/repo/.opencode/agents/coder.md": { content: FULL_AGENT },
           "/repo/.opencode/agents/researcher.md": { content: FULL_AGENT },
         }),
@@ -2441,7 +2441,7 @@ describe("the per-file git precondition", () => {
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     try {
-      await doctor({ renovate: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      await doctor({ renovate: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -2500,7 +2500,7 @@ describe("the per-file git precondition", () => {
     const deps = makeDeps(
       {
         files: map({
-          "/home/u/dv/meta/agents/AGENTS.md": { content: "# rules" },
+          "/home/user/src/meta/agents/AGENTS.md": { content: "# rules" },
           "/repo/.opencode/agents/coder.md": { content: FULL_AGENT },
           "/repo/.claude/settings.local.json": { content: "{}" },
         }),
@@ -2511,7 +2511,7 @@ describe("the per-file git precondition", () => {
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     let code: number;
     try {
-      code = await doctor({ renovate: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ renovate: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -2522,7 +2522,7 @@ describe("the per-file git precondition", () => {
 });
 
 describe("doctor --renovate keeps the guards", () => {
-  const MOUNTS = requiredSandboxMounts("/repo", PLUGIN_DIR, "/home/u/.local/share/mise/installs", "/home/u/dv/meta/agents").join(", ");
+  const MOUNTS = requiredSandboxMounts("/repo", PLUGIN_DIR, "/home/user/.local/share/mise/installs", "/home/user/src/meta/agents").join(", ");
   const LS_MISSING = `NAME STATUS WORKSPACE\noc-sub-repo running /repo\n`;
   const SANDBOX_SERVER: RunningServer = {
     mode: "sandbox",
@@ -2555,7 +2555,7 @@ describe("doctor --renovate keeps the guards", () => {
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     let code: number;
     try {
-      code = await doctor({ renovate: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ renovate: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
     }
@@ -2568,8 +2568,8 @@ describe("doctor --renovate keeps the guards", () => {
 
 describe("doctor --renovate --json keeps stdout pure JSON", () => {
   test("the whole stdout parses as one object", async () => {
-    const sharedFile = "/home/u/dv/meta/agents/AGENTS.md";
-    const codexMd = "/home/u/.codex/AGENTS.md";
+    const sharedFile = "/home/user/src/meta/agents/AGENTS.md";
+    const codexMd = "/home/user/.codex/AGENTS.md";
     const deps = makeDeps({
       files: map({ [sharedFile]: { content: "# rules" }, [codexMd]: { content: "# rules" } }),
     });
@@ -2579,7 +2579,7 @@ describe("doctor --renovate --json keeps stdout pure JSON", () => {
     const errorSpy = spyOn(console, "error").mockImplementation((line) => errors.push(String(line)));
     let code: number;
     try {
-      code = await doctor({ renovate: true, json: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      code = await doctor({ renovate: true, json: true }, { HOME: "/home/user" } as Record<string, string>, deps);
     } finally {
       logSpy.mockRestore();
       errorSpy.mockRestore();
@@ -2799,7 +2799,7 @@ describe("the process checks (step 30)", () => {
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
     try {
-      const code = await doctor({ fixAsRoot: true, force: true }, { HOME: "/home/u" } as Record<string, string>, deps);
+      const code = await doctor({ fixAsRoot: true, force: true }, { HOME: "/home/user" } as Record<string, string>, deps);
       expect(code).toBe(0);
     } finally {
       logSpy.mockRestore();
@@ -2824,7 +2824,7 @@ describe("watch-running", () => {
     const check = watchRunningCheck(makeDeps({}, { watchLock: () => ({ state: "none" }) }));
     expect(check.status).toBe("warn");
     expect(check.message).toBe(
-      "no idfx watch --all runs: no lock /home/u/.local/state/idfx/events.lock; the supervisor gets no wake-up",
+      "no idfx watch --all runs: no lock /home/user/.local/state/idfx/events.lock; the supervisor gets no wake-up",
     );
     expect(check.fix).toBe(WATCH_SERVICE_FIX);
     expect(check.fix).toContain("systemctl --user enable --now idfx-watch.service");

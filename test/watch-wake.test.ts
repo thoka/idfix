@@ -22,7 +22,7 @@ function edge(
     lastTransitionMs: 0,
     session: `${subject}-id`,
     subject,
-    cwd: `/home/u/dv/${subject}`,
+    cwd: `/home/user/src/${subject}`,
     kind: "interactive",
     severity: WARN,
   };
@@ -44,12 +44,12 @@ describe("noticeText", () => {
   test("names the count, the first three edges, and the log", () => {
     const edges = [
       edge("meta", "SessionWaitsForUser", "True", "input_required", "permission dialog: Bash permission, waits for the user since 12 min"),
-      edge("grata", "ApiError", "True", "UsageLimit", "API Error: usage limit"),
+      edge("proj-a", "ApiError", "True", "UsageLimit", "API Error: usage limit"),
       edge("c"),
       edge("d"),
     ];
     expect(noticeText(edges, LOG)).toBe(
-      `idfx watch: 4 events: meta waits for user (permission dialog: Bash permission), grata API error (UsageLimit), c waits for user (input needed), and 1 more. Log: ${LOG}`,
+      `idfx watch: 4 events: meta waits for user (permission dialog: Bash permission), proj-a API error (UsageLimit), c waits for user (input needed), and 1 more. Log: ${LOG}`,
     );
     expect(noticeText([edge("meta")], LOG)).toBe(`idfx watch: 1 event: meta waits for user (input needed). Log: ${LOG}`);
   });

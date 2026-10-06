@@ -65,7 +65,7 @@ describe("progName", () => {
 
   test("takes the base name of IDFX_PROG", () => {
     expect(progName({ IDFX_PROG: "idfx" })).toBe("idfx");
-    expect(progName({ IDFX_PROG: "/home/u/.local/bin/idfix" })).toBe("idfix");
+    expect(progName({ IDFX_PROG: "/home/user/.local/bin/idfix" })).toBe("idfix");
   });
 
   test("helpText and helpExitHint default to oc-sub", () => {

@@ -171,8 +171,8 @@ describe("parseWorktreeList", () => {
   });
 
   test("keeps a path with a space whole", () => {
-    expect(parseWorktreeList("worktree /home/u/my repo/.worktrees/wt one\n")).toEqual([
-      "/home/u/my repo/.worktrees/wt one",
+    expect(parseWorktreeList("worktree /home/user/my repo/.worktrees/wt one\n")).toEqual([
+      "/home/user/my repo/.worktrees/wt one",
     ]);
   });
 
@@ -952,7 +952,7 @@ describe("Claude sessions in status", () => {
   }
 
   test("without --all, only the sessions inside the project folder show, also without an opencode server", async () => {
-    const { code, lines } = await run({ dir: "/home/u/dv/proj", all: false, down: true });
+    const { code, lines } = await run({ dir: "/home/user/src/proj", all: false, down: true });
     expect(code).toBe(0);
     expect(lines).toEqual([
       "no server on http://127.0.0.1:9",
@@ -965,10 +965,10 @@ describe("Claude sessions in status", () => {
   test("--all shows every session with its absolute folder", async () => {
     const { lines } = await run({ all: true });
     expect(lines).toEqual([
-      `${S1} waiting fixture-title (/home/u/dv/proj)`,
-      `${S5} waiting blocked-job (/home/u/dv/other)`,
-      `${S2} busy bg-worker (/home/u/dv/proj/.worktrees/w2)`,
-      `${S7} ended proj (/home/u/dv/proj)`,
+      `${S1} waiting fixture-title (/home/user/src/proj)`,
+      `${S5} waiting blocked-job (/home/user/src/other)`,
+      `${S2} busy bg-worker (/home/user/src/proj/.worktrees/w2)`,
+      `${S7} ended proj (/home/user/src/proj)`,
     ]);
   });
 
@@ -981,7 +981,7 @@ describe("Claude sessions in status", () => {
       id: S1,
       state: "waiting",
       title: "fixture-title",
-      folder: "/home/u/dv/proj",
+      folder: "/home/user/src/proj",
       project: "proj",
       driver: "claude",
       name: "proj",
@@ -1090,7 +1090,7 @@ describe("Claude sessions in status", () => {
             lastTransitionMs: since,
             session: S5,
             subject: "blocked-job",
-            cwd: "/home/u/dv/other",
+            cwd: "/home/user/src/other",
             kind: "background",
             severity: TRUE_SEVERITY.SessionWaitsForUser,
           },
@@ -1106,7 +1106,7 @@ describe("Claude sessions in status", () => {
             lastTransitionMs: since,
             session: S7,
             subject: "77777777",
-            cwd: "/home/u/dv/proj",
+            cwd: "/home/user/src/proj",
             kind: "interactive",
             severity: TRUE_SEVERITY.HandoverFailed,
           },
@@ -1125,7 +1125,7 @@ describe("Claude sessions in status", () => {
     });
 
     test("without --all, the conditions cover only the sessions of the project", async () => {
-      const { lines } = await snapshot({ dir: "/home/u/dv/proj", all: false });
+      const { lines } = await snapshot({ dir: "/home/user/src/proj", all: false });
       const out = parseJsonStdout(lines) as { conditions: Array<{ session: string }>; items: Array<{ id: string }> };
       expect(out.items.map((item) => item.id)).toEqual([S1, S2, S7]);
       // S2 has two conditions: SessionStalled and SessionUnnamed (its name breaks the naming rule).

@@ -106,7 +106,7 @@ describe("restartServer", () => {
     const { deps, calls } = fakeDeps({
       sandboxMissingMounts: (name, root) => {
         seen.push(`${name} ${root}`);
-        return ["/home/u/.local/share/oc-sub/opencode:ro"];
+        return ["/home/user/.local/share/oc-sub/opencode:ro"];
       },
       probe: async () => {
         calls.push("probe");
@@ -115,7 +115,7 @@ describe("restartServer", () => {
     });
     const outcome = await restartServer(sandbox, makeEnv(), deps);
     expect(outcome.ok).toBe(false);
-    expect(outcome.note).toContain("lacks the mounts /home/u/.local/share/oc-sub/opencode:ro");
+    expect(outcome.note).toContain("lacks the mounts /home/user/.local/share/oc-sub/opencode:ro");
     expect(outcome.note).toContain("recreate first (step 15d)");
     expect(outcome.note).toContain("sbx rm --force oc-sub-repo");
     expect(seen).toEqual(["oc-sub-repo /repo"]);

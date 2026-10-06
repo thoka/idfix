@@ -6,12 +6,12 @@ import { addDir, parseDirs, readDirs, readPid, serveDirsPath, servePidPath, stat
 
 describe("stateDir", () => {
   test("uses XDG_STATE_HOME when it is an absolute path", () => {
-    expect(stateDir({ XDG_STATE_HOME: "/s" }, "/home/u")).toBe("/s/oc-sub");
+    expect(stateDir({ XDG_STATE_HOME: "/s" }, "/home/user")).toBe("/s/oc-sub");
   });
 
   test("falls back to ~/.local/state for a missing or relative XDG_STATE_HOME", () => {
-    expect(stateDir({}, "/home/u")).toBe("/home/u/.local/state/oc-sub");
-    expect(stateDir({ XDG_STATE_HOME: "rel" }, "/home/u")).toBe("/home/u/.local/state/oc-sub");
+    expect(stateDir({}, "/home/user")).toBe("/home/user/.local/state/oc-sub");
+    expect(stateDir({ XDG_STATE_HOME: "rel" }, "/home/user")).toBe("/home/user/.local/state/oc-sub");
   });
 
   test("names the files by port", () => {

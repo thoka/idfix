@@ -282,10 +282,10 @@ describe("projectNameOf", () => {
 
   test("uses the folder that holds the main repository", () => {
     const spy = spyOn(Bun, "spawnSync").mockImplementation(
-      (() => spawnResult(0, "/home/u/dv/proj/.git\n")) as unknown as typeof Bun.spawnSync,
+      (() => spawnResult(0, "/home/user/src/proj/.git\n")) as unknown as typeof Bun.spawnSync,
     );
     try {
-      expect(projectNameOf("/home/u/dv/proj/.worktrees/step")).toBe("proj");
+      expect(projectNameOf("/home/user/src/proj/.worktrees/step")).toBe("proj");
     } finally {
       spy.mockRestore();
     }
@@ -296,7 +296,7 @@ describe("projectNameOf", () => {
       (() => spawnResult(128, "")) as unknown as typeof Bun.spawnSync,
     );
     try {
-      expect(projectNameOf("/home/u/dv/other/repo-x")).toBe("repo-x");
+      expect(projectNameOf("/home/user/src/other/repo-x")).toBe("repo-x");
     } finally {
       spy.mockRestore();
     }

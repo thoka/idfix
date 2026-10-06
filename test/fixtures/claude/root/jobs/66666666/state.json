@@ -1,1 +1,1 @@
-{"state":"done","createdAt":"2026-10-06T07:00:00.000Z","updatedAt":"2026-10-06T08:00:00.000Z","detail":"finished","intent":"FAKE INTENT TEXT","sessionId":"66666666-0000-4000-8000-000000000006","cwd":"/home/u/dv/proj","name":"done-job","worktreePath":null}
+{"state":"done","createdAt":"2026-10-06T07:00:00.000Z","updatedAt":"2026-10-06T08:00:00.000Z","detail":"finished","intent":"FAKE INTENT TEXT","sessionId":"66666666-0000-4000-8000-000000000006","cwd":"/home/user/src/proj","name":"done-job","worktreePath":null}

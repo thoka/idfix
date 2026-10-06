@@ -102,7 +102,7 @@ describe("runWatchAll --once over the Claude fixture", () => {
       data: { sessions: 4, open: events.length - 1 },
     });
     expect(events.map((event) => event.id)).toEqual(events.map((_, i) => String(i + 1)));
-    expect(events.find((event) => event.data.session === S1)?.data.cwd).toBe("/home/u/dv/proj");
+    expect(events.find((event) => event.data.session === S1)?.data.cwd).toBe("/home/user/src/proj");
     expect(events.some((event) => event.data.session === S5)).toBe(true);
     expect(h.sleeps).toEqual([]);
     expect(h.err).toEqual([]);
@@ -209,7 +209,7 @@ describe("the lock and the loop", () => {
       clock: () => now,
       loadRows: async () => {
         polls += 1;
-        return [claudeRowOf(S1, { name: "proj", directory: "/home/u/dv/proj", state, pid: 1, transcriptGrowthMs: now, lastActivityMs: now })];
+        return [claudeRowOf(S1, { name: "proj", directory: "/home/user/src/proj", state, pid: 1, transcriptGrowthMs: now, lastActivityMs: now })];
       },
       check: () => ({ code: 1, firstLine: "handover: not pushed" }),
       signal: controller.signal,
@@ -220,7 +220,7 @@ describe("the lock and the loop", () => {
       },
     });
     await runWatchAll({ json: true, once: false }, h.deps);
-    expect(h.checks).toEqual(["/home/u/dv/proj"]);
+    expect(h.checks).toEqual(["/home/user/src/proj"]);
     const failed = h.out.map((line) => JSON.parse(line)).filter((event) => event.data.condition === "HandoverFailed");
     expect(failed.map((event) => [event.data.status, event.data.message, event.severitytext])).toEqual([
       ["True", "handover: not pushed", "WARN"],
@@ -250,7 +250,7 @@ describe("SessionHandedOff in the loop", () => {
       loadRows: async () => {
         const state = states[polls] ?? "idle";
         polls += 1;
-        return [claudeRowOf(S1, { name: "proj", directory: "/home/u/dv/proj", state, pid: 1, transcriptGrowthMs: now, lastActivityMs: now })];
+        return [claudeRowOf(S1, { name: "proj", directory: "/home/user/src/proj", state, pid: 1, transcriptGrowthMs: now, lastActivityMs: now })];
       },
       planCommit,
       signal: controller.signal,
@@ -273,7 +273,7 @@ describe("SessionHandedOff in the loop", () => {
       return d;
     })();
     const h = await loop(dir, NOW + MINUTE, ["busy", "idle", "idle", "busy", "idle"], () => HASH_A);
-    expect(h.checks).toEqual(["/home/u/dv/proj", "/home/u/dv/proj"]);
+    expect(h.checks).toEqual(["/home/user/src/proj", "/home/user/src/proj"]);
     const events = handedOff(h);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
@@ -350,7 +350,7 @@ describe("the wake-up of the supervisor", () => {
     let now = AT;
     let polls = 0;
     const waiting = (id: string, name: string) =>
-      claudeRowOf(id, { name, directory: `/home/u/dv/${name}`, state: "waiting", pid: 1, stateSinceMs: AT - 20 * MINUTE, waitingFor: "input needed" });
+      claudeRowOf(id, { name, directory: `/home/user/src/${name}`, state: "waiting", pid: 1, stateSinceMs: AT - 20 * MINUTE, waitingFor: "input needed" });
     const h = harness({
       stateDir: dir,
       clock: () => now,
@@ -388,12 +388,12 @@ describe("the wake-up of the supervisor", () => {
 describe("toWatchRow", () => {
   test("it fills project from the folder of the row", () => {
     const seen: string[] = [];
-    const row = claudeRowOf(S1, { name: "idfix-36", directory: "/home/u/dv/idfix/.worktrees/36-worker-names", pid: 1 });
+    const row = claudeRowOf(S1, { name: "idfix-36", directory: "/home/user/src/idfix/.worktrees/36-worker-names", pid: 1 });
     const watchRow = toWatchRow(row, (directory) => {
       seen.push(directory);
       return "idfix";
     });
-    expect(seen).toEqual(["/home/u/dv/idfix/.worktrees/36-worker-names"]);
+    expect(seen).toEqual(["/home/user/src/idfix/.worktrees/36-worker-names"]);
     expect(watchRow).toMatchObject({ project: "idfix", name: "idfix-36", live: true });
   });
 
@@ -412,13 +412,13 @@ describe("humanLine", () => {
         source: "//h/idfx",
         type: "dv.idfx.session.context-high",
         time: "2026-10-06T10:00:00.000Z",
-        subject: "grata",
+        subject: "proj-a",
         sequence: "00000000000000000001",
         severitytext: "WARN",
         severitynumber: 13,
         data: { condition: "ContextHigh", status: "True", reason: "OverHalfWindow", message: "context 54% of 200000 tokens" },
       }),
-    ).toBe("2026-10-06T10:00:00.000Z WARN grata ContextHigh=True (OverHalfWindow) - context 54% of 200000 tokens");
+    ).toBe("2026-10-06T10:00:00.000Z WARN proj-a ContextHigh=True (OverHalfWindow) - context 54% of 200000 tokens");
   });
 });
 

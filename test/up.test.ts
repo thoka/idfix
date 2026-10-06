@@ -7,9 +7,9 @@ const PLUGIN_DIR = path.resolve(import.meta.dir, "..");
 
 describe("serveEnv", () => {
   test("sets OPENCODE_CONFIG_DIR to the plugin config directory", () => {
-    const { env, warnings } = serveEnv({ HOME: "/home/u" }, `${PLUGIN_DIR}/opencode`);
+    const { env, warnings } = serveEnv({ HOME: "/home/user" }, `${PLUGIN_DIR}/opencode`);
     expect(env.OPENCODE_CONFIG_DIR).toBe(`${PLUGIN_DIR}/opencode`);
-    expect(env.HOME).toBe("/home/u");
+    expect(env.HOME).toBe("/home/user");
     expect(warnings).toEqual([]);
   });
 
@@ -35,16 +35,16 @@ describe("serveEnv", () => {
   });
 
   test("the input object stays unchanged", () => {
-    const input: Record<string, string | undefined> = { OPENCODE_CONFIG_DIR: "relative/opencode", HOME: "/home/u" };
+    const input: Record<string, string | undefined> = { OPENCODE_CONFIG_DIR: "relative/opencode", HOME: "/home/user" };
     serveEnv(input, `${PLUGIN_DIR}/opencode`);
     expect(input.OPENCODE_CONFIG_DIR).toBe("relative/opencode");
-    expect(input.HOME).toBe("/home/u");
+    expect(input.HOME).toBe("/home/user");
     expect(input.OPENCODE_CONFIG_CONTENT).toBeUndefined();
     expect(Object.keys(input)).toHaveLength(2);
   });
 
   test("sets OPENCODE_ENABLE_EXA to 1 for the websearch of the researcher", () => {
-    const { env } = serveEnv({ HOME: "/home/u" }, `${PLUGIN_DIR}/opencode`);
+    const { env } = serveEnv({ HOME: "/home/user" }, `${PLUGIN_DIR}/opencode`);
     expect(env.OPENCODE_ENABLE_EXA).toBe("1");
   });
 
@@ -59,7 +59,7 @@ describe("serveEnv", () => {
   });
 
   test("sets OPENCODE_CONFIG_CONTENT with the shared rules and skills", () => {
-    const { env, warnings } = serveEnv({ HOME: "/home/u" }, `${PLUGIN_DIR}/opencode`, "/srv/agents");
+    const { env, warnings } = serveEnv({ HOME: "/home/user" }, `${PLUGIN_DIR}/opencode`, "/srv/agents");
     expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT as string)).toEqual({
       instructions: ["/srv/agents/AGENTS.md"],
       skills: { paths: ["/srv/agents/skills"] },
@@ -69,7 +69,7 @@ describe("serveEnv", () => {
 
   test("an existing OPENCODE_CONFIG_CONTENT stays and gives a warning", () => {
     const { env, warnings } = serveEnv(
-      { HOME: "/home/u", OPENCODE_CONFIG_CONTENT: '{"agent":{}}' },
+      { HOME: "/home/user", OPENCODE_CONFIG_CONTENT: '{"agent":{}}' },
       `${PLUGIN_DIR}/opencode`,
       "/srv/agents",
     );
@@ -81,7 +81,7 @@ describe("serveEnv", () => {
 
   test("an empty OPENCODE_CONFIG_CONTENT counts as unset", () => {
     const { env, warnings } = serveEnv(
-      { HOME: "/home/u", OPENCODE_CONFIG_CONTENT: " " },
+      { HOME: "/home/user", OPENCODE_CONFIG_CONTENT: " " },
       `${PLUGIN_DIR}/opencode`,
       "/srv/agents",
     );

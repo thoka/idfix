@@ -21,11 +21,11 @@ import { FIXTURE_ROOT, fixtureFs, S1, S2, S7, statLine } from "./claude-fixture"
 describe("paths", () => {
   test("the root is $CLAUDE_CONFIG_DIR, else ~/.claude", () => {
     expect(claudeRoot({ CLAUDE_CONFIG_DIR: "/c" })).toBe("/c");
-    expect(claudeRoot({ HOME: "/home/u" })).toBe("/home/u/.claude");
+    expect(claudeRoot({ HOME: "/home/user" })).toBe("/home/user/.claude");
   });
 
   test("the transcript folder replaces each character that is not a letter or a digit", () => {
-    expect(projectDirName("/home/u/dv/arch-helper/.claude/worktrees/x")).toBe("-home-u-dv-arch-helper--claude-worktrees-x");
+    expect(projectDirName("/home/user/src/proj-a/.claude/worktrees/x")).toBe("-home-user-src-proj-a--claude-worktrees-x");
   });
 });
 
@@ -134,19 +134,19 @@ describe("job states", () => {
 describe("transcripts", () => {
   test("listTranscripts finds the top-level transcripts by session ID", () => {
     const transcripts = listTranscripts(FIXTURE_ROOT, fixtureFs());
-    expect(transcripts.get(S1)?.file).toBe(path.join(FIXTURE_ROOT, "projects", "-home-u-dv-proj", `${S1}.jsonl`));
-    expect(transcripts.get(S2)?.file).toContain("-home-u-dv-proj--worktrees-w2");
+    expect(transcripts.get(S1)?.file).toBe(path.join(FIXTURE_ROOT, "projects", "-home-user-src-proj", `${S1}.jsonl`));
+    expect(transcripts.get(S2)?.file).toContain("-home-user-src-proj--worktrees-w2");
     expect(transcripts.has(S7)).toBe(true);
     // The subagent transcripts are not top-level sessions.
     expect([...transcripts.keys()].some((id) => id.startsWith("agent-"))).toBe(false);
   });
 
   test("listSubagents reads the agent type and the description of the meta file", () => {
-    const transcript = path.join(FIXTURE_ROOT, "projects", "-home-u-dv-proj", `${S1}.jsonl`);
+    const transcript = path.join(FIXTURE_ROOT, "projects", "-home-user-src-proj", `${S1}.jsonl`);
     expect(listSubagents(transcript, fixtureFs())).toEqual([
       {
         agentId: "a1",
-        file: path.join(FIXTURE_ROOT, "projects", "-home-u-dv-proj", S1, "subagents", "agent-a1.jsonl"),
+        file: path.join(FIXTURE_ROOT, "projects", "-home-user-src-proj", S1, "subagents", "agent-a1.jsonl"),
         agentType: "Explore",
         description: "Find files",
       },

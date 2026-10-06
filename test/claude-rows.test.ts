@@ -56,7 +56,7 @@ describe("which sessions show", () => {
 
   test("a blocked job without a process waits, whatever its age, and names what it needs", async () => {
     const row = (await rowsAt(NOW)).find((r) => r.sessionId === S5);
-    expect(row).toMatchObject({ state: "waiting", waitingFor: "approve the push", kind: "background", directory: "/home/u/dv/other" });
+    expect(row).toMatchObject({ state: "waiting", waitingFor: "approve the push", kind: "background", directory: "/home/user/src/other" });
   });
 
   test("a dead pid and a reused pid do not show", async () => {
@@ -89,7 +89,7 @@ describe("the row of a session", () => {
       kind: "interactive",
       title: "fixture-title",
       name: "proj",
-      directory: "/home/u/dv/proj",
+      directory: "/home/user/src/proj",
       agent: "",
       server: "",
       state: "waiting",
@@ -147,7 +147,7 @@ describe("the row of a session", () => {
 
   test("a background session in a worktree takes the folder of its session file", async () => {
     const row = (await rowsAt(NOW)).find((r) => r.sessionId === S2);
-    expect(row).toMatchObject({ kind: "background", jobId: "22222222", directory: "/home/u/dv/proj/.worktrees/w2", contextTokens: 5003 });
+    expect(row).toMatchObject({ kind: "background", jobId: "22222222", directory: "/home/user/src/proj/.worktrees/w2", contextTokens: 5003 });
   });
 
   test("a model without a price has no cost and no window, not a zero price", async () => {
@@ -175,7 +175,7 @@ describe("incremental polls", () => {
     const source = createClaudeSource(root, fixtureFs());
     const first = source.sessions(NOW).find((s) => s.sessionId === S1);
     expect(first?.summary?.steps).toBe(2);
-    const transcript = path.join(root, "projects", "-home-u-dv-proj", `${S1}.jsonl`);
+    const transcript = path.join(root, "projects", "-home-user-src-proj", `${S1}.jsonl`);
     appendFileSync(
       transcript,
       `${JSON.stringify({
@@ -194,10 +194,10 @@ describe("incremental polls", () => {
 
 describe("helpers", () => {
   test("inScope accepts the folder itself and folders inside it, not a sibling with the same prefix", () => {
-    expect(inScope("/home/u/dv/proj", ["/home/u/dv/proj"])).toBe(true);
-    expect(inScope("/home/u/dv/proj/.worktrees/w2", ["/home/u/dv/proj"])).toBe(true);
-    expect(inScope("/home/u/dv/project2", ["/home/u/dv/proj"])).toBe(false);
-    expect(inScope("/home/u/dv", ["/home/u/dv/proj"])).toBe(false);
+    expect(inScope("/home/user/src/proj", ["/home/user/src/proj"])).toBe(true);
+    expect(inScope("/home/user/src/proj/.worktrees/w2", ["/home/user/src/proj"])).toBe(true);
+    expect(inScope("/home/user/src/project2", ["/home/user/src/proj"])).toBe(false);
+    expect(inScope("/home/user/src", ["/home/user/src/proj"])).toBe(false);
   });
 
   test("the title is the custom title, the AI title, the name, then the first 60 characters of the folder name", () => {

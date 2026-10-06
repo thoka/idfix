@@ -30,7 +30,7 @@ function row(overrides: Partial<WatchRow> = {}): WatchRow {
   return {
     sessionId: ID,
     name: "meta",
-    directory: "/home/u/dv/meta",
+    directory: "/home/user/src/meta",
     project: "meta",
     kind: "interactive",
     state: "idle",
@@ -87,7 +87,7 @@ describe("SessionWaitsForUser", () => {
       severity: { text: "WARN", number: 13 },
       subject: "meta",
       session: ID,
-      cwd: "/home/u/dv/meta",
+      cwd: "/home/user/src/meta",
       message: "permission dialog: Bash permission, waits for the user since 10 min",
     });
     expect(edges[2]).toEqual([]);
@@ -205,7 +205,7 @@ describe("HandoverFailed", () => {
       ],
       { check },
     );
-    expect(calls).toEqual(["/home/u/dv/meta"]);
+    expect(calls).toEqual(["/home/user/src/meta"]);
     expect(summary(edges[1] ?? [])).toEqual([["HandoverFailed", "True", "HandoverCheckFailed"]]);
     expect(edges[1]?.[0]?.message).toBe("handover: not pushed");
     expect(edges[2]).toEqual([]);
@@ -328,7 +328,7 @@ describe("SessionUnnamed", () => {
   });
 
   test("the name supervisor is valid in every folder", () => {
-    const { edges } = polls([{ atMs: T0, rows: [row({ name: "supervisor", directory: "/home/u/dv", project: "dv" })] }]);
+    const { edges } = polls([{ atMs: T0, rows: [row({ name: "supervisor", directory: "/home/user/src", project: "src" })] }]);
     expect(only(edges[0] ?? [], "SessionUnnamed")).toEqual([]);
     expect(nameFollowsRule("supervisor", "idfix")).toBe(true);
   });
@@ -368,7 +368,7 @@ describe("SessionUnnamed", () => {
     expect(nameFollowsRule("idfix-36", "idfix")).toBe(true);
     expect(nameFollowsRule("idfix-", "idfix")).toBe(false);
     expect(nameFollowsRule("idfix36", "idfix")).toBe(false);
-    expect(nameFollowsRule("pac-review", "podcast-autocutter")).toBe(false);
+    expect(nameFollowsRule("proj-b", "proj-a")).toBe(false);
     expect(nameFollowsRule("", "idfix")).toBe(false);
     expect(REASON_NO_NAME).toBe("NoName");
   });
@@ -417,8 +417,8 @@ describe("SessionHandedOff", () => {
       { atMs: T0 + 2 * MIN, rows: [idle(T0 + 2 * MIN)] },
       { atMs: T0 + 3 * MIN, rows: [idle(T0 + 2 * MIN)] },
     ]);
-    expect(checks).toEqual(["/home/u/dv/meta"]);
-    expect(reads).toEqual(["/home/u/dv/meta"]);
+    expect(checks).toEqual(["/home/user/src/meta"]);
+    expect(reads).toEqual(["/home/user/src/meta"]);
     expect(summary(edges[1] ?? [])).toEqual([["SessionHandedOff", "True", "HandoverCheckPassed"]]);
     expect(edges[1]?.[0]).toMatchObject({
       severity: { text: "INFO", number: 9 },
@@ -536,7 +536,7 @@ describe("SessionHandedOff", () => {
       lastTransitionMs: T0 - 10 * MIN,
       session: ID,
       subject: "meta",
-      cwd: "/home/u/dv/meta",
+      cwd: "/home/user/src/meta",
       kind: "interactive",
       planCommit: HASH_A,
     };
@@ -570,7 +570,7 @@ describe("restart and disappearance", () => {
           lastTransitionMs: T0 - 10 * MIN,
           session: ID,
           subject: "meta",
-          cwd: "/home/u/dv/meta",
+          cwd: "/home/user/src/meta",
           kind: "interactive",
         },
       ],

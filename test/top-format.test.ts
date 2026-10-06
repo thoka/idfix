@@ -82,8 +82,8 @@ describe("formatTopTable", () => {
 
   test("shows the CODE, the worktree, and the project only with showProject", () => {
     const rows = [
-      row({ sessionId: "ses_abcdef123456", directory: "/home/u/dv/idfix/.worktrees/8d" }),
-      row({ sessionId: "ses_zzzzzz654321", directory: "/home/u/dv/idfix" }),
+      row({ sessionId: "ses_abcdef123456", directory: "/home/user/src/idfix/.worktrees/8d" }),
+      row({ sessionId: "ses_zzzzzz654321", directory: "/home/user/src/idfix" }),
     ];
     const hidden = formatTopTable(rows, NOW, { color: true });
     expect(hidden[0]?.startsWith("  id     where")).toBe(true);

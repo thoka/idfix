@@ -34,7 +34,7 @@ const STATE: SandboxState = { name: NAME, root: ROOT, port: 18768 };
 
 /** The version and bin folder that the faked host mise reports (step 12). */
 const MISE_VERSION = "2026.10.1";
-const MISE_BIN_DIR = "/home/u/.local/share/mise/installs/aqua-jdx-mise/2026.10.1/mise/bin";
+const MISE_BIN_DIR = "/home/user/.local/share/mise/installs/aqua-jdx-mise/2026.10.1/mise/bin";
 
 /**
  * The answers of the host mise that give `worktree` a sandbox mise: a
@@ -367,11 +367,11 @@ describe("worktree", () => {
       if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
       // A faked `mise env --json` with one tool folder inside the installs dir.
       if (cmd[0] === "mise" && cmd[1] === "env") {
-        return { stdout: JSON.stringify({ PATH: "/home/u/.local/share/mise/installs/bun/bin:/usr/bin" }) };
+        return { stdout: JSON.stringify({ PATH: "/home/user/.local/share/mise/installs/bun/bin:/usr/bin" }) };
       }
       return miseAnswer(cmd) ?? {};
     });
-    const code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+    const code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/user" } as never, {
       ...deps,
       runner,
       setupCommand: (root) => (root === ROOT ? "bun install --frozen-lockfile" : undefined),
@@ -387,14 +387,14 @@ describe("worktree", () => {
     // The exact setup command: the tool path first, then the bin folder of
     // the sandbox mise, then the mise variables, and `mise install` before
     // the setup command in the same `sh -c`.
-    const installsDir = "/home/u/.local/share/mise/installs";
+    const installsDir = "/home/user/.local/share/mise/installs";
     expect(calls[setupIndex]!.cmd).toEqual([
       "sbx",
       "exec",
       "-w",
       runWorktreePath(ROOT, "14b"),
       "-e",
-      `PATH=/home/u/.local/share/mise/installs/bun/bin:${MISE_BIN_DIR}:/home/agent/.local/bin:/usr/local/share/npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+      `PATH=/home/user/.local/share/mise/installs/bun/bin:${MISE_BIN_DIR}:/home/agent/.local/bin:/usr/local/share/npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
       "-e",
       `MISE_SHARED_INSTALL_DIRS=${installsDir}`,
       "-e",
@@ -420,7 +420,7 @@ describe("worktree", () => {
       if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
       return miseAnswer(cmd) ?? {};
     });
-    const code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+    const code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/user" } as never, {
       ...deps,
       runner,
       setupCommand: () => undefined,
@@ -437,11 +437,11 @@ describe("worktree", () => {
       if (cmd[0] === "sbx" && cmd[3] === "test") return { exitCode: 1 };
       // `mise env` answers, `mise --version` does not: no sandbox mise.
       if (cmd[0] === "mise" && cmd[1] === "env") {
-        return { stdout: JSON.stringify({ PATH: "/home/u/.local/share/mise/installs/bun/bin" }) };
+        return { stdout: JSON.stringify({ PATH: "/home/user/.local/share/mise/installs/bun/bin" }) };
       }
       return {};
     });
-    const code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+    const code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/user" } as never, {
       ...deps,
       runner,
       setupCommand: () => "bun install",
@@ -455,7 +455,7 @@ describe("worktree", () => {
     // folders of mise and never hurt without a mise on the PATH.
     const envArgs = setup[0]!.filter((arg) => arg.startsWith("MISE_"));
     expect(envArgs).toEqual([
-      "MISE_SHARED_INSTALL_DIRS=/home/u/.local/share/mise/installs",
+      "MISE_SHARED_INSTALL_DIRS=/home/user/.local/share/mise/installs",
       "MISE_TRUSTED_CONFIG_PATHS=/repo",
       "MISE_DATA_DIR=/home/agent/.local/share/mise",
       "MISE_CACHE_DIR=/home/agent/.cache/mise",
@@ -478,7 +478,7 @@ describe("worktree", () => {
     console.error = (line: string) => errors.push(line);
     let code: number;
     try {
-      code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+      code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/user" } as never, {
         ...deps,
         runner,
         setupCommand: () => "bun install",
@@ -542,7 +542,7 @@ describe("worktree", () => {
     console.error = (line: string) => errors.push(line);
     let code: number;
     try {
-      code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/u" } as never, {
+      code = await worktree({ step: "14b" }, { ...deps.env, HOME: "/home/user" } as never, {
         ...deps,
         runner,
         setupCommand: () => "bun install",

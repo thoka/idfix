@@ -5,7 +5,7 @@ import { API_ERROR_TEXT_LENGTH, apiErrorText, createTranscriptReader, summarizeT
 import { FIXTURE_ROOT, S1 } from "./claude-fixture";
 
 const encoder = new TextEncoder();
-const main = readFileSync(path.join(FIXTURE_ROOT, "projects", "-home-u-dv-proj", `${S1}.jsonl`));
+const main = readFileSync(path.join(FIXTURE_ROOT, "projects", "-home-user-src-proj", `${S1}.jsonl`));
 
 describe("summarizeTranscript", () => {
   const summary = summarizeTranscript(main);
@@ -37,7 +37,7 @@ describe("summarizeTranscript", () => {
     expect(summary.customTitle).toBe("fixture-title");
     expect(summary.aiTitle).toBe("Fixture work");
     expect(summary.agentName).toBe("proj");
-    expect(summary.cwd).toBe("/home/u/dv/proj");
+    expect(summary.cwd).toBe("/home/user/src/proj");
     expect(summary.apiErrors).toBe(1);
     expect(summary.lastApiErrorText).toBe("529 overloaded");
     expect(summary.lastApiErrorMs).toBe(Date.parse("2026-10-06T10:01:10.000Z"));

@@ -262,10 +262,10 @@ describe("projectRoot", () => {
 
   test("is the folder of the main repository", () => {
     const spy = spyOn(Bun, "spawnSync").mockImplementation(
-      (() => spawnResult(0, "/home/u/dv/proj/.git\n")) as unknown as typeof Bun.spawnSync,
+      (() => spawnResult(0, "/home/user/src/proj/.git\n")) as unknown as typeof Bun.spawnSync,
     );
     try {
-      expect(projectRoot("/home/u/dv/proj/.worktrees/step")).toBe("/home/u/dv/proj");
+      expect(projectRoot("/home/user/src/proj/.worktrees/step")).toBe("/home/user/src/proj");
     } finally {
       spy.mockRestore();
     }
@@ -276,7 +276,7 @@ describe("projectRoot", () => {
       (() => spawnResult(128, "")) as unknown as typeof Bun.spawnSync,
     );
     try {
-      expect(projectRoot("/home/u/dv/other/repo-x")).toBe("/home/u/dv/other/repo-x");
+      expect(projectRoot("/home/user/src/other/repo-x")).toBe("/home/user/src/other/repo-x");
     } finally {
       spy.mockRestore();
     }
@@ -376,19 +376,19 @@ describe("mise helpers", () => {
   });
 
   test("miseInstallsDir falls back to XDG_DATA_HOME/mise", () => {
-    expect(miseInstallsDir({ XDG_DATA_HOME: "/home/u/.local/data" })).toBe("/home/u/.local/data/mise/installs");
+    expect(miseInstallsDir({ XDG_DATA_HOME: "/home/user/.local/data" })).toBe("/home/user/.local/data/mise/installs");
   });
 
   test("miseInstallsDir falls back to ~/.local/share/mise", () => {
-    expect(miseInstallsDir({ HOME: "/home/u" })).toBe("/home/u/.local/share/mise/installs");
+    expect(miseInstallsDir({ HOME: "/home/user" })).toBe("/home/user/.local/share/mise/installs");
   });
 
   test("projectToolPath keeps only the entries inside the installs folder, in order", () => {
     const json = JSON.stringify({
-      PATH: "/home/u/.local/bin:/home/u/.local/share/mise/installs/bun/1.4.2/bin:/usr/local/bin:/home/u/.local/share/mise/installs/node/22/bin:/home/u/.local/share/mise/installs2/x/bin:/usr/bin",
+      PATH: "/home/user/.local/bin:/home/user/.local/share/mise/installs/bun/1.4.2/bin:/usr/local/bin:/home/user/.local/share/mise/installs/node/22/bin:/home/user/.local/share/mise/installs2/x/bin:/usr/bin",
     });
-    expect(projectToolPath(json, "/home/u/.local/share/mise/installs")).toBe(
-      "/home/u/.local/share/mise/installs/bun/1.4.2/bin:/home/u/.local/share/mise/installs/node/22/bin",
+    expect(projectToolPath(json, "/home/user/.local/share/mise/installs")).toBe(
+      "/home/user/.local/share/mise/installs/bun/1.4.2/bin:/home/user/.local/share/mise/installs/node/22/bin",
     );
   });
 
@@ -445,11 +445,11 @@ describe("mise helpers", () => {
       calls.push([...cmd]);
       if (cmd[1] === "--version") return { stdout: "2026.10.1 linux-x64\n", exitCode: 0 };
       if (cmd[1] === "bin-paths")
-        return { stdout: "/home/u/.local/share/mise/installs/aqua-jdx-mise/2026.10.1/mise/bin\n", exitCode: 0 };
+        return { stdout: "/home/user/.local/share/mise/installs/aqua-jdx-mise/2026.10.1/mise/bin\n", exitCode: 0 };
       return { stdout: "", exitCode: 0 };
     };
-    const env = { HOME: "/home/u" } as never;
-    expect(sandboxMiseBinDir(runner, env, "/repo")).toBe("/home/u/.local/share/mise/installs/aqua-jdx-mise/2026.10.1/mise/bin");
+    const env = { HOME: "/home/user" } as never;
+    expect(sandboxMiseBinDir(runner, env, "/repo")).toBe("/home/user/.local/share/mise/installs/aqua-jdx-mise/2026.10.1/mise/bin");
     // It installs the exact host version into the shared installs folder.
     expect(calls.map((c) => c.join(" "))).toContain(`mise install ${MISE_TOOL}@2026.10.1`);
   });
@@ -458,7 +458,7 @@ describe("mise helpers", () => {
     const err = spyOn(console, "error").mockImplementation(() => {});
     try {
       const runner: Runner = () => ({ stdout: "", exitCode: 0 });
-      expect(sandboxMiseBinDir(runner, { HOME: "/home/u" } as never, "/repo")).toBeUndefined();
+      expect(sandboxMiseBinDir(runner, { HOME: "/home/user" } as never, "/repo")).toBeUndefined();
       expect(err.mock.calls.join("\n")).toContain("the sandbox gets no mise");
     } finally {
       err.mockRestore();
@@ -473,7 +473,7 @@ describe("mise helpers", () => {
         if (cmd[1] === "bin-paths") return { stdout: "/opt/other-mise/bin\n", exitCode: 0 };
         return { stdout: "", exitCode: 0 };
       };
-      expect(sandboxMiseBinDir(runner, { HOME: "/home/u" } as never, "/repo")).toBeUndefined();
+      expect(sandboxMiseBinDir(runner, { HOME: "/home/user" } as never, "/repo")).toBeUndefined();
       expect(err.mock.calls.join("\n")).toContain("lies outside the installs folder");
     } finally {
       err.mockRestore();
@@ -487,11 +487,11 @@ describe("mise helpers", () => {
   });
 
   test("listsMounts needs the sandbox name and every mount on one line", () => {
-    const out = "NAME   STATUS   WORKSPACE\noc-sub-t   running   /repo, /home/u/p/opencode:ro, /home/u/.local/share/mise/installs:ro\n";
-    expect(listsMounts(out, "oc-sub-t", ["/home/u/p/opencode:ro", "/home/u/.local/share/mise/installs:ro"])).toBe(true);
-    expect(listsMounts(out, "oc-sub-t", ["/home/u/p/opencode:ro"])).toBe(true);
-    expect(listsMounts(out, "oc-sub-t", ["/home/u/p/opencode:ro", "/other:ro"])).toBe(false);
-    expect(listsMounts(out, "other", ["/home/u/p/opencode:ro"])).toBe(false);
+    const out = "NAME   STATUS   WORKSPACE\noc-sub-t   running   /repo, /home/user/p/opencode:ro, /home/user/.local/share/mise/installs:ro\n";
+    expect(listsMounts(out, "oc-sub-t", ["/home/user/p/opencode:ro", "/home/user/.local/share/mise/installs:ro"])).toBe(true);
+    expect(listsMounts(out, "oc-sub-t", ["/home/user/p/opencode:ro"])).toBe(true);
+    expect(listsMounts(out, "oc-sub-t", ["/home/user/p/opencode:ro", "/other:ro"])).toBe(false);
+    expect(listsMounts(out, "other", ["/home/user/p/opencode:ro"])).toBe(false);
   });
 
   test("listsCloneRemote matches the sandbox-<name> remote as a whole line", () => {
@@ -511,9 +511,9 @@ describe("mise helpers", () => {
 });
 
 describe("sandboxMountPlan", () => {
-  const PLUGIN = "/home/u/dv/idfix/opencode";
-  const INSTALLS = "/home/u/.local/share/mise/installs";
-  const SHARED = "/home/u/dv/meta/agents";
+  const PLUGIN = "/home/user/src/idfix/opencode";
+  const INSTALLS = "/home/user/.local/share/mise/installs";
+  const SHARED = "/home/user/src/meta/agents";
 
   test("isInsideRoot is true for the root itself and for folders inside it", () => {
     expect(isInsideRoot("/r", "/r")).toBe(true);
@@ -532,21 +532,21 @@ describe("sandboxMountPlan", () => {
   });
 
   test("mounts every folder outside the root, in order", () => {
-    expect(sandboxMountPlan("/home/u/dv/proj", PLUGIN, INSTALLS, SHARED)).toEqual({
+    expect(sandboxMountPlan("/home/user/src/proj", PLUGIN, INSTALLS, SHARED)).toEqual({
       mounted: [PLUGIN, INSTALLS, SHARED],
       inClone: [],
     });
   });
 
   test("leaves out the plugin folder when the project is the plugin itself", () => {
-    expect(sandboxMountPlan("/home/u/dv/idfix", PLUGIN, INSTALLS, SHARED)).toEqual({
+    expect(sandboxMountPlan("/home/user/src/idfix", PLUGIN, INSTALLS, SHARED)).toEqual({
       mounted: [INSTALLS, SHARED],
       inClone: [PLUGIN],
     });
   });
 
   test("leaves out the shared agents folder for the project meta", () => {
-    expect(sandboxMountPlan("/home/u/dv/meta", PLUGIN, INSTALLS, SHARED)).toEqual({
+    expect(sandboxMountPlan("/home/user/src/meta", PLUGIN, INSTALLS, SHARED)).toEqual({
       mounted: [PLUGIN, INSTALLS],
       inClone: [SHARED],
     });
@@ -557,12 +557,12 @@ describe("sandboxMountPlan", () => {
   });
 
   test("requiredSandboxMounts is the mounted part of the plan with :ro", () => {
-    expect(requiredSandboxMounts("/home/u/dv/proj", PLUGIN, INSTALLS, SHARED)).toEqual([
+    expect(requiredSandboxMounts("/home/user/src/proj", PLUGIN, INSTALLS, SHARED)).toEqual([
       `${PLUGIN}:ro`,
       `${INSTALLS}:ro`,
       `${SHARED}:ro`,
     ]);
-    expect(requiredSandboxMounts("/home/u/dv/meta", PLUGIN, INSTALLS, SHARED)).toEqual([
+    expect(requiredSandboxMounts("/home/user/src/meta", PLUGIN, INSTALLS, SHARED)).toEqual([
       `${PLUGIN}:ro`,
       `${INSTALLS}:ro`,
     ]);
@@ -725,14 +725,14 @@ describe("cost proxy wiring (sandbox mode)", () => {
   });
 
   test("bunBinFromToolPath picks the bun entry of the project tool PATH", () => {
-    const installs = "/home/u/.local/share/mise/installs";
+    const installs = "/home/user/.local/share/mise/installs";
     const toolPath = `${installs}/node/22/bin:${installs}/bun/1.4.2/bin:/usr/local/bin`;
     expect(bunBinFromToolPath(toolPath, installs)).toBe(`${installs}/bun/1.4.2/bin/bun`);
     expect(bunBinFromToolPath(`${installs}/bun/1.4.2/bin`, installs)).toBe(`${installs}/bun/1.4.2/bin/bun`);
   });
 
   test("bunBinFromToolPath returns null without a bun entry or outside the installs folder", () => {
-    const installs = "/home/u/.local/share/mise/installs";
+    const installs = "/home/user/.local/share/mise/installs";
     expect(bunBinFromToolPath("/usr/local/bin", installs)).toBeNull();
     expect(bunBinFromToolPath("", installs)).toBeNull();
     expect(bunBinFromToolPath("/other/installs/bun/1.0.0/bin", installs)).toBeNull();
@@ -1785,10 +1785,10 @@ describe("DeepInfra in sandbox mode (step 16)", () => {
   });
 
   test("deepinfraSecretCommand scopes the custom secret to the sandbox and the host", () => {
-    expect(deepinfraSecretCommand("sbx", "oc-sub-test", "/home/u/.config/test/deepinfra.key")).toEqual([
+    expect(deepinfraSecretCommand("sbx", "oc-sub-test", "/home/user/.config/test/deepinfra.key")).toEqual([
       "sbx", "secret", "set-custom", "--sandbox", "oc-sub-test", "--host", "api.deepinfra.com",
       "--env", "DEEPINFRA_API_KEY", "--placeholder", DEEPINFRA_PLACEHOLDER,
-      "--command", "cat '/home/u/.config/test/deepinfra.key'",
+      "--command", "cat '/home/user/.config/test/deepinfra.key'",
     ]);
   });
 

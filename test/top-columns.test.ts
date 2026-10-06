@@ -53,7 +53,7 @@ describe("sessionCode", () => {
 
 describe("splitFolder", () => {
   test("a folder under .worktrees gives the project and the worktree", () => {
-    expect(splitFolder("/home/u/dv/idfix/.worktrees/8g-top-view")).toEqual({
+    expect(splitFolder("/home/user/src/idfix/.worktrees/8g-top-view")).toEqual({
       project: "idfix",
       worktree: "8g-top-view",
     });
@@ -64,8 +64,8 @@ describe("splitFolder", () => {
   });
 
   test("the main folder has the worktree -", () => {
-    expect(splitFolder("/home/u/dv/terminator")).toEqual({ project: "terminator", worktree: "-" });
-    expect(splitFolder("/home/u/dv/terminator/")).toEqual({ project: "terminator", worktree: "-" });
+    expect(splitFolder("/home/user/src/terminator")).toEqual({ project: "terminator", worktree: "-" });
+    expect(splitFolder("/home/user/src/terminator/")).toEqual({ project: "terminator", worktree: "-" });
   });
 
   test("an empty folder and a bare .worktrees folder", () => {

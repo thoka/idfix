@@ -10,6 +10,7 @@ import { pluginDigest } from "../src/plugin-sync";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
 import { down, isProxyLoop, stopStartedGroups, type DownDeps } from "../src/down";
 import { parseArgs } from "../src/args";
+import { idlePidPath, isIdleWatch } from "../src/idle";
 
 function tempDir(): string {
   return mkdtempSync(path.join(tmpdir(), "oc-sub-hostproxy-"));
@@ -32,6 +33,8 @@ function makeDeps(overrides: Partial<UpDeps> = {}): UpDeps {
     bunBin: () => "/opt/bun/bin/bun",
     spawnServe: () => ({ pid: 1001, exitCode: () => null }),
     spawnProxy: () => ({ pid: 1002, exitCode: () => null }),
+    // Never a real watchdog in a unit test.
+    spawnIdleWatch: () => ({ pid: 1003, exitCode: () => null }),
     projectName: () => "test",
     // No DeepInfra key file unless a test sets one; never the real file.
     readKeyFile: () => null,
@@ -108,6 +111,53 @@ describe("up on the host needs the shared folder", () => {
     expect(result).toBe(1);
     expect(started).toBe(false);
     expect(errors[0]).toBe(`error: the shared agents file ${path.join(shared, "AGENTS.md")} does not exist.`);
+  });
+});
+
+describe("up starts the idle watchdog on the host", () => {
+  test("spawns idle-watch after the healthy start, with the default limit", async () => {
+    const env = makeEnv();
+    const spawned: string[][] = [];
+    const order: string[] = [];
+    const deps = makeDeps({
+      spawnServe: () => {
+        order.push("serve");
+        return { pid: 1001, exitCode: () => null };
+      },
+      spawnIdleWatch: (cmd, logPath, pidPath) => {
+        order.push("idle");
+        spawned.push([...cmd, logPath, pidPath]);
+        return { pid: 1003, exitCode: () => null };
+      },
+    });
+    expect(await up({ port: 8790 }, env, deps)).toBe(0);
+    expect(order).toEqual(["serve", "idle"]);
+    expect(spawned[0]?.slice(2, 7)).toEqual(["idle-watch", "--port", "8790", "--minutes", "30"]);
+    expect(spawned[0]?.[8]).toBe(idlePidPath(env, 8790));
+  });
+
+  test("--idle-minutes sets the limit, and 0 starts no watchdog", async () => {
+    const minutes: string[] = [];
+    const spawnIdleWatch = (cmd: readonly string[]) => {
+      minutes.push(cmd[6] as string);
+      return { pid: 1003, exitCode: () => null };
+    };
+    expect(await up({ port: 8790, idleMinutes: 5 }, makeEnv(), makeDeps({ spawnIdleWatch }))).toBe(0);
+    expect(await up({ port: 8790, idleMinutes: 0 }, makeEnv(), makeDeps({ spawnIdleWatch }))).toBe(0);
+    expect(minutes).toEqual(["5"]);
+  });
+
+  test("a server that already runs gets no second watchdog", async () => {
+    let spawned = 0;
+    const deps = makeDeps({
+      probe: async () => ({ state: "up", version: "1.18.32" }),
+      spawnIdleWatch: () => {
+        spawned += 1;
+        return { pid: 1003, exitCode: () => null };
+      },
+    });
+    expect(await up({ port: 8790 }, makeEnv(), deps)).toBe(0);
+    expect(spawned).toBe(0);
   });
 });
 
@@ -399,6 +449,33 @@ describe("down stops the cost proxy", () => {
     const result = await down({ port: 19790, force: true }, env, downDeps("opencode serve --port 19790", []));
     expect(result).toBe(0);
     expect(existsSync(servePluginPath(env, 19790))).toBe(false);
+  });
+
+  test("stops the idle watchdog of the server and removes its PID file", async () => {
+    const env = makeEnv();
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    const watchdog = Bun.spawn(["sh", "-c", "sleep 30"], { detached: true });
+    await Bun.write(servePidPath(env, 19790), "2147483000\n");
+    await Bun.write(idlePidPath(env, 19790), `${watchdog.pid}\n`);
+    const idleLine = "bun cli.ts idle-watch --port 19790 --minutes 30";
+    expect(isIdleWatch(idleLine, 19790)).toBe(true);
+    const killed: number[] = [];
+    const deps: DownDeps = {
+      commandLineOf: (pid) => (pid === watchdog.pid ? idleLine : "opencode serve --port 19790"),
+      killGroup: (pid) => {
+        killed.push(pid);
+        try {
+          process.kill(-pid, "SIGTERM");
+        } catch {
+          // The stale server PID has no group.
+        }
+      },
+    };
+    const result = await down({ port: 19790, force: true }, env, deps);
+    expect(result).toBe(0);
+    expect(killed).toContain(watchdog.pid);
+    expect(await waitGroupGone(watchdog.pid)).toBe(true);
+    expect(existsSync(idlePidPath(env, 19790))).toBe(false);
   });
 });
 

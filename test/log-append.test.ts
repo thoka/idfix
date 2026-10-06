@@ -39,6 +39,8 @@ function makeDeps(overrides: Partial<UpDeps> = {}): UpDeps {
     bunBin: () => null,
     spawnServe: () => ({ pid: 1001, exitCode: () => null }),
     spawnProxy: () => ({ pid: 1002, exitCode: () => null }),
+    // Never a real watchdog in a unit test.
+    spawnIdleWatch: () => ({ pid: 1003, exitCode: () => null }),
     projectName: () => "test",
     readKeyFile: () => null,
     ...overrides,

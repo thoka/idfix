@@ -20,6 +20,8 @@ import { stateDir, serveDirsPath, serveLogPath, servePidPath, servePluginPath, r
 import { SHARED_DIR_HINT, SHARED_DIR_UNSET, sharedAgentsDir, sharedConfigEntries } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
 import { pluginDataDir, proxyBundleIn, syncPluginDir } from "./plugin-sync";
+import { DEFAULT_IDLE_MINUTES } from "./args";
+import { startIdleWatch, stopIdleWatch, type SpawnIdleWatch } from "./idle";
 
 /** The first port that a sandbox may take. */
 export const SANDBOX_PORT_BASE = 18768;
@@ -654,9 +656,10 @@ export type ServeProcess = {
  * Spawn a detached process with its output in a log file and a PID file.
  * `detached: true` makes bun call `setsid`, so the process leads a new
  * session and process group, and its PID is the group ID. A caller stops it
- * and all its children with `process.kill(-pid, signal)`.
+ * and all its children with `process.kill(-pid, signal)`. The process works
+ * in `cwd`, default the current folder.
  */
-export function spawnDetached(cmd: readonly string[], logPath: string, pidPath: string): ServeProcess {
+export function spawnDetached(cmd: readonly string[], logPath: string, pidPath: string, cwd: string = process.cwd()): ServeProcess {
   // The process keeps running after this one exits, so its output goes to
   // a file: fd numbers are inherited by the child and closed here again.
   // The file opens in append mode, so the proxy `end` lines of older runs
@@ -666,7 +669,7 @@ export function spawnDetached(cmd: readonly string[], logPath: string, pidPath: 
   try {
     proc = Bun.spawn({
       cmd: [...cmd],
-      cwd: process.cwd(),
+      cwd,
       stdin: "ignore",
       stdout: logFd,
       stderr: logFd,
@@ -692,6 +695,8 @@ export type SandboxDeps = {
   probe: (url: string) => Promise<ServerState>;
   /** Starts the detached holder process. */
   spawnServe: (cmd: readonly string[], logPath: string, pidPath: string) => ServeProcess;
+  /** Starts the detached idle watchdog (`idle.ts`) after a healthy start. */
+  spawnIdleWatch: SpawnIdleWatch;
   /** The project name of a directory. */
   projectName: (directory: string) => string;
   /** The main repository folder of a directory. */
@@ -715,6 +720,7 @@ export const defaultSandboxDeps: SandboxDeps = {
   isPortFree: defaultIsPortFree,
   probe: (url) => probeServer(url, process.env, 2000),
   spawnServe: spawnDetached,
+  spawnIdleWatch: spawnDetached,
   projectName: projectNameOfRun,
   rootOf: projectRoot,
   binExists: (bin) => Bun.which(bin) !== null,
@@ -1139,7 +1145,7 @@ function printUp(serveUrl: string, name: string, logPath: string, version: strin
  * answers, set the sandbox up and start one if needed.
  */
 export async function upSandbox(
-  args: { dir?: string; noCostProxy?: boolean },
+  args: { dir?: string; noCostProxy?: boolean; idleMinutes?: number },
   env: Env = process.env,
   depsOverrides: Partial<SandboxDeps> = {},
 ): Promise<number> {
@@ -1457,8 +1463,10 @@ export async function upSandbox(
   const pidPath = servePidPath(env, port);
   await mkdir(path.dirname(logPath), { recursive: true });
   // A new server has no runs yet. A list left by a crashed server is stale,
-  // and so is its plugin digest.
+  // and so is its plugin digest. The watchdog of a crashed server stops, so
+  // that the new server gets one watchdog.
   await removeFiles(serveDirsPath(env, port), servePluginPath(env, port));
+  await stopIdleWatch(env, port);
   // The holder process keeps the sandbox alive: `sbx` stops a sandbox 30
   // seconds after the last `sbx` session ends. `OPENCODE_CONFIG_CONTENT`
   // replaces the bash rules of the sandbox agents with `allow` and allows
@@ -1520,6 +1528,8 @@ export async function upSandbox(
     const health = await deps.probe(serveUrl);
     if (health.state === "up") {
       printUp(serveUrl, name, logPath, health.version);
+      // The watchdog stops the sandbox after the idle limit (`idle.ts`).
+      startIdleWatch(env, port, args.idleMinutes ?? DEFAULT_IDLE_MINUTES, deps.spawnIdleWatch);
       return 0;
     }
     const code = holder.exitCode();
@@ -1630,6 +1640,8 @@ export async function stopSandbox(
     }
   }
   await removeFiles(pidPath, dirsPath, servePluginPath(env, port));
+  // The idle watchdog of the server ends with it.
+  await stopIdleWatch(env, port);
   console.log(`stopped sandbox ${name} (${serveUrl})`);
   return 0;
 }

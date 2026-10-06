@@ -22,6 +22,7 @@
 import { resolveTarget, type Env } from "./config";
 import { assertUsable, makeClient, probeServer, unwrap } from "./client";
 import { readDirs, readPid, removeFiles, proxyPidPath, serveDirsPath, servePidPath, servePluginPath } from "./state";
+import { idlePidPath, isIdleWatch, stopIdleWatch } from "./idle";
 
 const STOP_TIMEOUT_MS = 15_000;
 const STOP_INTERVAL_MS = 200;
@@ -212,6 +213,7 @@ export async function down(
       return 1;
     }
     await removeFiles(pidPath, dirsPath, servePluginPath(env, port));
+    await stopIdleWatch(env, port, deps);
     if ((await probeServer(serveUrl, env, 2000)).state !== "down") {
       console.error(`error: a server answers on ${serveUrl}, but oc-sub up did not start it. Stop it yourself.`);
       return 1;
@@ -251,13 +253,16 @@ export async function down(
     return 1;
   }
   await removeFiles(pidPath, dirsPath, servePluginPath(env, port));
+  // The idle watchdog of the server ends with it. When the watchdog itself
+  // runs this stop, it gets no signal (`stopIdleWatch`).
+  await stopIdleWatch(env, port, deps);
   console.log(`stopped ${serveUrl} (PID ${pid})`);
   return 0;
 }
 
 /**
- * Signals the process groups of the server on `port` and of its cost proxy,
- * as their PID files name them, and returns the group IDs it signaled. It
+ * Signals the process groups of the server on `port`, of its cost proxy,
+ * and of its idle watchdog, as their PID files name them, and returns the group IDs it signaled. It
  * does not wait and does not remove the PID files. A PID that now belongs to
  * another process is skipped. The teardown of the integration tests uses it
  * with SIGKILL, so that no restart loop outlives a failed test.
@@ -272,6 +277,7 @@ export async function stopStartedGroups(
   const checks: Array<[string, (commandLine: string) => boolean]> = [
     [servePidPath(env, port), (line) => isOpencodeServe(line, port)],
     [proxyPidPath(env, port), (line) => isProxyLoop(line, port + 1)],
+    [idlePidPath(env, port), (line) => isIdleWatch(line, port)],
   ];
   for (const [file, isOurs] of checks) {
     const pid = await readPid(file);

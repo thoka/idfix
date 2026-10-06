@@ -18,6 +18,8 @@ import {
 } from "./sandbox";
 import { removeFiles, appendLogMarker, readLogTail, proxyLogPath, proxyPidPath, serveDirsPath, serveLogPath, servePidPath, servePluginPath } from "./state";
 import { pluginDataDir, proxyBundleIn, syncPluginDir } from "./plugin-sync";
+import { DEFAULT_IDLE_MINUTES } from "./args";
+import { startIdleWatch, stopIdleWatch, type SpawnIdleWatch } from "./idle";
 
 const HEALTH_TIMEOUT_MS = 60_000;
 const HEALTH_INTERVAL_MS = 300;
@@ -113,6 +115,8 @@ export type UpDeps = {
   spawnServe: (cmd: readonly string[], logPath: string, pidPath: string, env: Env) => ServeProcess;
   /** Starts the detached proxy process. */
   spawnProxy: (cmd: readonly string[], logPath: string, pidPath: string) => ServeProcess;
+  /** Starts the detached idle watchdog (`idle.ts`) after a healthy start. */
+  spawnIdleWatch: SpawnIdleWatch;
   /** The plugin folder that `up` syncs from; the default is `PLUGIN_CONFIG_DIR`. */
   pluginSource?: string;
   /** The project name of a directory, for the DeepInfra key file. */
@@ -164,6 +168,7 @@ export const defaultUpDeps: UpDeps = {
     return { pid: proc.pid, exitCode: () => proc.exitCode };
   },
   spawnProxy: spawnDetached,
+  spawnIdleWatch: spawnDetached,
   projectName: projectNameOf,
   readKeyFile: (file) => {
     try {
@@ -175,7 +180,7 @@ export const defaultUpDeps: UpDeps = {
 };
 
 export async function up(
-  args: { url?: string; port?: number; noCostProxy?: boolean },
+  args: { url?: string; port?: number; noCostProxy?: boolean; idleMinutes?: number },
   env: Env = process.env,
   deps: UpDeps = defaultUpDeps,
 ): Promise<number> {
@@ -256,8 +261,10 @@ export async function up(
 
   await mkdir(path.dirname(logPath), { recursive: true });
   // A new server has no runs yet. A list left by a crashed server is stale,
-  // and so is its plugin digest.
+  // and so is its plugin digest. A watchdog of a crashed server would end by
+  // itself, but stop it now, so that the new server gets one watchdog.
   await removeFiles(serveDirsPath(env, port), servePluginPath(env, port));
+  await stopIdleWatch(env, port);
 
   // The proxy starts first, so that it listens before the first request of
   // the server. Its log and pid live next to the ones of the server. Both
@@ -312,6 +319,8 @@ export async function up(
     if (health.state === "up") {
       console.log(`${serveUrl} version ${health.version}`);
       console.log(`log: ${logPath}`);
+      // The watchdog stops the server after the idle limit (`idle.ts`).
+      startIdleWatch(env, port, args.idleMinutes ?? DEFAULT_IDLE_MINUTES, deps.spawnIdleWatch);
       return 0;
     }
     if (proc.exitCode() !== null) {

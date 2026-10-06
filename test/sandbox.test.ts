@@ -67,6 +67,7 @@ import { sharedAgentsDir } from "../src/shared";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
 import { pluginDataDir, pluginDigest, proxyBundleIn } from "../src/plugin-sync";
 import { readServePlugin, serveLogPath, servePluginPath } from "../src/state";
+import { idlePidPath } from "../src/idle";
 
 /** The bundle of the cost proxy, inside the synced plugin folder of the env. */
 function bundlePath(env: Record<string, string>): string {
@@ -173,6 +174,8 @@ function makeDeps(overrides: Partial<SandboxDeps> = {}): SandboxDeps {
     isPortFree: () => true,
     probe: async () => ({ state: "down" }),
     spawnServe: () => ({ pid: 4242, exitCode: () => null }),
+    // Never a real watchdog in a unit test.
+    spawnIdleWatch: () => ({ pid: 4243, exitCode: () => null }),
     projectName: () => "test",
     rootOf: () => "/repo",
     binExists: () => true,
@@ -668,6 +671,30 @@ describe("sandboxConfigContent", () => {
     expect(sshFlag).toBe(contentFlag + 2);
     expect(contentFlag).toBeLessThan(nameIndex);
     expect(sshFlag).toBeLessThan(nameIndex);
+  });
+
+  test("starts the idle watchdog after the healthy start of the holder", async () => {
+    const env = makeEnv();
+    const { runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return DENIED;
+    });
+    const spawned: string[][] = [];
+    let probes = 0;
+    const result = await upSandbox({ idleMinutes: 7 }, env, makeDeps({
+      runner,
+      probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
+      spawnIdleWatch: (cmd, _logPath, pidPath) => {
+        spawned.push([...cmd, pidPath]);
+        return { pid: 4243, exitCode: () => null };
+      },
+    }));
+    expect(result).toBe(0);
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.slice(2)).toEqual(["idle-watch", "--port", "18768", "--minutes", "7", idlePidPath(env, 18768)]);
   });
 
   test("a set host OPENCODE_CONFIG_CONTENT gives a warning on stderr", async () => {
@@ -1624,6 +1651,8 @@ describe("downSandbox", () => {
       port: 18768,
     });
     writeFileSync(servePluginPath(env, 18768), "sha256:abc\n");
+    // A stale PID file of the idle watchdog: no such process.
+    writeFileSync(idlePidPath(env, 18768), "2147483000\n");
     const { calls, runner } = fakeRunner(() => ({ stdout: "" }));
     const result = await downSandbox({ force: false }, env, makeDeps({
       runner,
@@ -1635,6 +1664,8 @@ describe("downSandbox", () => {
     expect(readSandboxState(sandboxStatePath(env, "test"))).not.toBeNull();
     // The plugin digest belongs to the stopped server.
     expect(existsSync(servePluginPath(env, 18768))).toBe(false);
+    // The idle watchdog ends with the server.
+    expect(existsSync(idlePidPath(env, 18768))).toBe(false);
   });
 
   test("reports a failed sbx stop", async () => {
@@ -1645,12 +1676,15 @@ describe("downSandbox", () => {
       root: "/repo",
       port: 18768,
     });
+    writeFileSync(idlePidPath(env, 18768), "2147483000\n");
     const { runner } = fakeRunner(() => ({ exitCode: 1 }));
     const result = await downSandbox({ force: false }, env, makeDeps({
       runner,
       probe: async () => ({ state: "down" }),
     }));
     expect(result).toBe(1);
+    // The server still runs, so its watchdog stays.
+    expect(existsSync(idlePidPath(env, 18768))).toBe(true);
   });
 });
 

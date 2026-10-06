@@ -27,6 +27,7 @@ import {
   stopPortUnits,
   stopUnit,
   UNIT_STOP_TIMEOUT_SEC,
+  unitOwner,
   unitsAvailable,
   type UnitDeps,
   type UnitOptions,
@@ -258,9 +259,11 @@ export async function up(
   // DeepInfra is optional: `DEEPINFRA_API_KEY` of the environment
   // first, then the DeepInfra key file of the project of the current folder.
   // Without either, nothing changes.
-  // The project of the current folder owns the processes of this start.
-  const owner = deps.projectName(process.cwd());
-  const deepinfraKey = hostDeepInfraKey(env, deepinfraKeyPath(owner, env), deps.readKeyFile);
+  // The project of the current folder owns the processes of this start, and
+  // `OC_SUB_OWNER` overrides the owner of the units, not the key file.
+  const project = deps.projectName(process.cwd());
+  const owner = unitOwner(env, project);
+  const deepinfraKey = hostDeepInfraKey(env, deepinfraKeyPath(project, env), deps.readKeyFile);
   const serve = serveEnv(env, pluginDir, sharedAgentsDir(env), {
     proxyUrl: args.noCostProxy ? undefined : proxyBaseUrl(proxyPort),
     deepinfraProxyUrl: args.noCostProxy || deepinfraKey === undefined ? undefined : deepinfraProxyBaseUrl(proxyPort),

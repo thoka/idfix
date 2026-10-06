@@ -6,10 +6,15 @@
  * stops the server with `restart` and `down`. Skipped when the `opencode` command is not on the
  * PATH.
  *
- * `up` starts the server and the restart loop of the cost proxy detached,
- * each in its own process group. The teardown of each test kills both
- * groups (`stopStartedGroups`), also when the test failed before `down`.
- * The last test checks that no group of these tests is left.
+ * `up` starts the server, the cost proxy, and the idle watchdog the same way
+ * as in production: as `ocsub-<kind>-<port>` user units, or detached in
+ * their own process group without a user manager. Each test passes
+ * `OC_SUB_OWNER=test`, so its units carry `owner=test`. The teardown of each
+ * test stops the units and the groups (`stopStartedGroups`), also when the
+ * test failed before `down`. Then it checks that no unit of its port is
+ * loaded and no group of its PID files is alive; if one is left, it stops
+ * it and fails. The last test checks the same for all groups of the file,
+ * and the reaper of test/setup.ts stops a test unit that a killed run left.
  */
 import { expect, test } from "bun:test";
 import { createOpencodeClient, type Event, type OpencodeClient } from "@opencode-ai/sdk";
@@ -18,6 +23,8 @@ import { tmpdir } from "node:os";
 import { stopStartedGroups } from "../src/down";
 import { proxyPidPath, serveLogPath, servePidPath } from "../src/state";
 import { idlePidPath } from "../src/idle";
+import { defaultUnitDeps, PORT_UNIT_KINDS, stopPortUnits } from "../src/units";
+import { TEST_OWNER } from "./setup";
 import net from "node:net";
 import path from "node:path";
 
@@ -47,26 +54,25 @@ async function findFreePort(): Promise<number> {
   throw new Error(`no free port between ${FIRST_PORT} and ${LAST_PORT}`);
 }
 
-/** The process groups (server and proxy loop) that the tests started. */
+/** The process groups (server, proxy, and watchdog) that the tests started. */
 const startedGroups = new Set<number>();
 
-/** Records the groups of the server on `port`, of its proxy, and of its idle watchdog, as their PID files name them. */
-function recordGroups(env: Record<string, string>, port: number): void {
+/** The environment that every CLI call of these tests adds: the test owner of the units. */
+const TEST_ENV = { OC_SUB_OWNER: TEST_OWNER } as const;
+
+/**
+ * Records the groups of the server on `port`, of its proxy, and of its idle
+ * watchdog, as their PID files name them, in the set of the file and in the
+ * set of the test.
+ */
+function recordGroups(env: Record<string, string>, port: number, mine: Set<number>): void {
   for (const file of [servePidPath(env, port), proxyPidPath(env, port), idlePidPath(env, port)]) {
     if (!existsSync(file)) continue;
     const pid = Number(readFileSync(file, "utf8").trim());
-    if (Number.isInteger(pid) && pid > 0) startedGroups.add(pid);
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    startedGroups.add(pid);
+    mine.add(pid);
   }
-}
-
-/**
- * The teardown of a test: kills the whole process groups of the server and
- * of the proxy restart loop. Killing only the server PID leaves the loop,
- * and the loop then starts the proxy again forever.
- */
-async function killStarted(env: Record<string, string>, port: number): Promise<void> {
-  recordGroups(env, port);
-  await stopStartedGroups(env, port, "SIGKILL");
 }
 
 function groupExists(pgid: number): boolean {
@@ -76,6 +82,59 @@ function groupExists(pgid: number): boolean {
   } catch {
     return false;
   }
+}
+
+/** The loaded units of the server on `port`, as `systemctl --user list-units` lines. Empty without a user manager. */
+function loadedPortUnits(port: number): string[] {
+  if (!defaultUnitDeps.available()) return [];
+  const res = defaultUnitDeps.run(
+    ["systemctl", "--user", "list-units", `ocsub-*-${port}.service`, "--all", "--plain", "--no-legend"],
+    { env: defaultUnitDeps.busEnv() },
+  );
+  return res.stdout.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+}
+
+/** What a test left: its loaded units and its live process groups. */
+function leftOver(port: number, mine: Set<number>): string[] {
+  const groups = [...mine].filter(groupExists).map((pgid) => {
+    const ps = Bun.spawnSync(["ps", "-o", "pid=,args=", "-g", String(pgid)]).stdout.toString().trim();
+    return `group ${pgid}: ${ps}`;
+  });
+  return [...loadedPortUnits(port).map((line) => `unit ${line}`), ...groups];
+}
+
+/**
+ * The teardown of a test. It stops the units and the whole process groups
+ * of the server, of the proxy, and of the watchdog. Killing only the server
+ * PID leaves the proxy loop, and the loop then starts the proxy again
+ * forever. Then it waits up to 5 seconds until nothing of the test is left.
+ * If something is left, it stops it again with SIGKILL, and then the
+ * assertion fails: no process or unit of a test outlives the test.
+ */
+async function teardown(env: Record<string, string>, port: number, mine: Set<number>): Promise<void> {
+  recordGroups(env, port, mine);
+  await stopStartedGroups(env, port, "SIGKILL");
+  const deadline = Date.now() + 5_000;
+  let left = leftOver(port, mine);
+  while (left.length > 0 && Date.now() < deadline) {
+    await Bun.sleep(100);
+    left = leftOver(port, mine);
+  }
+  if (left.length > 0) {
+    try {
+      stopPortUnits(port, PORT_UNIT_KINDS);
+    } catch {
+      // The assertion below reports what is left.
+    }
+    for (const pgid of mine) {
+      try {
+        process.kill(-pgid, "SIGKILL");
+      } catch {
+        // The group is already gone.
+      }
+    }
+  }
+  expect(left).toEqual([]);
 }
 
 type CliResult = { code: number; stdout: string; stderr: string };
@@ -169,6 +228,7 @@ test.skipIf(!hasOpencode)(
   "up, create session without prompt, status, abort, stop the server",
   async () => {
     const port = await findFreePort();
+    const mine = new Set<number>();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-"));
     // The fast health checks of `up` and `restart` warn without AGENTS.md,
     // and the test asserts that stderr stays empty.
@@ -179,10 +239,7 @@ test.skipIf(!hasOpencode)(
     // checkout of this plugin). Drop it, so that `up` serves the agents of
     // this checkout and prints no warning.
     const { OPENCODE_CONFIG_DIR: _outer, ...baseEnv } = process.env as Record<string, string | undefined>;
-    const env: Record<string, string> = { ...baseEnv, XDG_DATA_HOME: dataDir, XDG_STATE_HOME: stateHome } as Record<
-      string,
-      string
-    >;
+    const env = { ...baseEnv, ...TEST_ENV, XDG_DATA_HOME: dataDir, XDG_STATE_HOME: stateHome } as Record<string, string>;
     const pidFile = path.join(stateHome, "oc-sub", `serve-${port}.pid`);
 
     try {
@@ -195,7 +252,7 @@ test.skipIf(!hasOpencode)(
       expect(started.stdout).toMatch(/version \S+/);
       expect(existsSync(pidFile)).toBe(true);
       const pid = Number(readFileSync(pidFile, "utf8").trim());
-      recordGroups(env, port);
+      recordGroups(env, port, mine);
 
       // up again: the server is healthy, so nothing new is started.
       const again = runCli(workDir, ["up", "--url", url], env);
@@ -258,7 +315,7 @@ test.skipIf(!hasOpencode)(
       expect(await waitUntilGone(pid)).toBe(true);
       const newPid = Number(readFileSync(pidFile, "utf8").trim());
       expect(newPid).not.toBe(pid);
-      recordGroups(env, port);
+      recordGroups(env, port, mine);
 
       // down: stops the server and removes the PID file.
       const stopped = runCli(workDir, ["down", "--url", url], env);
@@ -284,9 +341,12 @@ test.skipIf(!hasOpencode)(
       expect(logDown.code).toBe(1);
       expect(logDown.stderr).toContain(`no server on ${url}. Start it with: oc-sub up`);
     } finally {
-      // Make sure no server and no proxy loop survives the test.
-      await killStarted(env, port);
-      rmSync(workDir, { recursive: true, force: true });
+      // Make sure no unit and no process of the test survives it.
+      try {
+        await teardown(env, port, mine);
+      } finally {
+        rmSync(workDir, { recursive: true, force: true });
+      }
     }
   },
   { timeout: 180_000 },
@@ -301,12 +361,14 @@ test.skipIf(!hasOpencode)(
     // requests. The pause-and-answer flow itself is covered by the fake
     // server tests in test/watch-pending.test.ts and test/answer.test.ts.
     const port = await findFreePort();
+    const mine = new Set<number>();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-questions-"));
     const dataDir = path.join(workDir, "data");
     const stateHome = path.join(workDir, "state");
     const { OPENCODE_CONFIG_DIR: _outer, ...baseEnv } = process.env as Record<string, string | undefined>;
     const env: Record<string, string> = {
       ...baseEnv,
+      ...TEST_ENV,
       XDG_DATA_HOME: dataDir,
       XDG_STATE_HOME: stateHome,
     } as Record<string, string>;
@@ -316,7 +378,7 @@ test.skipIf(!hasOpencode)(
     try {
       const started = runCli(workDir, ["up", "--url", url], env);
       expect(started.code).toBe(0);
-      recordGroups(env, port);
+      recordGroups(env, port, mine);
 
       // The pending lists of a real 1.18.x server answer with an empty
       // array. This checks that the routes exist and that they accept the
@@ -345,9 +407,12 @@ test.skipIf(!hasOpencode)(
       const stopped = runCli(workDir, ["down", "--url", url], env);
       expect(stopped.code).toBe(0);
     } finally {
-      // Make sure no server and no proxy loop survives the test.
-      await killStarted(env, port);
-      rmSync(workDir, { recursive: true, force: true });
+      // Make sure no unit and no process of the test survives it.
+      try {
+        await teardown(env, port, mine);
+      } finally {
+        rmSync(workDir, { recursive: true, force: true });
+      }
     }
   },
   { timeout: 120_000 },
@@ -357,12 +422,15 @@ test.skipIf(!hasOpencode)(
   "a server with a password: a wrong password gives a clear error",
   async () => {
     const port = await findFreePort();
+    const mine = new Set<number>();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-auth-"));
     const stateHome = path.join(workDir, "state");
-    const base = { ...process.env, XDG_DATA_HOME: path.join(workDir, "data"), XDG_STATE_HOME: stateHome } as Record<
-      string,
-      string
-    >;
+    const base = {
+      ...process.env,
+      ...TEST_ENV,
+      XDG_DATA_HOME: path.join(workDir, "data"),
+      XDG_STATE_HOME: stateHome,
+    } as Record<string, string>;
     delete base.OPENCODE_SERVER_USERNAME;
     const right = { ...base, OPENCODE_SERVER_PASSWORD: "right-test-password" };
     const wrong = { ...base, OPENCODE_SERVER_PASSWORD: "wrong-test-password" };
@@ -374,7 +442,7 @@ test.skipIf(!hasOpencode)(
     try {
       const started = runCli(workDir, ["up", "--url", url], right);
       expect(started.code).toBe(0);
-      recordGroups(right, port);
+      recordGroups(right, port, mine);
 
       const wrongStatus = runCli(workDir, ["status", "--url", url], wrong);
       expect(wrongStatus.code).toBe(1);
@@ -394,8 +462,11 @@ test.skipIf(!hasOpencode)(
       expect(stopped.code).toBe(0);
       expect(existsSync(pidFile)).toBe(false);
     } finally {
-      await killStarted(right, port);
-      rmSync(workDir, { recursive: true, force: true });
+      try {
+        await teardown(right, port, mine);
+      } finally {
+        rmSync(workDir, { recursive: true, force: true });
+      }
     }
   },
   { timeout: 120_000 },
@@ -406,21 +477,34 @@ test.skipIf(!hasOpencode)(
   async () => {
     // This is the path of a failed test: no `down` runs, only the teardown.
     const port = await findFreePort();
+    const mine = new Set<number>();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-nodown-"));
     const env = {
       ...process.env,
+      ...TEST_ENV,
       XDG_DATA_HOME: path.join(workDir, "data"),
       XDG_STATE_HOME: path.join(workDir, "state"),
     } as Record<string, string>;
     try {
       const started = runCli(workDir, ["up", "--url", `http://127.0.0.1:${port}`], env);
       expect(started.code).toBe(0);
-      recordGroups(env, port);
+      recordGroups(env, port, mine);
       // With bun on the PATH, up also starts the proxy loop.
       expect(existsSync(proxyPidPath(env, port))).toBe(Bun.which("bun") !== null);
+      // With a user manager, the server runs as a unit with the test owner.
+      if (defaultUnitDeps.available()) {
+        const show = defaultUnitDeps.run(
+          ["systemctl", "--user", "show", "--property=Description", "--value", `ocsub-serve-${port}.service`],
+          { env: defaultUnitDeps.busEnv() },
+        );
+        expect(show.stdout.trim()).toStartWith(`owner=${TEST_OWNER} `);
+      }
     } finally {
-      await killStarted(env, port);
-      rmSync(workDir, { recursive: true, force: true });
+      try {
+        await teardown(env, port, mine);
+      } finally {
+        rmSync(workDir, { recursive: true, force: true });
+      }
     }
   },
   { timeout: 120_000 },
@@ -430,10 +514,12 @@ test.skipIf(!hasOpencode)(
   "an idle server stops by itself after the idle limit",
   async () => {
     const port = await findFreePort();
+    const mine = new Set<number>();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-idle-"));
     const { OPENCODE_CONFIG_DIR: _outer, ...baseEnv } = process.env as Record<string, string | undefined>;
     const env = {
       ...baseEnv,
+      ...TEST_ENV,
       XDG_DATA_HOME: path.join(workDir, "data"),
       XDG_STATE_HOME: path.join(workDir, "state"),
     } as Record<string, string>;
@@ -445,7 +531,7 @@ test.skipIf(!hasOpencode)(
       expect(existsSync(idlePidPath(env, port))).toBe(true);
       const pid = Number(readFileSync(servePidPath(env, port), "utf8").trim());
       const watchdog = Number(readFileSync(idlePidPath(env, port), "utf8").trim());
-      recordGroups(env, port);
+      recordGroups(env, port, mine);
 
       // The watchdog stops the server through `down` and then exits.
       expect(await waitUntilGone(pid, 20_000)).toBe(true);
@@ -456,8 +542,11 @@ test.skipIf(!hasOpencode)(
       expect(existsSync(servePidPath(env, port))).toBe(false);
       expect(existsSync(idlePidPath(env, port))).toBe(false);
     } finally {
-      await killStarted(env, port);
-      rmSync(workDir, { recursive: true, force: true });
+      try {
+        await teardown(env, port, mine);
+      } finally {
+        rmSync(workDir, { recursive: true, force: true });
+      }
     }
   },
   { timeout: 60_000 },

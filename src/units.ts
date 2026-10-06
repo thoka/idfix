@@ -174,6 +174,22 @@ export function unitDescription(owner: string, reason: string): string {
   return `owner=${line(owner)} reason=${line(reason)}`;
 }
 
+/** The environment variable that overrides the owner of the units of `up` and the watchdog. */
+export const OWNER_ENV = "OC_SUB_OWNER";
+
+/**
+ * The owner of the units that `up` and the watchdog start: the value of
+ * `OC_SUB_OWNER` when it is set and not blank, else `project`. The tests
+ * set `OC_SUB_OWNER=test`, and a session can put its own name there. The
+ * owner is one word in the description `owner=<owner> reason=<reason>`, so
+ * each run of white space or control characters in the value becomes one
+ * `_`. Pure.
+ */
+export function unitOwner(env: Env, project: string): string {
+  const value = (env[OWNER_ENV] ?? "").trim().replace(/[\s\u0000-\u001f\u007f]+/g, "_");
+  return value.length === 0 ? project : value;
+}
+
 /** The child environment with the two label variables. Undefined values are left out. Pure. */
 export function labelledEnv(env: Env, owner: string, reason: string): Record<string, string> {
   const out: Record<string, string> = {};

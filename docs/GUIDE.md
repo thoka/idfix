@@ -499,7 +499,7 @@ Details:
 
 ### Background processes
 
-`oc-sub up` starts each long-lived process as a transient systemd user unit `ocsub-<kind>-<port>`, in both modes: `serve` is the host server, `proxy` the cost proxy of host mode, `holder` the `sbx exec` holder of sandbox mode, and `idle` the idle watchdog. The description of the unit holds the owner (the project of the folder of `up`) and the reason. All units are in the slice `ocsub.slice`. To see them:
+`oc-sub up` starts each long-lived process as a transient systemd user unit `ocsub-<kind>-<port>`, in both modes: `serve` is the host server, `proxy` the cost proxy of host mode, `holder` the `sbx exec` holder of sandbox mode, and `idle` the idle watchdog. The description of the unit holds the owner (the project of the folder of `up`) and the reason. The environment variable `OC_SUB_OWNER` overrides the owner of the units of `up` and of the watchdog, in both modes, for example with the name of a session. It changes only the label, not the project of the key files. A blank value keeps the project name, and white space in the value becomes `_`. The integration tests set `OC_SUB_OWNER=test`. Their teardown stops their units and fails when a unit or a process of the test is left. After the last test file, the test preload stops each unit with `owner=test` on a test port that a killed test run left, and it prints one warning line for each. It never stops a unit with another owner. All units are in the slice `ocsub.slice`. To see them:
 
 ```
 systemctl --user list-units 'ocsub-*' --all

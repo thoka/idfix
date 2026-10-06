@@ -23,6 +23,7 @@ import {
   unitDescription,
   unitExitCode,
   unitName,
+  unitOwner,
   type UnitDeps,
   type UnitOptions,
   type UnitRunner,
@@ -93,6 +94,20 @@ describe("unit names", () => {
 
   test("the description is one line with owner and reason", () => {
     expect(unitDescription("proj", "cost\nproxy")).toBe("owner=proj reason=cost proxy");
+  });
+});
+
+describe("unitOwner", () => {
+  test("is the project without OC_SUB_OWNER, or with a blank one", () => {
+    expect(unitOwner({}, "proj")).toBe("proj");
+    expect(unitOwner({ OC_SUB_OWNER: "" }, "proj")).toBe("proj");
+    expect(unitOwner({ OC_SUB_OWNER: "  \n " }, "proj")).toBe("proj");
+  });
+
+  test("is OC_SUB_OWNER when set, as one word", () => {
+    expect(unitOwner({ OC_SUB_OWNER: "test" }, "proj")).toBe("test");
+    expect(unitOwner({ OC_SUB_OWNER: " my session\nx\ty " }, "proj")).toBe("my_session_x_y");
+    expect(unitDescription(unitOwner({ OC_SUB_OWNER: "a b" }, "proj"), "r")).toBe("owner=a_b reason=r");
   });
 });
 

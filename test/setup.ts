@@ -31,6 +31,24 @@
  * stop of any unit other than `ocsub-test-*` (the live test of units.ts)
  * and the units of the ports of the integration tests, and throws instead.
  *
+ * After the last test, the preload also reaps the units that a test left
+ * loaded, like the Ryuk container of Testcontainers. The integration tests
+ * start their units with `OC_SUB_OWNER=test`, and their teardown stops them
+ * and fails when one is left. A test run that crashed or was killed cannot
+ * do that, so the global `afterAll` lists the loaded `ocsub-*` units and
+ * stops each unit that matches all of these:
+ *
+ * - its description starts with `owner=test `,
+ * - `testMayTouchUnit` allows its name (a port of the integration tests or
+ *   `ocsub-test-*`),
+ * - its working folder lies in a test run folder `oc-sub-test-run-*`, and
+ *   that run is this run, or a run whose bun process is gone.
+ *
+ * The last rule keeps the units of a second test run that works at the same
+ * time, for example in another worktree. Each stopped unit gives one warning
+ * line. A unit with another owner is never touched. Without a user manager,
+ * the reaper does nothing.
+ *
  * Bun 1.4 has a trap here: `Bun.spawn` and `Bun.spawnSync` without an `env`
  * option pass the environment of the process start, not the current
  * `process.env`. A deleted or changed variable does not reach the child. So
@@ -39,10 +57,10 @@
  * children. `node:child_process` already reads `process.env`.
  */
 import { afterAll } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { defaultUnitDeps } from "../src/units";
+import { defaultUnitDeps, stopUnit } from "../src/units";
 
 export const RUN_PREFIX = "oc-sub-test-run-";
 const STALE_MS = 6 * 60 * 60 * 1000;
@@ -127,6 +145,104 @@ export function unitOfCall(cmd: readonly string[]): string | null {
   return null;
 }
 
+/** The owner that the integration tests give their units (`OC_SUB_OWNER`). */
+export const TEST_OWNER = "test";
+
+/** A loaded unit, as `systemctl --user show` gives it. */
+export type LoadedUnit = { unit: string; description: string; workingDirectory: string };
+
+/**
+ * The units in the output of `systemctl --user show 'ocsub-*'
+ * --property=Id,Description,WorkingDirectory`: one block of `Key=value`
+ * lines per unit, and a blank line between two blocks. The unit name has no
+ * `.service` suffix. Pure.
+ */
+export function parseUnitShow(text: string): LoadedUnit[] {
+  const units: LoadedUnit[] = [];
+  for (const block of text.split(/\n\s*\n/)) {
+    const fields = new Map<string, string>();
+    for (const line of block.split("\n")) {
+      const at = line.indexOf("=");
+      if (at > 0) fields.set(line.slice(0, at), line.slice(at + 1));
+    }
+    const id = fields.get("Id");
+    if (id === undefined || id.length === 0) continue;
+    units.push({
+      unit: id.replace(/\.service$/, ""),
+      description: fields.get("Description") ?? "",
+      workingDirectory: fields.get("WorkingDirectory") ?? "",
+    });
+  }
+  return units;
+}
+
+/** The test run folder (`<tmp>/oc-sub-test-run-*`) that holds `dir`, or null. Pure. */
+export function runFolderOf(dir: string, systemTmp: string): string | null {
+  const rel = path.relative(systemTmp, dir);
+  if (rel.length === 0 || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  const first = rel.split(path.sep)[0] ?? "";
+  return first.startsWith(RUN_PREFIX) ? path.join(systemTmp, first) : null;
+}
+
+/**
+ * The units that the reaper stops: the owner is `test`, a test may touch
+ * the unit, and its working folder lies in a run folder that `mayReap`
+ * accepts (this run, or a run that is gone). Never a unit with another
+ * owner. Pure.
+ */
+export function unitsToReap(
+  units: readonly LoadedUnit[],
+  systemTmp: string,
+  mayReap: (runFolder: string) => boolean,
+): LoadedUnit[] {
+  return units.filter((u) => {
+    if (!u.description.startsWith(`owner=${TEST_OWNER} `) || !testMayTouchUnit(u.unit)) return false;
+    const run = runFolderOf(u.workingDirectory, systemTmp);
+    return run !== null && mayReap(run);
+  });
+}
+
+/** The file in a run folder that names the PID of its bun process. */
+const RUN_PID_FILE = "run.pid";
+
+/** Whether the bun process of a test run folder still runs. A missing or bad PID file means no. */
+function runAlive(runFolder: string): boolean {
+  try {
+    const pid = Number.parseInt(readFileSync(path.join(runFolder, RUN_PID_FILE), "utf8"), 10);
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stops the test units that this run, or a run that is gone, left loaded,
+ * and prints one warning line for each. Without a user manager, it does
+ * nothing. A failed `systemctl` call gives a warning and no error.
+ */
+export function reapTestUnits(thisRun: string, systemTmp: string): string[] {
+  if (!defaultUnitDeps.available()) return [];
+  const res = defaultUnitDeps.run(
+    ["systemctl", "--user", "show", "ocsub-*", "--property=Id,Description,WorkingDirectory"],
+    { env: defaultUnitDeps.busEnv() },
+  );
+  if (res.exitCode !== 0) return [];
+  const stopped: string[] = [];
+  for (const u of unitsToReap(parseUnitShow(res.stdout), systemTmp, (run) => run === thisRun || !runAlive(run))) {
+    try {
+      if (stopUnit(u.unit)) {
+        stopped.push(u.unit);
+        console.warn(`warning: a test left the unit ${u.unit} (${u.description}); the test preload stopped it`);
+      }
+    } catch (error) {
+      console.warn(`warning: cannot stop the test unit ${u.unit}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return stopped;
+}
+
 const realUnitRun = defaultUnitDeps.run;
 defaultUnitDeps.run = (cmd, opts) => {
   const unit = unitOfCall(cmd);
@@ -149,10 +265,15 @@ for (const name of readdirSync(systemTmp)) {
 }
 
 const runDir = mkdtempSync(path.join(systemTmp, RUN_PREFIX));
+writeFileSync(path.join(runDir, RUN_PID_FILE), `${process.pid}\n`);
 process.env.TMPDIR = runDir;
 // bun test does not emit the "exit" event, but a global afterAll in the
-// preload runs once after the last test file.
-afterAll(() => rmSync(runDir, { recursive: true, force: true }));
+// preload runs once after the last test file. The reaper runs first, so
+// that it still finds the PID file of this run.
+afterAll(() => {
+  reapTestUnits(runDir, systemTmp);
+  rmSync(runDir, { recursive: true, force: true });
+});
 
 process.env.XDG_DATA_HOME = path.join(runDir, "xdg-data");
 process.env.XDG_STATE_HOME = path.join(runDir, "xdg-state");

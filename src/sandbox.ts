@@ -24,7 +24,7 @@ import { DEFAULT_IDLE_MINUTES } from "./args";
 import { startIdleWatch, stopIdleWatch, type SpawnIdleWatch } from "./idle";
 import { commandLineOf } from "./down";
 import { spawnDetached, type ServeProcess } from "./spawn";
-import { defaultUnitDeps, startUnit, stopPortUnits, UNIT_STOP_TIMEOUT_SEC, type UnitDeps } from "./units";
+import { defaultUnitDeps, startUnit, stopPortUnits, UNIT_STOP_TIMEOUT_SEC, unitOwner, type UnitDeps } from "./units";
 import type { StartProcess } from "./up";
 
 /** The first port that a sandbox may take. */
@@ -1125,6 +1125,8 @@ export async function upSandbox(
   const deps = mergeDeps(depsOverrides);
   const dir = path.resolve(args.dir ?? process.cwd());
   const project = deps.projectName(dir);
+  // The owner of the units: `OC_SUB_OWNER`, or the project.
+  const owner = unitOwner(env, project);
   const name = sandboxName(project);
   const root = deps.rootOf(dir);
   const bin = sbxBin(env);
@@ -1473,7 +1475,7 @@ export async function upSandbox(
     {
       kind: "holder",
       name: String(port),
-      owner: project,
+      owner,
       reason: `sandbox ${name}: opencode server of up on port ${port}`,
       cwd: process.cwd(),
       env,
@@ -1520,7 +1522,7 @@ export async function upSandbox(
     if (health.state === "up") {
       printUp(serveUrl, name, logPath, health.version);
       // The watchdog stops the sandbox after the idle limit (`idle.ts`).
-      startIdleWatch(env, port, args.idleMinutes ?? DEFAULT_IDLE_MINUTES, deps.spawnIdleWatch, project, deps.units);
+      startIdleWatch(env, port, args.idleMinutes ?? DEFAULT_IDLE_MINUTES, deps.spawnIdleWatch, owner, deps.units);
       return 0;
     }
     const code = holder.exitCode();

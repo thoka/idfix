@@ -736,6 +736,37 @@ describe("sandboxConfigContent", () => {
     expect(started[0]?.pidPath).toBe(servePidPath(env, 18768));
   });
 
+  test("OC_SUB_OWNER overrides the owner of the holder and the watchdog units", async () => {
+    const env = { ...makeEnv(), OC_SUB_OWNER: "session-7" };
+    const { runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return DENIED;
+    });
+    const units = fakeUnits({ loaded: ["ocsub-holder-18768", "ocsub-idle-18768"] });
+    const started: UnitOptions[] = [];
+    const record = (opts: UnitOptions) => {
+      started.push(opts);
+      units.calls.push(`start ${opts.kind}`);
+      return { pid: 4242, exitCode: () => null };
+    };
+    let probes = 0;
+    const result = await upSandbox({}, env, makeDeps({
+      runner,
+      units: units.deps,
+      probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
+      spawnServe: record,
+      spawnIdleWatch: record,
+    }));
+    expect(result).toBe(0);
+    expect(started.map((opts) => [opts.kind, opts.owner])).toEqual([
+      ["holder", "session-7"],
+      ["idle", "session-7"],
+    ]);
+  });
+
   test("a set host OPENCODE_CONFIG_CONTENT gives a warning on stderr", async () => {
     const env = { ...makeEnv(), OPENCODE_CONFIG_CONTENT: '{"agent":{}}' };
     const { runner } = fakeRunner((cmd) => {

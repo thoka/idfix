@@ -13,6 +13,7 @@ import { parseArgs } from "../src/args";
 import { idlePidPath, isIdleWatch } from "../src/idle";
 import { UNIT_STOP_TIMEOUT_SEC, type UnitOptions } from "../src/units";
 import { fakeUnits, noUnits } from "./fake-units";
+import { deepinfraKeyPath } from "../src/keys";
 
 function tempDir(): string {
   return mkdtempSync(path.join(tmpdir(), "oc-sub-hostproxy-"));
@@ -634,8 +635,8 @@ describe("DeepInfra in host mode", () => {
 
 describe("up on the unit path", () => {
   /** Runs up with a user manager and records each start and each unit call in one list. */
-  async function upOnUnits(over: Partial<UpDeps> = {}, loaded: string[] = []) {
-    const env = makeEnv();
+  async function upOnUnits(over: Partial<UpDeps> = {}, loaded: string[] = [], extraEnv: Record<string, string> = {}) {
+    const env = { ...makeEnv(), ...extraEnv };
     const units = fakeUnits({ loaded });
     const started: UnitOptions[] = [];
     const record = (opts: UnitOptions) => {
@@ -675,6 +676,22 @@ describe("up on the unit path", () => {
       ["idle", "8790", "test", "idle watchdog for port 8790, stops the server after 30m without activity"],
     ]);
     expect(started.find((opts) => opts.kind === "serve")?.timeoutStopSec).toBe(UNIT_STOP_TIMEOUT_SEC);
+  });
+
+  test("OC_SUB_OWNER overrides the owner of each unit, but not the project of the key file", async () => {
+    const keyFiles: string[] = [];
+    const readKeyFile = (file: string) => {
+      keyFiles.push(file);
+      return null;
+    };
+    const { result, started, env } = await upOnUnits({ readKeyFile }, [], { OC_SUB_OWNER: " session 7\n" });
+    expect(result).toBe(0);
+    expect(started.map((opts) => [opts.kind, opts.owner])).toEqual([
+      ["proxy", "session_7"],
+      ["serve", "session_7"],
+      ["idle", "session_7"],
+    ]);
+    expect(keyFiles).toEqual([deepinfraKeyPath("test", env)]);
   });
 
   test("stops the units of a dead server of the same port before the start", async () => {

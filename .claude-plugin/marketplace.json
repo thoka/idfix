@@ -8,7 +8,7 @@
     {
       "name": "idfix",
       "source": "./",
-      "description": "Delegate research and small coding steps to cheap opencode subagents with the oc-sub tool."
+      "description": "Delegate research and small coding steps to cheap opencode subagents with the idfx tool."
     }
   ]
 }

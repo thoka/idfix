@@ -2,7 +2,7 @@
 
 Status: experimental alpha. The tool and the skill were built in September 2026 and have few real runs so far. The command line and the file formats can change.
 
-This project makes cheap opencode subagents usable from Claude Code. Its name is idfix 🐕, after the dog Idefix in Asterix, because it will support clients other than opencode. Until 2026-10-05 its name was opencode-subagents. It contains a small command line tool `idfx` and a Claude Code skill `oc-sub`, packaged as a Claude Code plugin. `oc-sub` is the old name of the tool `idfx`, and it still works as an alias. The research of the design is in [.plan/research/prior-art.md](.plan/research/prior-art.md). The lessons from the first use are in [.plan/EXPERIENCE.md](.plan/EXPERIENCE.md).
+This project makes cheap opencode subagents usable from Claude Code. Its name is idfix 🐕, after the dog Idefix in Asterix, because it will support clients other than opencode. Until 2026-10-05 its name was opencode-subagents. It contains a small command line tool `idfx` and a Claude Code skill `idfx`, packaged as a Claude Code plugin. `oc-sub` is the old name of the tool `idfx`, and it still works as an alias. The research of the design is in [.plan/research/prior-art.md](.plan/research/prior-art.md). The lessons from the first use are in [.plan/EXPERIENCE.md](.plan/EXPERIENCE.md).
 
 ## Use it in another project
 
@@ -30,8 +30,8 @@ To update at every start instead, open `/plugin`, select the marketplace, and en
 
 - `.claude-plugin/plugin.json` — the plugin manifest (name `idfix`)
 - `.claude-plugin/marketplace.json` — a marketplace `idfix` that lists this folder as the plugin
-- `skills/oc-sub/SKILL.md` — the skill: when to delegate, the workflow, and the rules
-- `skills/oc-sub/reference.md` — the full command reference and the details
+- `skills/idfx/SKILL.md` — the skill: when to delegate, the workflow, and the rules
+- `skills/idfx/reference.md` — the full command reference and the details
 - `opencode/agents/` — the agents of the plugin: `coder`, `researcher`, and its hidden subagent `reader`. `idfx up` serves them through `OPENCODE_CONFIG_DIR`.
 - `bin/idfx` — the launcher of `idfx`. It calls `bin/oc-sub`. The link `~/.local/bin/idfix` also calls it.
 - `bin/oc-sub` — the launcher under the old name, which `bin/idfx` calls. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), runs `bun install --frozen-lockfile --production` on each call (a few milliseconds when nothing changed), and runs `src/cli.ts`.

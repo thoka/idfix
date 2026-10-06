@@ -1,11 +1,11 @@
 # Guide: cheap opencode subagents in your project
 
-This guide is for you, the user. It says how to install the plugin in a project, how to watch a run, and how to stay safe. Claude learns the rest from the skill `oc-sub`.
+This guide is for you, the user. It says how to install the plugin in a project, how to watch a run, and how to stay safe. Claude learns the rest from the skill `idfx`.
 
 ## What you get
 
 - The command `idfx`. It starts an opencode server, starts runs, watches them, and prints the result and the cost.
-- The skill `oc-sub`. It tells Claude when to delegate work to a cheap opencode agent. It also tells Claude how to review the result.
+- The skill `idfx`. It tells Claude when to delegate work to a cheap opencode agent. It also tells Claude how to review the result.
 - The agents of the plugin. The plugin serves the `coder`, `researcher`, and `reader` agents itself, through `OPENCODE_CONFIG_DIR`. You need no agent file in your project.
 
 ## Requirements

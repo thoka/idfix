@@ -16,7 +16,7 @@ import { formatCost, summarizeMessages, finalAssistantText, type MessageEntry } 
  * instructions file named AGENTS.md that is not part of this project" made
  * the reply correct in 3 of 3 real runs with the flash model, and the model
  * replied NONE when no such file was loaded. The prompt uses low reasoning
- * effort (see skills/oc-sub/reference.md), which the tests also used.
+ * effort (see skills/idfx/reference.md), which the tests also used.
  */
 export const RULES_PROMPT =
   "Among the rules loaded into your context, one file is a custom instructions file named AGENTS.md " +

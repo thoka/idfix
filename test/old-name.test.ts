@@ -4,7 +4,7 @@
  * test reads the sources and the docs and fails on each such line.
  */
 import { describe, expect, test } from "bun:test";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = path.join(import.meta.dir, "..");
@@ -63,9 +63,9 @@ function sourceFiles(dir: string): string[] {
 
 /** The files that this test reads, relative to ROOT. */
 function checkedFiles(): string[] {
-  const skills = readdirSync(path.join(ROOT, "skills", "oc-sub"))
+  const skills = readdirSync(path.join(ROOT, "skills", "idfx"))
     .filter((name) => name.endsWith(".md"))
-    .map((name) => path.join("skills", "oc-sub", name));
+    .map((name) => path.join("skills", "idfx", name));
   return [...sourceFiles("src"), "README.md", path.join("docs", "GUIDE.md"), ...skills];
 }
 
@@ -98,9 +98,21 @@ describe("the old name oc-sub", () => {
   test("no source file or doc tells the user to run oc-sub <command>", () => {
     const files = checkedFiles();
     expect(files).toContain(path.join("src", "cli.ts"));
-    expect(files).toContain(path.join("skills", "oc-sub", "SKILL.md"));
+    expect(files).toContain(path.join("skills", "idfx", "SKILL.md"));
     const hits = files.flatMap((file) => oldNameHits(file, readFileSync(path.join(ROOT, file), "utf8")));
     const report = hits.map((hit) => `${hit.file}:${hit.line}: ${hit.text}`).join("\n");
     expect(report).toBe("");
+  });
+});
+
+describe("the skill idfx", () => {
+  test("the old skill folder skills/oc-sub does not exist", () => {
+    expect(existsSync(path.join(ROOT, "skills", "oc-sub"))).toBe(false);
+  });
+
+  test("the front matter of skills/idfx/SKILL.md has name: idfx", () => {
+    const text = readFileSync(path.join(ROOT, "skills", "idfx", "SKILL.md"), "utf8");
+    const frontMatter = text.match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? "";
+    expect(frontMatter.split("\n")).toContain("name: idfx");
   });
 });

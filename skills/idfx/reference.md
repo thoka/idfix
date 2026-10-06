@@ -1,6 +1,6 @@
 # idfx reference
 
-This file holds the details for the skill `oc-sub`. [SKILL.md](SKILL.md) has the short workflow.
+This file holds the details for the skill `idfx`. [SKILL.md](SKILL.md) has the short workflow.
 
 ## Contents
 

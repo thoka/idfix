@@ -1,6 +1,6 @@
 ---
-name: oc-sub
-description: Delegate research or a small coding step to a cheap opencode subagent with the idfx tool. Watch the run and review the result.
+name: idfx
+description: Delegate research or a small coding step to a cheap opencode subagent with the idfx tool (formerly oc-sub). Watch the run and review the result.
 when_to_use: The user asks to delegate work to opencode, GLM, or a cheap subagent. The user asks about an idfx run (start, watch, follow up, abort, cost). A plan has a research question or a small coding step with a precise brief.
 allowed-tools: Bash(idfx *), Bash(oc-sub *)
 ---

@@ -5,6 +5,7 @@ import path from "node:path";
 import { downAll, pidFilePorts } from "../src/down-all";
 import { listsRunning, sandboxStatePath, writeSandboxState, type Runner } from "../src/sandbox";
 import { servePidPath, stateDir } from "../src/state";
+import { noUnits } from "./fake-units";
 
 const SBX_LS = [
   "SANDBOX          AGENT      STATUS    PORTS                       WORKSPACE",
@@ -76,7 +77,7 @@ describe("downAll", () => {
     // A stale holder PID file of the stopped sandbox is not a host server.
     writeFileSync(servePidPath(env, 18769), "999999\n");
     const { calls, runner } = fakeRunner();
-    const result = await quiet(() => downAll({ force: false }, env, { runner, probe: async () => ({ state: "down" }) }));
+    const result = await quiet(() => downAll({ force: false }, env, { runner, probe: async () => ({ state: "down" }), units: noUnits() }));
     expect(result).toBe(0);
     expect(calls).toEqual([["sbx", "ls"], ["sbx", "stop", "oc-sub-alpha"]]);
     expect(existsSync(servePidPath(env, 18769))).toBe(true);
@@ -90,6 +91,7 @@ describe("downAll", () => {
     const commandLines: number[] = [];
     const result = await quiet(() =>
       downAll({ force: false }, env, {}, {
+        units: noUnits(),
         commandLineOf: (pid) => {
           commandLines.push(pid);
           return null;
@@ -105,7 +107,7 @@ describe("downAll", () => {
     const env = makeEnv();
     await addSandbox(env, "alpha", 18768);
     const { calls, runner } = fakeRunner(1);
-    const result = await quiet(() => downAll({ force: true }, env, { runner }));
+    const result = await quiet(() => downAll({ force: true }, env, { runner, units: noUnits() }));
     expect(result).toBe(1);
     expect(calls).toEqual([["sbx", "ls"], ["sbx", "stop", "oc-sub-alpha"]]);
   });
@@ -113,7 +115,7 @@ describe("downAll", () => {
   test("calls no sbx without sandbox state files", async () => {
     const env = makeEnv();
     const { calls, runner } = fakeRunner();
-    const result = await quiet(() => downAll({ force: false }, env, { runner }));
+    const result = await quiet(() => downAll({ force: false }, env, { runner, units: noUnits() }));
     expect(result).toBe(0);
     expect(calls).toEqual([]);
   });

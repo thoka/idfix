@@ -4,7 +4,7 @@
  * sandbox design in the plan. Every `sbx` call goes through a
  * runner, so the tests replace it with a fake and never call the real `sbx`.
  */
-import { accessSync, constants as fsConstants, existsSync, openSync, closeSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
@@ -22,6 +22,10 @@ import { PLUGIN_CONFIG_DIR } from "./up";
 import { pluginDataDir, proxyBundleIn, syncPluginDir } from "./plugin-sync";
 import { DEFAULT_IDLE_MINUTES } from "./args";
 import { startIdleWatch, stopIdleWatch, type SpawnIdleWatch } from "./idle";
+import { commandLineOf } from "./down";
+import { spawnDetached, type ServeProcess } from "./spawn";
+import { defaultUnitDeps, startUnit, stopPortUnits, UNIT_STOP_TIMEOUT_SEC, type UnitDeps } from "./units";
+import type { StartProcess } from "./up";
 
 /** The first port that a sandbox may take. */
 export const SANDBOX_PORT_BASE = 18768;
@@ -645,51 +649,9 @@ export function relativeMount(from: string, target: string): string {
   return relative.length === 0 ? "." : relative.startsWith(".") ? relative : `./${relative}`;
 }
 
-/** A detached holder process, like `up` starts its server. */
-export type ServeProcess = {
-  pid: number;
-  /** The exit code, or null while the process still runs. */
-  exitCode: () => number | null;
-};
-
-/**
- * Spawn a detached process with its output in a log file and a PID file.
- * `detached: true` makes bun call `setsid`, so the process leads a new
- * session and process group, and its PID is the group ID. A caller stops it
- * and all its children with `process.kill(-pid, signal)`. The process works
- * in `cwd`, default the current folder. With `env`, the process gets exactly
- * that environment; without it, it inherits the environment of this process.
- */
-export function spawnDetached(
-  cmd: readonly string[],
-  logPath: string,
-  pidPath: string,
-  cwd: string = process.cwd(),
-  env?: Env,
-): ServeProcess {
-  // The process keeps running after this one exits, so its output goes to
-  // a file: fd numbers are inherited by the child and closed here again.
-  // The file opens in append mode, so the proxy `end` lines of older runs
-  // stay in the log and `oc-sub log` of an older run keeps the real cost.
-  const logFd = openSync(logPath, "a");
-  let proc: Bun.Subprocess;
-  try {
-    proc = Bun.spawn({
-      cmd: [...cmd],
-      cwd,
-      ...(env === undefined ? {} : { env: { ...env } }),
-      stdin: "ignore",
-      stdout: logFd,
-      stderr: logFd,
-      detached: true,
-    });
-  } finally {
-    closeSync(logFd);
-  }
-  proc.unref();
-  writeFileSync(pidPath, `${proc.pid}\n`);
-  return { pid: proc.pid, exitCode: () => proc.exitCode };
-}
+// `spawnDetached` and `ServeProcess` live in `spawn.ts`, so that `units.ts`
+// can use them without an import cycle. Older callers import them from here.
+export { spawnDetached, type ServeProcess };
 
 /** Everything that `upSandbox` and `downSandbox` reach outside this module. */
 export type SandboxDeps = {
@@ -701,10 +663,12 @@ export type SandboxDeps = {
   isPortFree: (port: number) => boolean | Promise<boolean>;
   /** Probes the server URL. */
   probe: (url: string) => Promise<ServerState>;
-  /** Starts the detached holder process. */
-  spawnServe: (cmd: readonly string[], logPath: string, pidPath: string) => ServeProcess;
-  /** Starts the detached idle watchdog (`idle.ts`) after a healthy start. */
+  /** Starts the holder process: the unit `ocsub-holder-<port>` by default. */
+  spawnServe: StartProcess;
+  /** Starts the idle watchdog (`idle.ts`) after a healthy start. */
   spawnIdleWatch: SpawnIdleWatch;
+  /** The user manager, for the start and the stop of the units. */
+  units: UnitDeps;
   /** The project name of a directory. */
   projectName: (directory: string) => string;
   /** The main repository folder of a directory. */
@@ -727,8 +691,9 @@ export const defaultSandboxDeps: SandboxDeps = {
   keyExists: existsSync,
   isPortFree: defaultIsPortFree,
   probe: (url) => probeServer(url, process.env, 2000),
-  spawnServe: spawnDetached,
-  spawnIdleWatch: spawnDetached,
+  spawnServe: startUnit,
+  spawnIdleWatch: startUnit,
+  units: defaultUnitDeps,
   projectName: projectNameOfRun,
   rootOf: projectRoot,
   binExists: (bin) => Bun.which(bin) !== null,
@@ -1474,7 +1439,15 @@ export async function upSandbox(
   // and so is its plugin digest. The watchdog of a crashed server stops, so
   // that the new server gets one watchdog.
   await removeFiles(serveDirsPath(env, port), servePluginPath(env, port));
-  await stopIdleWatch(env, port);
+  // A holder unit of a dead or hung server can still be loaded, and
+  // `systemd-run` refuses a second unit with the same name.
+  try {
+    stopPortUnits(port, ["holder"], deps.units);
+    await stopIdleWatch(env, port, { commandLineOf, killGroup: signalGroup, units: deps.units });
+  } catch (error) {
+    console.error(`error: cannot stop the old units of port ${port}: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
   // The holder process keeps the sandbox alive: `sbx` stops a sandbox 30
   // seconds after the last `sbx` session ends. `OPENCODE_CONFIG_CONTENT`
   // replaces the bash rules of the sandbox agents with `allow` and allows
@@ -1497,36 +1470,46 @@ export async function upSandbox(
   // marker line first: a reader sees where a new start begins.
   await appendLogMarker(logPath, "up");
   const holder = deps.spawnServe(
-    [
-      bin,
-      "exec",
-      "-e",
-      `OPENCODE_CONFIG_DIR=${pluginDir}`,
-      "-e",
-      `OPENCODE_CONFIG_CONTENT=${configContent}`,
-      "-e",
-      "SSH_AUTH_SOCK=",
-      "-e",
-      // opencode offers the websearch tool only when this is truthy. The
-      // researcher reads pages with it; Exa needs no key and no cost.
-      "OPENCODE_ENABLE_EXA=1",
-      "-e",
-      // The tool folders of the project come first, so that the versions of
-      // `mise.toml` win over the tools of the sandbox image. The mise of the
-      // sandbox (if installed) follows, so it wins over a tool of the image.
-      // With `sandboxMiseEnv`, the server runs a mise that sees the host
-      // versions read-only, trusts the project `mise.toml`, and installs new
-      // tools into its own home.
-      sandboxToolPathEntry(toolPath, miseBinDir),
-      ...sandboxMiseEnv(installsDir, root).flatMap((entry) => ["-e", entry]),
-      // With DeepInfra, the server gets the placeholder; the proxy of `sbx`
-      // puts the real key into the requests to the DeepInfra API.
-      ...(withDeepInfra ? ["-e", `DEEPINFRA_API_KEY=${DEEPINFRA_PLACEHOLDER}`] : []),
-      name,
-      ...holderArgs,
-    ],
-    logPath,
-    pidPath,
+    {
+      kind: "holder",
+      name: String(port),
+      owner: project,
+      reason: `sandbox ${name}: opencode server of up on port ${port}`,
+      cwd: process.cwd(),
+      env,
+      logPath,
+      pidPath,
+      timeoutStopSec: UNIT_STOP_TIMEOUT_SEC,
+      cmd: [
+        bin,
+        "exec",
+        "-e",
+        `OPENCODE_CONFIG_DIR=${pluginDir}`,
+        "-e",
+        `OPENCODE_CONFIG_CONTENT=${configContent}`,
+        "-e",
+        "SSH_AUTH_SOCK=",
+        "-e",
+        // opencode offers the websearch tool only when this is truthy. The
+        // researcher reads pages with it; Exa needs no key and no cost.
+        "OPENCODE_ENABLE_EXA=1",
+        "-e",
+        // The tool folders of the project come first, so that the versions of
+        // `mise.toml` win over the tools of the sandbox image. The mise of the
+        // sandbox (if installed) follows, so it wins over a tool of the image.
+        // With `sandboxMiseEnv`, the server runs a mise that sees the host
+        // versions read-only, trusts the project `mise.toml`, and installs new
+        // tools into its own home.
+        sandboxToolPathEntry(toolPath, miseBinDir),
+        ...sandboxMiseEnv(installsDir, root).flatMap((entry) => ["-e", entry]),
+        // With DeepInfra, the server gets the placeholder; the proxy of `sbx`
+        // puts the real key into the requests to the DeepInfra API.
+        ...(withDeepInfra ? ["-e", `DEEPINFRA_API_KEY=${DEEPINFRA_PLACEHOLDER}`] : []),
+        name,
+        ...holderArgs,
+      ],
+    },
+    deps.units,
   );
   writeFileSync(servePluginPath(env, port), `${synced}\n`);
 
@@ -1537,7 +1520,7 @@ export async function upSandbox(
     if (health.state === "up") {
       printUp(serveUrl, name, logPath, health.version);
       // The watchdog stops the sandbox after the idle limit (`idle.ts`).
-      startIdleWatch(env, port, args.idleMinutes ?? DEFAULT_IDLE_MINUTES, deps.spawnIdleWatch);
+      startIdleWatch(env, port, args.idleMinutes ?? DEFAULT_IDLE_MINUTES, deps.spawnIdleWatch, project, deps.units);
       return 0;
     }
     const code = holder.exitCode();
@@ -1637,6 +1620,14 @@ export async function stopSandbox(
     return 1;
   }
 
+  // The holder unit first: the stop ends its whole cgroup. A holder of an
+  // older oc-sub or of the fallback path has no unit.
+  try {
+    stopPortUnits(port, ["holder"], deps.units);
+  } catch (error) {
+    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
   const pid = await readPid(pidPath);
   if (pid !== null && isAlive(pid)) {
     // The holder process leads its own process group, like the server of
@@ -1648,8 +1639,14 @@ export async function stopSandbox(
     }
   }
   await removeFiles(pidPath, dirsPath, servePluginPath(env, port));
-  // The idle watchdog of the server ends with it.
-  await stopIdleWatch(env, port);
+  // The idle watchdog of the server ends with it, only after the server
+  // stopped. When the watchdog itself runs this stop, neither its unit nor
+  // its process gets a signal (`stopIdleWatch`): it ends by itself.
+  try {
+    await stopIdleWatch(env, port, { commandLineOf, killGroup: signalGroup, units: deps.units });
+  } catch (error) {
+    console.error(`warning: cannot stop the idle watchdog: ${error instanceof Error ? error.message : String(error)}`);
+  }
   console.log(`stopped sandbox ${name} (${serveUrl})`);
   return 0;
 }

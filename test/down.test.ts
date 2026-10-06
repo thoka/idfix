@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { down, formatBusyLine, isAlive, isOpencodeServe, signalGroup, stopGroup } from "../src/down";
 import { servePidPath } from "../src/state";
+import { noUnits } from "./fake-units";
 
 describe("isOpencodeServe", () => {
   test("accepts opencode serve on the port", () => {
@@ -75,6 +76,7 @@ describe("down stops a server whose first SIGTERM is caught", () => {
       writeFileSync(servePidPath(env, port), `${proc.pid}\n`);
       const started = Date.now();
       const code = await down({ port, force: true }, env, {
+        units: noUnits(),
         commandLineOf: (pid) => (pid === proc.pid ? `opencode serve --port ${port}` : null),
       });
       expect(code).toBe(0);

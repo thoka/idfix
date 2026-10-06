@@ -66,8 +66,10 @@ import { DEEPINFRA_PLACEHOLDER, projectNameOf, projectRootOfRun } from "../src/k
 import { sharedAgentsDir } from "../src/shared";
 import { PLUGIN_CONFIG_DIR } from "../src/up";
 import { pluginDataDir, pluginDigest, proxyBundleIn } from "../src/plugin-sync";
-import { readServePlugin, serveLogPath, servePluginPath } from "../src/state";
+import { readServePlugin, serveLogPath, servePidPath, servePluginPath } from "../src/state";
 import { idlePidPath } from "../src/idle";
+import type { UnitOptions } from "../src/units";
+import { fakeUnits, noUnits } from "./fake-units";
 
 /** The bundle of the cost proxy, inside the synced plugin folder of the env. */
 function bundlePath(env: Record<string, string>): string {
@@ -176,6 +178,8 @@ function makeDeps(overrides: Partial<SandboxDeps> = {}): SandboxDeps {
     spawnServe: () => ({ pid: 4242, exitCode: () => null }),
     // Never a real watchdog in a unit test.
     spawnIdleWatch: () => ({ pid: 4243, exitCode: () => null }),
+    // Never the real user manager in a unit test.
+    units: noUnits(),
     projectName: () => "test",
     rootOf: () => "/repo",
     binExists: () => true,
@@ -655,7 +659,7 @@ describe("sandboxConfigContent", () => {
     const result = await upSandbox({}, env, makeDeps({
       runner,
       probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
-      spawnServe: (cmd) => {
+      spawnServe: ({ cmd }) => {
         holderCommands.push([...cmd]);
         return { pid: 4242, exitCode: () => null };
       },
@@ -687,7 +691,7 @@ describe("sandboxConfigContent", () => {
     const result = await upSandbox({ idleMinutes: 7 }, env, makeDeps({
       runner,
       probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
-      spawnIdleWatch: (cmd, _logPath, pidPath) => {
+      spawnIdleWatch: ({ cmd, pidPath }) => {
         spawned.push([...cmd, pidPath]);
         return { pid: 4243, exitCode: () => null };
       },
@@ -695,6 +699,41 @@ describe("sandboxConfigContent", () => {
     expect(result).toBe(0);
     expect(spawned).toHaveLength(1);
     expect(spawned[0]?.slice(2)).toEqual(["idle-watch", "--port", "18768", "--minutes", "7", idlePidPath(env, 18768)]);
+  });
+
+  test("starts the holder as the unit ocsub-holder-<port> after a stop of a stale one", async () => {
+    const env = makeEnv();
+    const { runner } = fakeRunner((cmd) => {
+      if (isSubcommand(cmd, "ls")) return { stdout: lsWorkspace("oc-sub-test", env) };
+      if (isSubcommand(cmd, "secret") && cmd[2] === "ls") return { stdout: "SCOPE     TYPE      NAME         SECRET\noc-sub-test   service   openrouter   (stored)\n" };
+      if (isSubcommand(cmd, "ports")) return { stdout: "HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL\n127.0.0.1   18768       4096           tcp4\n" };
+      if (cmd[0] === "git") return GIT_REMOTE;
+      return DENIED;
+    });
+    const units = fakeUnits({ loaded: ["ocsub-holder-18768", "ocsub-idle-18768"] });
+    const started: UnitOptions[] = [];
+    const record = (opts: UnitOptions) => {
+      started.push(opts);
+      units.calls.push(`start ${opts.kind}`);
+      return { pid: 4242, exitCode: () => null };
+    };
+    let probes = 0;
+    const result = await upSandbox({}, env, makeDeps({
+      runner,
+      units: units.deps,
+      probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
+      spawnServe: record,
+      spawnIdleWatch: record,
+    }));
+    expect(result).toBe(0);
+    expect(units.calls).toEqual(["stop ocsub-holder-18768", "stop ocsub-idle-18768", "start holder", "start idle"]);
+    expect(started.map((opts) => [opts.kind, opts.name, opts.owner, opts.reason])).toEqual([
+      ["holder", "18768", "test", "sandbox oc-sub-test: opencode server of up on port 18768"],
+      ["idle", "18768", "test", "idle watchdog for port 18768, stops the server after 30m without activity"],
+    ]);
+    expect(started[0]?.cmd.slice(0, 2)).toEqual(["sbx", "exec"]);
+    expect(started[0]?.logPath).toBe(serveLogPath(env, 18768));
+    expect(started[0]?.pidPath).toBe(servePidPath(env, 18768));
   });
 
   test("a set host OPENCODE_CONFIG_CONTENT gives a warning on stderr", async () => {
@@ -805,7 +844,7 @@ describe("cost proxy wiring (sandbox mode)", () => {
     const result = await upSandbox({}, env, makeDeps({
       runner,
       probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
-      spawnServe: (cmd) => {
+      spawnServe: ({ cmd }) => {
         holderCommands.push([...cmd]);
         return { pid: 4242, exitCode: () => null };
       },
@@ -831,7 +870,7 @@ describe("cost proxy wiring (sandbox mode)", () => {
     const result = await upSandbox({ noCostProxy: true }, env, makeDeps({
       runner,
       probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
-      spawnServe: (cmd) => {
+      spawnServe: ({ cmd }) => {
         holderCommands.push([...cmd]);
         return { pid: 4242, exitCode: () => null };
       },
@@ -1066,7 +1105,7 @@ describe("upSandbox", () => {
     const execCommands: string[][] = [];
     const result = await upSandbox({}, env, makeDeps({
       runner,
-      spawnServe: (cmd) => {
+      spawnServe: ({ cmd }) => {
         execCommands.push([...cmd]);
         return { pid: 4242, exitCode: () => 1 };
       },
@@ -1180,7 +1219,7 @@ describe("upSandbox", () => {
     try {
       result = await upSandbox({}, env, makeDeps({
         runner,
-        spawnServe: (cmd) => {
+        spawnServe: ({ cmd }) => {
           holderArgs.push([...cmd]);
           return { pid: 4242, exitCode: () => 1 };
         },
@@ -1225,7 +1264,7 @@ describe("upSandbox", () => {
     try {
       result = await upSandbox({}, env, makeDeps({
         runner,
-        spawnServe: (cmd) => {
+        spawnServe: ({ cmd }) => {
           holderArgs.push([...cmd]);
           return { pid: 4242, exitCode: () => 1 };
         },
@@ -1264,7 +1303,7 @@ describe("upSandbox", () => {
     try {
       result = await upSandbox({}, env, makeDeps({
         runner,
-        spawnServe: (cmd) => {
+        spawnServe: ({ cmd }) => {
           holderArgs.push([...cmd]);
           return { pid: 4242, exitCode: () => 1 };
         },
@@ -1668,6 +1707,41 @@ describe("downSandbox", () => {
     expect(existsSync(idlePidPath(env, 18768))).toBe(false);
   });
 
+  test("stops the holder unit after sbx stop, then the idle unit", async () => {
+    const env = makeEnv();
+    mkdirSync(env.XDG_STATE_HOME as string, { recursive: true });
+    await writeSandboxState(sandboxStatePath(env, "test"), { name: "oc-sub-test", root: "/repo", port: 18768 });
+    const { calls, runner } = fakeRunner(() => ({ stdout: "" }));
+    const units = fakeUnits({ loaded: ["ocsub-holder-18768", "ocsub-idle-18768"] });
+    const result = await downSandbox({ force: false }, env, makeDeps({
+      runner: (cmd, opts) => {
+        units.calls.push(cmd.join(" "));
+        return runner(cmd, opts);
+      },
+      units: units.deps,
+      probe: async () => ({ state: "down" }),
+    }));
+    expect(result).toBe(0);
+    expect(calls).toEqual([{ cmd: ["sbx", "stop", "oc-sub-test"] }]);
+    expect(units.calls).toEqual(["sbx stop oc-sub-test", "stop ocsub-holder-18768", "stop ocsub-idle-18768"]);
+  });
+
+  test("the watchdog stops the holder unit but never its own unit", async () => {
+    const env = makeEnv();
+    mkdirSync(env.XDG_STATE_HOME as string, { recursive: true });
+    await writeSandboxState(sandboxStatePath(env, "test"), { name: "oc-sub-test", root: "/repo", port: 18768 });
+    const { runner } = fakeRunner(() => ({ stdout: "" }));
+    const units = fakeUnits({ loaded: ["ocsub-holder-18768", "ocsub-idle-18768"], own: "ocsub-idle-18768" });
+    const result = await downSandbox({ force: false }, env, makeDeps({
+      runner,
+      units: units.deps,
+      probe: async () => ({ state: "down" }),
+    }));
+    expect(result).toBe(0);
+    expect(units.calls).toEqual(["stop ocsub-holder-18768"]);
+    expect([...units.loaded]).toEqual(["ocsub-idle-18768"]);
+  });
+
   test("reports a failed sbx stop", async () => {
     const env = makeEnv();
     mkdirSync(env.XDG_STATE_HOME as string, { recursive: true });
@@ -1817,7 +1891,7 @@ describe("DeepInfra in sandbox mode", () => {
       runner,
       keyExists: (file) => opts.deepinfraKey || !file.endsWith("deepinfra.key"),
       probe: async () => (probes++ === 0 ? { state: "down" } : { state: "up", version: "1.18.32" }),
-      spawnServe: (cmd) => {
+      spawnServe: ({ cmd }) => {
         holderCommands.push([...cmd]);
         return { pid: 4242, exitCode: () => null };
       },
@@ -1988,7 +2062,7 @@ describe("server log keeps older starts (sandbox mode)", () => {
       result = await upSandbox({}, env, makeDeps({
         runner: sandboxRunner(env),
         probe: async () => ({ state: "down" }),
-        spawnServe: (_cmd, logPath2) => {
+        spawnServe: ({ logPath: logPath2 }) => {
           writeFileSync(logPath2, `${readFileSync(logPath2, "utf8")}holder: fatal error\n`);
           return { pid: 4242, exitCode: () => 1 };
         },

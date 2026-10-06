@@ -1,11 +1,12 @@
 /**
  * The idle watchdog of a server that `oc-sub up` started.
  *
- * `up` starts the server detached, and before this module only `oc-sub down`
- * stopped it, so an idle server ran for days. After a start, `up` spawns the
- * hidden command `oc-sub idle-watch --port <port> --minutes <N>` detached,
- * with its own PID file `idle-<port>.pid` and its output appended to the
- * server log. The watchdog follows the event stream of all folders
+ * `up` starts the server in the background, and before this module only
+ * `oc-sub down` stopped it, so an idle server ran for days. After a start,
+ * `up` starts the hidden command `oc-sub idle-watch --port <port> --minutes
+ * <N>` as the unit `ocsub-idle-<port>` (`units.ts`), or detached without a
+ * user manager, with its own PID file `idle-<port>.pid` and its output
+ * appended to the server log. The watchdog follows the event stream of all folders
  * (`GET /global/event`) and stops the server when no session is busy and no
  * real event came for N minutes (default 30). It uses the normal stop path:
  * `down` for a host server, `stopSandbox` for a sandbox. In sandbox mode,
@@ -23,6 +24,12 @@
  * `oc-sub run` holds it, the run starts a session now, so the watchdog
  * resets its timer and does not stop the server.
  *
+ * The watchdog runs the stop path from inside its own unit. A stop of that
+ * unit would end the watchdog in the middle of the stop, so the stop path
+ * never stops the unit of the calling process (`stopPortUnits`). After a
+ * successful stop the watchdog returns, its process ends, and the manager
+ * unloads its unit.
+ *
  * The watchdog never outlives its server for long. It exits without a stop
  * when the server PID file changes or disappears, or when the server fails
  * the health check 3 times in a row.
@@ -33,6 +40,7 @@ import { makeClient, probeServer, unwrap, type ServerState } from "./client";
 import { commandLineOf, down, isAlive, signalGroup, stopGroup, type DownDeps } from "./down";
 import { readDirs, readPid, removeFiles, serveDirsPath, serveLogPath, servePidPath, stateDir } from "./state";
 import { readSandboxStates, stopSandbox, type ServeProcess } from "./sandbox";
+import { defaultUnitDeps, stopPortUnits, type UnitDeps, type UnitOptions } from "./units";
 import { tryLockServer, type Release } from "./lock";
 
 export { DEFAULT_IDLE_MINUTES } from "./args";
@@ -326,17 +334,24 @@ export function isIdleWatch(commandLine: string, port: number): boolean {
   return words.includes("idle-watch") && portIndex !== -1 && words[portIndex + 1] === String(port);
 }
 
+/** What `stopIdleWatch` reaches outside: the process calls of `down` and the user manager. */
+export type StopIdleDeps = Pick<DownDeps, "commandLineOf" | "killGroup"> & { units: UnitDeps };
+
 /**
- * Stops the watchdog of the server on `port` and removes its PID file. A
- * missing or stale PID file is fine. The watchdog itself calls the stop
- * path, so a PID equal to `selfPid` gets no signal.
+ * Stops the watchdog of the server on `port` and removes its PID file. It
+ * stops the unit `ocsub-idle-<port>` first, then the process of the PID
+ * file, for a watchdog of an older oc-sub or of the fallback path. A
+ * missing unit and a missing or stale PID file are fine. The watchdog itself
+ * calls the stop path, so neither its own unit nor a PID equal to `selfPid`
+ * gets a stop: it ends by itself after the stop path returns.
  */
 export async function stopIdleWatch(
   env: Env,
   port: number,
-  deps: Pick<DownDeps, "commandLineOf" | "killGroup"> = { commandLineOf, killGroup: signalGroup },
+  deps: StopIdleDeps = { commandLineOf, killGroup: signalGroup, units: defaultUnitDeps },
   selfPid: number = process.pid,
 ): Promise<void> {
+  stopPortUnits(port, ["idle"], deps.units);
   const file = idlePidPath(env, port);
   const pid = await readPid(file);
   if (pid !== null && pid !== selfPid) {
@@ -357,20 +372,41 @@ export function idleWatchCommand(port: number, minutes: number, bun: string = pr
   return [bun, CLI_PATH, "idle-watch", "--port", String(port), "--minutes", String(minutes)];
 }
 
-/** Starts a detached process in `cwd`, with its output in a log and a PID file. */
-export type SpawnIdleWatch = (cmd: readonly string[], logPath: string, pidPath: string, cwd: string) => ServeProcess;
+/** Starts the watchdog: `startUnit` (`units.ts`), or a fake in the tests. */
+export type SpawnIdleWatch = (opts: UnitOptions, units: UnitDeps) => ServeProcess;
 
 /**
- * Starts the watchdog of the server on `port` after a start of `up`. With
- * `minutes` 0, it starts nothing. A failed spawn gives a warning and no
- * error, because the server runs.
+ * Starts the watchdog of the server on `port` after a start of `up`, as the
+ * unit `ocsub-idle-<port>` with `owner`. With `minutes` 0, it starts
+ * nothing. A failed spawn gives a warning and no error, because the server
+ * runs.
  */
-export function startIdleWatch(env: Env, port: number, minutes: number, spawn: SpawnIdleWatch): void {
+export function startIdleWatch(
+  env: Env,
+  port: number,
+  minutes: number,
+  spawn: SpawnIdleWatch,
+  owner: string,
+  units: UnitDeps = defaultUnitDeps,
+): void {
   if (minutes <= 0) return;
   try {
     // The watchdog works in the state folder, not in the folder of `up`:
     // a removed worktree must not leave an orphan in a missing folder.
-    spawn(idleWatchCommand(port, minutes), serveLogPath(env, port), idlePidPath(env, port), stateDir(env));
+    spawn(
+      {
+        kind: "idle",
+        name: String(port),
+        owner,
+        reason: `idle watchdog for port ${port}, stops the server after ${formatMinutes(minutes)} without activity`,
+        cmd: idleWatchCommand(port, minutes),
+        cwd: stateDir(env),
+        env,
+        logPath: serveLogPath(env, port),
+        pidPath: idlePidPath(env, port),
+      },
+      units,
+    );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     console.error(`warning: cannot start the idle watchdog: ${reason}. Stop the server with oc-sub down.`);

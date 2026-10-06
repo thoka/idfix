@@ -73,7 +73,7 @@ bun run src/cli.ts up [--dir DIR] [--idle-minutes N]
 bun run src/cli.ts up --no-sandbox [--port N] [--idle-minutes N]
 ```
 
-Checks the health of the host server (`GET /global/health`). When nothing answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background (detached, so it outlives the command), waits until it is healthy, and prints the URL and the version. Without `--port`, the port comes from the URL, then from 8767. With `--port N`, `up` checks and starts the server on port N and keeps the host of the URL (so `OC_SUB_URL` keeps its host). When both `--url` and `--port` are given and their ports differ, `up` stops with a usage error. Without `--no-sandbox`, `up` starts a sandbox instead (see `docs/GUIDE.md`).
+Checks the health of the host server (`GET /global/health`). When nothing answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background (as a systemd user unit, so it outlives the command; see "Background processes" below), waits until it is healthy, and prints the URL and the version. Without `--port`, the port comes from the URL, then from 8767. With `--port N`, `up` checks and starts the server on port N and keeps the host of the URL (so `OC_SUB_URL` keeps its host). When both `--url` and `--port` are given and their ports differ, `up` stops with a usage error. Without `--no-sandbox`, `up` starts a sandbox instead (see `docs/GUIDE.md`).
 
 `up` sets `OPENCODE_CONFIG_DIR` in the environment of the child process to the `opencode/` folder of this repository (computed from the location of the source file, not from the working directory). opencode then loads the research agents of the plugin for every project, after the project `.opencode` folder, so its agent wins over a project agent with the same name. If the environment already sets `OPENCODE_CONFIG_DIR` to another value, `up` keeps that value and prints a warning to stderr, because the research agents are then not loaded. If `OPENCODE_CONFIG_DIR` already holds the folder of the plugin, `up` prints no warning.
 
@@ -89,6 +89,16 @@ One server serves many project folders, so its state lives in one folder per use
 - `idle-<port>.pid` holds the PID of the idle watchdog of the server.
 - `serve-<port>.lock` is the server lock. `oc-sub run` holds it while it starts a session, and the idle watchdog holds it while it stops the server. It is a folder, because the lock library `proper-lockfile` locks with `mkdir`.
 - `runs/` holds a copy of every run record, so `watch` and `log` find the real cost from any working directory.
+
+#### Background processes
+
+`up` starts each long-lived process as a transient systemd user unit (a user service that exists only while it runs). The name is `ocsub-<kind>-<port>`. The kind is `serve` (the host server), `proxy` (the cost proxy), `holder` (the `sbx exec` holder of sandbox mode), or `idle` (the idle watchdog). The description of each unit gives the owner (the project of the folder where you ran `up`) and the reason, for example `owner=idfix reason=cost proxy for port 4096`. List them with:
+
+```
+systemctl --user list-units 'ocsub-*' --all
+```
+
+`down` stops the units of its port first. A unit stop ends every process of the unit, also a child that left its process group. The manager starts the cost proxy again one second after each end, like the old `sh` loop, with no start limit. The PID files stay, because `status` and `doctor` read them. On a host without a systemd user manager (macOS, a container, WSL without systemd), `up` starts the same processes detached, as before, and the cost proxy runs in a `sh` restart loop. Each process also gets the variables `OCSUB_OWNER` and `OCSUB_REASON` on both paths.
 
 #### The idle watchdog
 
@@ -111,7 +121,7 @@ After a new server is healthy, `up` also starts an idle watchdog in the backgrou
 oc-sub down --no-sandbox [--port N] [--force]
 ```
 
-Stops the server that `oc-sub up` started on the port. It reads the PID file and makes sure that the process is still `opencode serve` on that port. If a session in one of the listed folders is still busy, `down` lists it and stops with code 1. With `--force`, it stops the server anyway. Then it sends SIGTERM to the process group of the server, waits up to 15 seconds, and removes the state files. If no server runs, it says so and exits with code 0. If a server answers but `oc-sub up` did not start it, `down` does not touch it and exits with code 1.
+Stops the server that `oc-sub up` started on the port. It reads the PID file and makes sure that the process is still `opencode serve` on that port. If a session in one of the listed folders is still busy, `down` lists it and stops with code 1. With `--force`, it stops the server anyway. Then it stops the unit `ocsub-serve-<port>`, the cost proxy, and the idle watchdog (see "Background processes"). For a server without a unit (an older oc-sub, or a host without a user manager), it sends SIGTERM to the process group of the server instead. Both ways wait up to 15 seconds before SIGKILL. Then `down` removes the state files. If no server runs, it says so and exits with code 0. If a server answers but `oc-sub up` did not start it, `down` does not touch it and exits with code 1.
 
 `down` knows only the sessions that `oc-sub run` started. It does not see a session that you started in the opencode interface.
 
@@ -413,6 +423,7 @@ A git hook sets repository-local git variables such as `GIT_DIR` and `GIT_INDEX_
 - `src/runs.ts` — run records in `.opencode/runs/` and in the state folder, real-cost line
 - `src/realcost.ts` — the real-cost output of `watch` and `log`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
+- `src/units.ts`: the start and the stop of the `ocsub-*` systemd user units, with the fallback to a detached process (`src/spawn.ts`)
 - `src/state.ts`: per-user state files of the server (PID, log, folders with runs, lock)
 - `src/lock.ts`: the server lock `serve-<port>.lock` of `run` and the idle watchdog
 - `src/idle.ts`: the idle watchdog of a server: the pure busy tracker, the hidden `idle-watch` command, and its start and stop

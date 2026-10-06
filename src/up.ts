@@ -1,5 +1,5 @@
 /** `oc-sub up`: make sure an opencode server answers, start one if needed. */
-import { existsSync, openSync, closeSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { resolveTarget, type Env } from "./config";
@@ -13,16 +13,29 @@ import {
   providerEntries,
   proxyBaseUrl,
   proxyLoopScript,
-  spawnDetached,
   type ServeProcess,
 } from "./sandbox";
 import { removeFiles, appendLogMarker, readLogTail, proxyLogPath, proxyPidPath, serveDirsPath, serveLogPath, servePidPath, servePluginPath } from "./state";
 import { pluginDataDir, proxyBundleIn, syncPluginDir } from "./plugin-sync";
 import { DEFAULT_IDLE_MINUTES } from "./args";
 import { startIdleWatch, stopIdleWatch, type SpawnIdleWatch } from "./idle";
+import { commandLineOf, signalGroup } from "./down";
+import {
+  defaultUnitDeps,
+  portUnitName,
+  startUnit,
+  stopPortUnits,
+  stopUnit,
+  UNIT_STOP_TIMEOUT_SEC,
+  unitsAvailable,
+  type UnitDeps,
+  type UnitOptions,
+} from "./units";
 
 const HEALTH_TIMEOUT_MS = 60_000;
 const HEALTH_INTERVAL_MS = 300;
+/** The wait between two starts of the cost proxy, like the `sleep 1` of the fallback loop. */
+export const PROXY_RESTART_SEC = 1;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -105,28 +118,38 @@ export function serveEnv(
   return { env: { ...withConfigDir, ...exa }, warnings };
 }
 
+/**
+ * Starts one long-lived process of `up` and gives its PID. The default is
+ * `startUnit`: a transient user service `ocsub-<kind>-<port>`, or a detached
+ * process without a user manager.
+ */
+export type StartProcess = (opts: UnitOptions, units: UnitDeps) => ServeProcess;
+
 /** Everything that `up` reaches outside this module; the tests replace it. */
 export type UpDeps = {
   /** Probes a server URL. */
   probe: (url: string) => Promise<ServerState>;
   /** The absolute bun binary that runs the proxy, or null without one. */
   bunBin: () => string | null;
-  /** Starts the detached server process. */
-  spawnServe: (cmd: readonly string[], logPath: string, pidPath: string, env: Env) => ServeProcess;
-  /** Starts the detached proxy process. */
-  spawnProxy: (cmd: readonly string[], logPath: string, pidPath: string) => ServeProcess;
-  /** Starts the detached idle watchdog (`idle.ts`) after a healthy start. */
+  /** Starts the server process. */
+  spawnServe: StartProcess;
+  /** Starts the proxy process. */
+  spawnProxy: StartProcess;
+  /** Starts the idle watchdog (`idle.ts`) after a healthy start. */
   spawnIdleWatch: SpawnIdleWatch;
+  /** The user manager: whether it answers, and the stop of a unit. */
+  units: UnitDeps;
   /** The plugin folder that `up` syncs from; the default is `PLUGIN_CONFIG_DIR`. */
   pluginSource?: string;
-  /** The project name of a directory, for the DeepInfra key file. */
+  /** The project name of a directory, for the DeepInfra key file and the owner of the units. */
   projectName: (directory: string) => string;
   /** The content of a key file, or null when it is missing. The tests replace it. */
   readKeyFile: (file: string) => string | null;
   /**
    * Signals the process group of a detached process. `up` stops the proxy
-   * group with it when the server does not start. The default sends
-   * SIGTERM to the negative PID and ignores a group that is already gone.
+   * group with it when the server does not start on the fallback path. The
+   * default sends SIGTERM to the negative PID and ignores a group that is
+   * already gone.
    */
   killGroup?: (pid: number) => void;
 };
@@ -139,36 +162,17 @@ function killGroupQuietly(pid: number): void {
   }
 }
 
-/** The default dependencies, with the real bun from PATH and real spawns. */
+/** The default dependencies, with the real bun from PATH and real units. */
 export const defaultUpDeps: UpDeps = {
   probe: (url) => probeServer(url, process.env),
   bunBin: () => Bun.which("bun"),
-  spawnServe: (cmd, logPath, pidPath, env) => {
-    // The server keeps running after this process exits, so its output goes
-    // to a file: fd numbers are inherited by the child and closed here again.
-    // The file opens in append mode, so the proxy `end` lines of older runs
-    // stay in the log and `oc-sub log` of an older run keeps the real cost.
-    const logFd = openSync(logPath, "a");
-    let proc: Bun.Subprocess;
-    try {
-      proc = Bun.spawn({
-        cmd: [...cmd],
-        cwd: process.cwd(),
-        env: { ...env },
-        stdin: "ignore",
-        stdout: logFd,
-        stderr: logFd,
-        detached: true,
-      });
-    } finally {
-      closeSync(logFd);
-    }
-    proc.unref();
-    writeFileSync(pidPath, `${proc.pid}\n`);
-    return { pid: proc.pid, exitCode: () => proc.exitCode };
-  },
-  spawnProxy: spawnDetached,
-  spawnIdleWatch: spawnDetached,
+  // The server keeps running after this process exits. On both paths its
+  // output goes to the log in append mode, so the proxy `end` lines of older
+  // runs stay in the log and `oc-sub log` of an older run keeps the real cost.
+  spawnServe: startUnit,
+  spawnProxy: startUnit,
+  spawnIdleWatch: startUnit,
+  units: defaultUnitDeps,
   projectName: projectNameOf,
   readKeyFile: (file) => {
     try {
@@ -178,6 +182,17 @@ export const defaultUpDeps: UpDeps = {
     }
   },
 };
+
+/**
+ * The command of the cost proxy. On the unit path, the plain bun command:
+ * the manager starts it again after each end (`Restart=always`, no start
+ * limit). On the
+ * fallback path, the `sh` loop of `proxyLoopScript` does the restart. Pure.
+ */
+export function proxyCommand(onUnits: boolean, bunBin: string, bundlePath: string, proxyPort: number): string[] {
+  if (onUnits) return [bunBin, bundlePath, "--port", String(proxyPort), "--hostname", "127.0.0.1"];
+  return ["sh", "-c", proxyLoopScript(bunBin, bundlePath, proxyPort, "127.0.0.1")];
+}
 
 export async function up(
   args: { url?: string; port?: number; noCostProxy?: boolean; idleMinutes?: number },
@@ -243,11 +258,9 @@ export async function up(
   // DeepInfra is optional: `DEEPINFRA_API_KEY` of the environment
   // first, then the DeepInfra key file of the project of the current folder.
   // Without either, nothing changes.
-  const deepinfraKey = hostDeepInfraKey(
-    env,
-    deepinfraKeyPath(deps.projectName(process.cwd()), env),
-    deps.readKeyFile,
-  );
+  // The project of the current folder owns the processes of this start.
+  const owner = deps.projectName(process.cwd());
+  const deepinfraKey = hostDeepInfraKey(env, deepinfraKeyPath(owner, env), deps.readKeyFile);
   const serve = serveEnv(env, pluginDir, sharedAgentsDir(env), {
     proxyUrl: args.noCostProxy ? undefined : proxyBaseUrl(proxyPort),
     deepinfraProxyUrl: args.noCostProxy || deepinfraKey === undefined ? undefined : deepinfraProxyBaseUrl(proxyPort),
@@ -264,7 +277,19 @@ export async function up(
   // and so is its plugin digest. A watchdog of a crashed server would end by
   // itself, but stop it now, so that the new server gets one watchdog.
   await removeFiles(serveDirsPath(env, port), servePluginPath(env, port));
-  await stopIdleWatch(env, port);
+  // A unit of a dead or hung server of this port can still be loaded, and
+  // `systemd-run` refuses a second unit with the same name. A healthy
+  // server returned above, so these units belong to no working server.
+  try {
+    stopPortUnits(port, ["serve", "proxy"], deps.units);
+    await stopIdleWatch(env, port, { commandLineOf, killGroup: signalGroup, units: deps.units });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(`error: cannot stop the old units of port ${port}: ${reason}`);
+    return 1;
+  }
+  const onUnits = unitsAvailable(deps.units);
+  const unitStop = { timeoutStopSec: UNIT_STOP_TIMEOUT_SEC };
 
   // The proxy starts first, so that it listens before the first request of
   // the server. Its log and pid live next to the ones of the server. Both
@@ -275,9 +300,22 @@ export async function up(
     try {
       await appendLogMarker(proxyLogPath(env, port), "up");
       proxyPid = deps.spawnProxy(
-        ["sh", "-c", proxyLoopScript(bunBin, proxyBundleIn(pluginDir), proxyPort, "127.0.0.1")],
-        proxyLogPath(env, port),
-        proxyPidPath(env, port),
+        {
+          kind: "proxy",
+          name: String(port),
+          owner,
+          reason: `cost proxy for port ${port}`,
+          cmd: proxyCommand(onUnits, bunBin, proxyBundleIn(pluginDir), proxyPort),
+          cwd: process.cwd(),
+          env,
+          logPath: proxyLogPath(env, port),
+          pidPath: proxyPidPath(env, port),
+          // Like the `sh` loop of the fallback path: a restart after every
+          // end, also a clean one, and no start limit.
+          ...(onUnits ? { restart: "always" as const, restartSec: PROXY_RESTART_SEC, startLimitIntervalSec: 0 } : {}),
+          ...unitStop,
+        },
+        deps.units,
       ).pid;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -285,12 +323,23 @@ export async function up(
     }
   }
 
-  // A failed start must not leave the proxy loop behind: nothing would stop
-  // it, and the next `up` would start a second loop on the same port. So
-  // each error path below stops the whole proxy group (loop and bun child).
+  // A failed start must not leave the proxy behind: nothing would stop it,
+  // and the next `up` would start a second proxy on the same port. So each
+  // error path below stops the proxy unit, or on the fallback path the
+  // whole proxy group (loop and bun child). After a restart of the unit,
+  // the PID file is stale, so the unit is the only safe handle.
   const stopProxyGroup = async (): Promise<void> => {
     if (proxyPid === null) return;
-    (deps.killGroup ?? killGroupQuietly)(proxyPid);
+    if (onUnits) {
+      try {
+        stopUnit(portUnitName("proxy", port), deps.units);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.error(`warning: cannot stop the cost proxy: ${reason}`);
+      }
+    } else {
+      (deps.killGroup ?? killGroupQuietly)(proxyPid);
+    }
     await removeFiles(proxyPidPath(env, port));
   };
 
@@ -298,10 +347,19 @@ export async function up(
   try {
     await appendLogMarker(logPath, "up");
     proc = deps.spawnServe(
-      ["opencode", "serve", "--port", String(port), "--hostname", "127.0.0.1"],
-      logPath,
-      pidPath,
-      serve.env,
+      {
+        kind: "serve",
+        name: String(port),
+        owner,
+        reason: `opencode server of up on port ${port}`,
+        cmd: ["opencode", "serve", "--port", String(port), "--hostname", "127.0.0.1"],
+        cwd: process.cwd(),
+        env: serve.env,
+        logPath,
+        pidPath,
+        ...unitStop,
+      },
+      deps.units,
     );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -320,7 +378,7 @@ export async function up(
       console.log(`${serveUrl} version ${health.version}`);
       console.log(`log: ${logPath}`);
       // The watchdog stops the server after the idle limit (`idle.ts`).
-      startIdleWatch(env, port, args.idleMinutes ?? DEFAULT_IDLE_MINUTES, deps.spawnIdleWatch);
+      startIdleWatch(env, port, args.idleMinutes ?? DEFAULT_IDLE_MINUTES, deps.spawnIdleWatch, owner, deps.units);
       return 0;
     }
     if (proc.exitCode() !== null) {

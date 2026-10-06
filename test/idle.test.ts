@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs, UsageError } from "../src/args";
 import { signalGroup } from "../src/down";
+import type { UnitOptions } from "../src/units";
+import { fakeUnits, noUnits } from "./fake-units";
 import {
   CLI_PATH,
   DEFAULT_IDLE_MINUTES,
@@ -344,16 +346,30 @@ function tempEnv(): Record<string, string> {
 describe("startIdleWatch", () => {
   test("spawns the watchdog with its PID file and the server log", () => {
     const env = tempEnv();
-    const spawned: Array<{ cmd: readonly string[]; log: string; pid: string; cwd: string }> = [];
-    startIdleWatch(env, 8767, 5, (cmd, log, pid, cwd) => {
-      spawned.push({ cmd, log, pid, cwd });
+    const spawned: UnitOptions[] = [];
+    const units = noUnits();
+    startIdleWatch(env, 8767, 5, (opts, given) => {
+      expect(given).toBe(units);
+      spawned.push(opts);
       return { pid: 1, exitCode: () => null };
-    });
+    }, "proj", units);
     expect(spawned).toHaveLength(1);
     expect(spawned[0]?.cmd.slice(2)).toEqual(["idle-watch", "--port", "8767", "--minutes", "5"]);
-    expect(spawned[0]?.log).toBe(serveLogPath(env, 8767));
-    expect(spawned[0]?.pid).toBe(idlePidPath(env, 8767));
+    expect(spawned[0]?.logPath).toBe(serveLogPath(env, 8767));
+    expect(spawned[0]?.pidPath).toBe(idlePidPath(env, 8767));
     expect(spawned[0]?.cwd).toBe(stateDir(env));
+  });
+
+  test("labels the unit ocsub-idle-<port> with the owner and the reason", () => {
+    const spawned: UnitOptions[] = [];
+    startIdleWatch(tempEnv(), 8767, 5, (opts) => {
+      spawned.push(opts);
+      return { pid: 1, exitCode: () => null };
+    }, "proj", noUnits());
+    expect(spawned[0]?.kind).toBe("idle");
+    expect(spawned[0]?.name).toBe("8767");
+    expect(spawned[0]?.owner).toBe("proj");
+    expect(spawned[0]?.reason).toBe("idle watchdog for port 8767, stops the server after 5m without activity");
   });
 
   test("0 minutes starts nothing", () => {
@@ -361,7 +377,7 @@ describe("startIdleWatch", () => {
     startIdleWatch(tempEnv(), 8767, 0, () => {
       called = true;
       return { pid: 1, exitCode: () => null };
-    });
+    }, "proj", noUnits());
     expect(called).toBe(false);
   });
 
@@ -369,7 +385,7 @@ describe("startIdleWatch", () => {
     expect(() =>
       startIdleWatch(tempEnv(), 8767, 5, () => {
         throw new Error("no bun");
-      }),
+      }, "proj", noUnits()),
     ).not.toThrow();
   });
 });
@@ -382,6 +398,7 @@ describe("stopIdleWatch", () => {
     await stopIdleWatch(env, 8767, {
       commandLineOf: () => `bun ${CLI_PATH} idle-watch --port 8767 --minutes 30`,
       killGroup: signalGroup,
+      units: noUnits(),
     });
     await proc.exited;
     expect(proc.signalCode).toBe("SIGTERM");
@@ -395,7 +412,7 @@ describe("stopIdleWatch", () => {
     await stopIdleWatch(
       env,
       8767,
-      { commandLineOf: () => "vim notes", killGroup: (pid) => signaled.push(pid) },
+      { commandLineOf: () => "vim notes", killGroup: (pid) => signaled.push(pid), units: noUnits() },
       -1,
     );
     expect(signaled).toEqual([]);
@@ -409,13 +426,34 @@ describe("stopIdleWatch", () => {
     await stopIdleWatch(env, 8767, {
       commandLineOf: () => `bun ${CLI_PATH} idle-watch --port 8767`,
       killGroup: (pid) => signaled.push(pid),
+      units: noUnits(),
     });
     expect(signaled).toEqual([]);
     expect(existsSync(idlePidPath(env, 8767))).toBe(false);
   });
 
   test("a missing PID file is fine", async () => {
-    await stopIdleWatch(tempEnv(), 8767);
+    await stopIdleWatch(tempEnv(), 8767, { commandLineOf: () => null, killGroup: () => {}, units: noUnits() });
+  });
+
+  test("stops the unit ocsub-idle-<port> before the PID file", async () => {
+    const units = fakeUnits({ loaded: ["ocsub-idle-8767"] });
+    await stopIdleWatch(tempEnv(), 8767, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
+    expect(units.calls).toEqual(["stop ocsub-idle-8767"]);
+    expect(units.loaded.size).toBe(0);
+  });
+
+  test("the watchdog never stops its own unit", async () => {
+    const units = fakeUnits({ loaded: ["ocsub-idle-8767"], own: "ocsub-idle-8767" });
+    await stopIdleWatch(tempEnv(), 8767, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
+    expect(units.calls).toEqual([]);
+    expect(units.loaded.has("ocsub-idle-8767")).toBe(true);
+  });
+
+  test("a missing unit is no error", async () => {
+    const units = fakeUnits();
+    await stopIdleWatch(tempEnv(), 8767, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
+    expect(units.calls).toEqual(["stop ocsub-idle-8767"]);
   });
 });
 

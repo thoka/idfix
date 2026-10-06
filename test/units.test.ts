@@ -5,6 +5,12 @@ import path from "node:path";
 import type { RunnerResult, ServeProcess } from "../src/sandbox";
 import {
   MAX_UNIT_NAME,
+  PORT_UNIT_KINDS,
+  portUnitName,
+  stopPortUnits,
+  unitActive,
+  unitOfCgroup,
+  unitsAvailable,
   busEnv,
   defaultUnitDeps,
   defaultUnitRunner,
@@ -62,6 +68,7 @@ function fakeDeps(answers: Record<string, RunnerResult | RunnerResult[]>, availa
       return { pid: 4242, exitCode: () => null };
     },
     writePid: (file, pid) => pids.push([file, pid]),
+    ownUnit: () => null,
   };
   return { deps, calls, pids, fallbacks };
 }
@@ -119,6 +126,32 @@ describe("systemdRunArgv", () => {
   test("rejects a RuntimeMaxSec that is not a positive whole number", () => {
     const opts = options({ runtimeMaxSec: 0 });
     expect(() => systemdRunArgv(opts, {})).toThrow(/runtimeMaxSec/);
+  });
+
+  test("adds RestartSec and TimeoutStopSec on request", () => {
+    const opts = options({ restart: "on-failure", restartSec: 1, timeoutStopSec: 15 });
+    const argv = systemdRunArgv(opts, {});
+    expect(argv).toContain("--property=RestartSec=1");
+    expect(argv).toContain("--property=TimeoutStopSec=15");
+    // All properties come before the command.
+    expect(argv.indexOf("--property=RestartSec=1")).toBeLessThan(argv.indexOf("--"));
+  });
+
+  test("adds Restart=always and StartLimitIntervalSec=0 on request", () => {
+    const argv = systemdRunArgv(options({ restart: "always", restartSec: 1, startLimitIntervalSec: 0 }), {});
+    expect(argv).toContain("--property=Restart=always");
+    expect(argv).toContain("--property=StartLimitIntervalSec=0");
+    expect(argv).toContain("--property=RestartSec=1");
+    expect(argv).not.toContain("--property=Restart=on-failure");
+  });
+
+  test("rejects a negative StartLimitIntervalSec", () => {
+    expect(() => systemdRunArgv(options({ startLimitIntervalSec: -1 }), {})).toThrow(/startLimitIntervalSec/);
+  });
+
+  test("rejects a RestartSec or a TimeoutStopSec that is not a positive whole number", () => {
+    expect(() => systemdRunArgv(options({ restartSec: -1 }), {})).toThrow(/restartSec/);
+    expect(() => systemdRunArgv(options({ timeoutStopSec: 1.5 }), {})).toThrow(/timeoutStopSec/);
   });
 
   test("passes each variable by name and never a value", () => {
@@ -291,6 +324,76 @@ describe("stopUnit", () => {
       "systemctl stop": { stdout: "", exitCode: 1, stderr: "Failed to connect to bus" },
     });
     expect(() => stopUnit("x", deps)).toThrow(/Failed to connect to bus/);
+  });
+});
+
+describe("units of a port", () => {
+  test("the kinds are serve, proxy, holder, and idle, named by the port", () => {
+    expect(PORT_UNIT_KINDS).toEqual(["serve", "proxy", "holder", "idle"]);
+    expect(portUnitName("proxy", 4096)).toBe("ocsub-proxy-4096");
+  });
+
+  test("unitsAvailable asks the user manager", () => {
+    expect(unitsAvailable(fakeDeps({}, true).deps)).toBe(true);
+    expect(unitsAvailable(fakeDeps({}, false).deps)).toBe(false);
+  });
+
+  test("unitActive is true for a running unit only", () => {
+    const show = (state: string) => fakeDeps({ "systemctl show": { stdout: `${state}\n`, exitCode: 0 } }).deps;
+    expect(unitActive("ocsub-serve-1", show("active"))).toBe(true);
+    expect(unitActive("ocsub-serve-1", show("activating"))).toBe(true);
+    expect(unitActive("ocsub-serve-1", show("inactive"))).toBe(false);
+    expect(unitActive("ocsub-serve-1", show("failed"))).toBe(false);
+  });
+
+  test("unitActive asks nothing without a user manager", () => {
+    const { deps, calls } = fakeDeps({}, false);
+    expect(unitActive("ocsub-serve-1", deps)).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  test("stopPortUnits stops the kinds in their order and names the stopped ones", () => {
+    const { deps, calls } = fakeDeps({
+      "systemctl stop": [
+        { stdout: "", exitCode: 0 },
+        { stdout: "", exitCode: 5, stderr: "Unit ocsub-proxy-4096.service not loaded." },
+      ],
+    });
+    expect(stopPortUnits(4096, ["serve", "proxy"], deps)).toEqual(["ocsub-serve-4096"]);
+    expect(calls.map((call) => call.cmd.join(" "))).toEqual([
+      "systemctl --user stop ocsub-serve-4096.service",
+      "systemctl --user stop ocsub-proxy-4096.service",
+    ]);
+  });
+
+  test("stopPortUnits never stops the unit of the caller", () => {
+    const { deps, calls } = fakeDeps({ "systemctl stop": { stdout: "", exitCode: 0 } });
+    deps.ownUnit = () => "ocsub-idle-4096";
+    expect(stopPortUnits(4096, ["serve", "idle"], deps)).toEqual(["ocsub-serve-4096"]);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("stopPortUnits does nothing without a user manager", () => {
+    const { deps, calls } = fakeDeps({}, false);
+    expect(stopPortUnits(4096, ["serve"], deps)).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  test("stopPortUnits throws when systemctl fails", () => {
+    const { deps } = fakeDeps({ "systemctl stop": { stdout: "", exitCode: 1, stderr: "Failed to connect to bus" } });
+    expect(() => stopPortUnits(4096, ["serve"], deps)).toThrow(/Failed to connect to bus/);
+  });
+});
+
+describe("unitOfCgroup", () => {
+  test("finds the ocsub unit in a cgroup v2 path", () => {
+    const text = "0::/user.slice/user-1000.slice/user@1000.service/ocsub.slice/ocsub-idle-4096.service\n";
+    expect(unitOfCgroup(text)).toBe("ocsub-idle-4096");
+  });
+
+  test("gives null for another unit or an empty text", () => {
+    expect(unitOfCgroup("0::/user.slice/user-1000.slice/session-3.scope\n")).toBeNull();
+    expect(unitOfCgroup("")).toBeNull();
   });
 });
 

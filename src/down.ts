@@ -2,9 +2,19 @@
  * `oc-sub down`: stop the opencode server that `oc-sub up` started, and its
  * cost proxy.
  *
- * `up` starts both processes detached (`spawnDetached` in `sandbox.ts`), so
- * each one leads its own session and process group: the group ID is the PID
- * in its PID file. The proxy group holds the `sh` restart loop and its `bun`
+ * With a user manager, `up` starts each process as a transient user service
+ * `ocsub-<kind>-<port>` (`units.ts`). `down` stops the unit first:
+ * `systemctl --user stop` ends the whole cgroup, also a child that left the
+ * process group. The PID files stay, because `status`, `doctor`, and the
+ * watchdog read them. But the PID file of the proxy goes stale when the
+ * manager restarts the proxy, so the unit is the handle for the stop.
+ *
+ * After the unit stop, `down` stops the process group of each PID file as
+ * before. This covers a server of an older oc-sub and the fallback path
+ * without a user manager, where `up` starts each process detached
+ * (`spawnDetached` in `spawn.ts`): each one leads its own session and
+ * process group, and the group ID is the PID in its PID file. On the
+ * fallback path, the proxy group holds the `sh` restart loop and its `bun`
  * child. A signal to the negative PID reaches the whole group, so `down`
  * never signals a single PID: a loop without its child would start the
  * proxy again, and a child without its loop would be an orphan.
@@ -23,6 +33,7 @@ import { resolveTarget, type Env } from "./config";
 import { assertUsable, makeClient, probeServer, unwrap } from "./client";
 import { readDirs, readPid, removeFiles, proxyPidPath, serveDirsPath, servePidPath, servePluginPath } from "./state";
 import { idlePidPath, isIdleWatch, stopIdleWatch } from "./idle";
+import { defaultUnitDeps, portUnitName, stopPortUnits, unitActive, type UnitDeps } from "./units";
 
 const STOP_TIMEOUT_MS = 15_000;
 const STOP_INTERVAL_MS = 200;
@@ -50,9 +61,15 @@ export function isOpencodeServe(commandLine: string, port: number): boolean {
 /**
  * Whether a process command line is the cost proxy restart loop of the
  * server whose proxy listens on `proxyPort` (`proxyLoopScript` in
- * `sandbox.ts`), or the proxy itself. Like `isOpencodeServe`, this guards
- * against a stale PID file. The loop script quotes the bundle path, so the
- * name can end with a quote.
+ * `sandbox.ts`), or the proxy itself, as the unit path of `up` starts it
+ * (`bun <bundle> --port <port> --hostname 127.0.0.1`). Like
+ * `isOpencodeServe`, this guards against a stale PID file. The loop script
+ * quotes the bundle path, so the name can end with a quote.
+ *
+ * Right after a start on the unit path, the PID can still be the systemd
+ * executor before the exec, so the command line is not yet the proxy. This
+ * match then gives false. `down` stops the unit before it reads the PID
+ * file, so that window never keeps a proxy running.
  */
 export function isProxyLoop(commandLine: string, proxyPort: number): boolean {
   const words = commandLine.trim().split(/\s+/);
@@ -157,6 +174,8 @@ export type DownDeps = {
    * when no signal is given. A group that is already gone is fine.
    */
   killGroup: (pid: number, signal?: NodeJS.Signals) => void;
+  /** The user manager, for the `ocsub-*` units of `up`. */
+  units: UnitDeps;
 };
 
 export function signalGroup(pid: number, signal: NodeJS.Signals = "SIGTERM"): void {
@@ -170,15 +189,18 @@ export function signalGroup(pid: number, signal: NodeJS.Signals = "SIGTERM"): vo
 export const defaultDownDeps: DownDeps = {
   commandLineOf,
   killGroup: signalGroup,
+  units: defaultUnitDeps,
 };
 
 /**
- * Stops the cost proxy of the server on `port` and removes its PID file.
- * Throws when the proxy did not stop in time. A missing or stale PID file is
- * fine: the proxy of an older oc-sub version has none, and a PID that now
- * belongs to another process is not signaled.
+ * Stops the cost proxy of the server on `port` and removes its PID file:
+ * first its unit, then the process group of its PID file. Throws when the
+ * proxy did not stop in time. A missing unit and a missing or stale PID
+ * file are fine: the proxy of an older oc-sub version has none, and a PID
+ * that now belongs to another process is not signaled.
  */
 async function stopProxy(env: Env, port: number, deps: DownDeps): Promise<void> {
+  stopPortUnits(port, ["proxy"], deps.units);
   const pidPath = proxyPidPath(env, port);
   const pid = await readPid(pidPath);
   const commandLine = pid === null ? null : deps.commandLineOf(pid);
@@ -203,17 +225,22 @@ export async function down(
 
   const pid = await readPid(pidPath);
   const commandLine = pid === null ? null : deps.commandLineOf(pid);
-  if (pid === null || commandLine === null || !isOpencodeServe(commandLine, port)) {
+  const pidIsServer = pid !== null && commandLine !== null && isOpencodeServe(commandLine, port);
+  // A running unit `ocsub-serve-<port>` is a server of `up`, also when its
+  // PID file is missing or its PID is still the systemd executor.
+  const serveUnit = portUnitName("serve", port);
+  const unitRuns = unitActive(serveUnit, deps.units);
+  if (!pidIsServer && !unitRuns) {
     // No server of ours: the PID file is missing or stale. The proxy of a
     // server that died can still run, so stop it before its PID file goes.
     try {
       await stopProxy(env, port, deps);
+      await removeFiles(pidPath, dirsPath, servePluginPath(env, port));
+      await stopIdleWatch(env, port, deps);
     } catch (error) {
       console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
       return 1;
     }
-    await removeFiles(pidPath, dirsPath, servePluginPath(env, port));
-    await stopIdleWatch(env, port, deps);
     if ((await probeServer(serveUrl, env, 2000)).state !== "down") {
       console.error(`error: a server answers on ${serveUrl}, but oc-sub up did not start it. Stop it yourself.`);
       return 1;
@@ -235,16 +262,28 @@ export async function down(
     }
   }
 
-  // `oc-sub up` starts the server detached, so it leads its own process
-  // group. Signal the group, so that child processes (for example language
-  // servers) stop, too.
-  const stopped = await stopGroup(pid, deps.killGroup);
-  if (stopped === "stuck") {
-    console.error(`error: ${stuckMessage("opencode serve", pid)}`);
-    return 1;
+  // The unit first: the stop ends the whole cgroup and waits for it.
+  if (unitRuns) {
+    try {
+      stopPortUnits(port, ["serve"], deps.units);
+    } catch (error) {
+      console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    }
   }
-  if (stopped === "killed") {
-    console.error(`warning: opencode serve (PID ${pid}) ignored SIGTERM for ${STOP_TIMEOUT_MS / 1000}s; it was killed`);
+  // Then the process group of the PID file: the server of an older oc-sub,
+  // or of the fallback path. It leads its own process group, so signal the
+  // group, so that child processes (for example language servers) stop,
+  // too. After a unit stop, the process is gone already.
+  if (pidIsServer && pid !== null && isAlive(pid)) {
+    const stopped = await stopGroup(pid, deps.killGroup);
+    if (stopped === "stuck") {
+      console.error(`error: ${stuckMessage("opencode serve", pid)}`);
+      return 1;
+    }
+    if (stopped === "killed") {
+      console.error(`warning: opencode serve (PID ${pid}) ignored SIGTERM for ${STOP_TIMEOUT_MS / 1000}s; it was killed`);
+    }
   }
   try {
     await stopProxy(env, port, deps);
@@ -253,19 +292,27 @@ export async function down(
     return 1;
   }
   await removeFiles(pidPath, dirsPath, servePluginPath(env, port));
-  // The idle watchdog of the server ends with it. When the watchdog itself
-  // runs this stop, it gets no signal (`stopIdleWatch`).
-  await stopIdleWatch(env, port, deps);
-  console.log(`stopped ${serveUrl} (PID ${pid})`);
+  // The idle watchdog of the server ends with it, only after the server
+  // stopped. When the watchdog itself runs this stop, neither its unit nor
+  // its process gets a signal (`stopIdleWatch`): it ends by itself.
+  try {
+    await stopIdleWatch(env, port, deps);
+  } catch (error) {
+    console.error(`warning: cannot stop the idle watchdog: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  console.log(`stopped ${serveUrl} (${pid !== null ? `PID ${pid}` : serveUnit})`);
   return 0;
 }
 
 /**
- * Signals the process groups of the server on `port`, of its cost proxy,
- * and of its idle watchdog, as their PID files name them, and returns the group IDs it signaled. It
- * does not wait and does not remove the PID files. A PID that now belongs to
- * another process is skipped. The teardown of the integration tests uses it
- * with SIGKILL, so that no restart loop outlives a failed test.
+ * Stops the units of the server on `port`, of its cost proxy, and of its
+ * idle watchdog, then signals the process groups that their PID files name,
+ * and returns the group IDs it signaled. A unit stop waits for the end of
+ * the unit; the signals do not wait. It does not remove the PID files. A
+ * PID that now belongs to another process is skipped. The teardown of the
+ * integration tests uses it with SIGKILL, so that no restart loop and no
+ * unit outlives a failed test. The units go first, because a SIGKILL to the
+ * proxy of a unit with `Restart=always` only starts it again.
  */
 export async function stopStartedGroups(
   env: Env,
@@ -273,6 +320,7 @@ export async function stopStartedGroups(
   signal: NodeJS.Signals = "SIGTERM",
   deps: DownDeps = defaultDownDeps,
 ): Promise<number[]> {
+  stopPortUnits(port, ["serve", "proxy", "idle"], deps.units);
   const signaled: number[] = [];
   const checks: Array<[string, (commandLine: string) => boolean]> = [
     [servePidPath(env, port), (line) => isOpencodeServe(line, port)],

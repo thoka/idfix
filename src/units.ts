@@ -25,7 +25,7 @@
  * variable with the same name from the environment of `systemd-run`.
  *
  * On a host without a user manager (macOS, a container, a WSL VM without
- * systemd), `startUnit` falls back to the detached spawn of `sandbox.ts`
+ * systemd), `startUnit` falls back to the detached spawn of `spawn.ts`
  * with the same two label variables, and the handle has no unit. When the
  * manager answers but `systemd-run` fails, for example because a unit with
  * the name exists already, `startUnit` throws with the stderr of
@@ -34,15 +34,21 @@
  * Every process call goes through an injectable runner, so the unit tests
  * need no systemd. Research: `.plan/research/process-labels.md`.
  */
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Env } from "./config";
-import { spawnDetached, type RunnerResult, type ServeProcess } from "./sandbox";
+import type { RunnerResult } from "./sandbox";
+import { spawnDetached, type ServeProcess } from "./spawn";
 
 /** The prefix of every unit that oc-sub starts. */
 export const UNIT_PREFIX = "ocsub-";
 /** The slice that holds every unit that oc-sub starts. */
 export const UNIT_SLICE = "ocsub.slice";
+/**
+ * How long a stop of a server unit waits after SIGTERM before SIGKILL, in
+ * seconds. `down` waits as long on the fallback path (`stopGroup`).
+ */
+export const UNIT_STOP_TIMEOUT_SEC = 15;
 /** The longest unit name without the `.service` suffix (systemd allows 255 with it). */
 export const MAX_UNIT_NAME = 200;
 
@@ -66,11 +72,41 @@ export type UnitOptions = {
   logPath: string;
   /** The PID file; it gets the main PID of the process. */
   pidPath: string;
-  /** With "on-failure", the manager starts the process again after a failure. */
-  restart?: "on-failure";
+  /**
+   * With "on-failure", the manager starts the process again after a failure.
+   * With "always", it also starts it again after a clean exit. A stop with
+   * `systemctl stop` never starts it again.
+   */
+  restart?: "on-failure" | "always";
+  /** The wait in seconds before a restart of `restart` (systemd `RestartSec`). */
+  restartSec?: number;
+  /**
+   * The interval of the start limit in seconds (systemd
+   * `StartLimitIntervalSec`). 0 turns the start limit off, so the manager
+   * never gives up on the restarts of `restart`.
+   */
+  startLimitIntervalSec?: number;
   /** The manager stops the unit after this many seconds. */
   runtimeMaxSec?: number;
+  /**
+   * How long a stop waits for the end after SIGTERM, in seconds, before the
+   * manager sends SIGKILL (systemd `TimeoutStopSec`, default 90).
+   */
+  timeoutStopSec?: number;
 };
+
+/**
+ * The kinds of unit that `up` starts, one of each per port: the host
+ * server, the cost proxy, the holder of sandbox mode, and the idle watchdog.
+ * The name of each unit is the port of its server, so `ocsub-serve-4096`.
+ */
+export const PORT_UNIT_KINDS = ["serve", "proxy", "holder", "idle"] as const;
+export type PortUnitKind = (typeof PORT_UNIT_KINDS)[number];
+
+/** The unit name of a process of the server on `port`, for example `ocsub-proxy-4096`. Pure. */
+export function portUnitName(kind: PortUnitKind, port: number): string {
+  return unitName(kind, String(port));
+}
 
 /**
  * A started process. `pid` leads its own session and process group on both
@@ -78,7 +114,7 @@ export type UnitOptions = {
  *
  * `exitCode()` gives null while the process runs. On the unit path, it asks
  * the manager: null while the unit is active, activating (also between two
- * starts of `Restart=on-failure`), or deactivating. After the end, it gives
+ * starts of `Restart=`), or deactivating. After the end, it gives
  * the exit status of the main process while the unit is still loaded, and -1
  * when the manager unloaded the unit already (`--collect`) and the real code
  * is lost. The log file keeps the output.
@@ -103,6 +139,11 @@ export type UnitDeps = {
   spawnFallback: (cmd: readonly string[], logPath: string, pidPath: string, cwd: string, env: Env) => ServeProcess;
   /** Writes the PID file. */
   writePid: (pidPath: string, pid: number) => void;
+  /**
+   * The `ocsub-*` unit that holds this process, without `.service`, or null.
+   * The idle watchdog uses it, so that it never stops its own unit.
+   */
+  ownUnit: () => string | null;
 };
 
 /**
@@ -159,12 +200,26 @@ export function systemdRunArgv(opts: UnitOptions, childEnv: Record<string, strin
     `--property=StandardOutput=append:${path.resolve(opts.logPath)}`,
     `--property=StandardError=append:${path.resolve(opts.logPath)}`,
   ];
-  if (opts.restart === "on-failure") argv.push("--property=Restart=on-failure");
-  if (opts.runtimeMaxSec !== undefined) {
-    if (!Number.isInteger(opts.runtimeMaxSec) || opts.runtimeMaxSec <= 0) {
-      throw new Error(`runtimeMaxSec must be a positive whole number, got ${opts.runtimeMaxSec}`);
+  if (opts.restart !== undefined) argv.push(`--property=Restart=${opts.restart}`);
+  if (opts.startLimitIntervalSec !== undefined) {
+    const value = opts.startLimitIntervalSec;
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(`startLimitIntervalSec must be a whole number of 0 or more, got ${value}`);
     }
-    argv.push(`--property=RuntimeMaxSec=${opts.runtimeMaxSec}`);
+    argv.push(`--property=StartLimitIntervalSec=${value}`);
+  }
+  const seconds: Array<[keyof UnitOptions, string]> = [
+    ["restartSec", "RestartSec"],
+    ["runtimeMaxSec", "RuntimeMaxSec"],
+    ["timeoutStopSec", "TimeoutStopSec"],
+  ];
+  for (const [option, property] of seconds) {
+    const value = opts[option];
+    if (value === undefined) continue;
+    if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+      throw new Error(`${option} must be a positive whole number, got ${String(value)}`);
+    }
+    argv.push(`--property=${property}=${value}`);
   }
   for (const key of Object.keys(childEnv)) argv.push(`--setenv=${key}`);
   argv.push("--", ...opts.cmd);
@@ -211,6 +266,29 @@ export const defaultUnitRunner: UnitRunner = (cmd, opts = {}) => {
   }
 };
 
+/**
+ * The `ocsub-*` unit in the text of `/proc/<pid>/cgroup`, without
+ * `.service`, or null. The cgroup v2 line is `0::/user.slice/.../ocsub.slice/ocsub-idle-4096.service`.
+ * Pure.
+ */
+export function unitOfCgroup(text: string): string | null {
+  for (const line of text.split("\n")) {
+    const last = line.trim().split("/").pop() ?? "";
+    const match = /^(ocsub-.+)\.service$/.exec(last);
+    if (match !== null) return match[1] ?? null;
+  }
+  return null;
+}
+
+/** The `ocsub-*` unit of this process, from `/proc/self/cgroup`. Null without one or without `/proc`. */
+export function readOwnUnit(): string | null {
+  try {
+    return unitOfCgroup(readFileSync("/proc/self/cgroup", "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 function processBusEnv(): Env {
   return busEnv(process.env, process.getuid?.() ?? 0);
 }
@@ -227,7 +305,16 @@ export const defaultUnitDeps: UnitDeps = {
   busEnv: processBusEnv,
   spawnFallback: (cmd, logPath, pidPath, cwd, env) => spawnDetached(cmd, logPath, pidPath, cwd, env),
   writePid: (pidPath, pid) => writeFileSync(pidPath, `${pid}\n`),
+  ownUnit: readOwnUnit,
 };
+
+/**
+ * Whether `startUnit` takes the unit path: a user manager answers. `up`
+ * asks this first, because the cost proxy has another command on each path.
+ */
+export function unitsAvailable(deps: UnitDeps = defaultUnitDeps): boolean {
+  return deps.available();
+}
 
 /** The stderr of a call, or its stdout when stderr is empty, or its exit code. */
 function failureText(res: RunnerResult): string {
@@ -307,4 +394,39 @@ export function stopUnit(unit: string, deps: UnitDeps = defaultUnitDeps): boolea
   // systemctl exits with 5 when the unit is not loaded.
   if (res.exitCode === 5 || /not loaded/i.test(res.stderr ?? "")) return false;
   throw new Error(`systemctl cannot stop ${full}: ${failureText(res)}`);
+}
+
+/**
+ * Whether a unit runs: the manager answers, and the unit is active,
+ * activating (also between two starts of `Restart=`), or
+ * deactivating. Without a user manager, no unit runs.
+ */
+export function unitActive(unit: string, deps: UnitDeps = defaultUnitDeps): boolean {
+  if (!deps.available()) return false;
+  const lines = showUnit(deps, unit, ["ActiveState"]);
+  return lines !== null && RUNNING_STATES.has((lines[0] ?? "").trim());
+}
+
+/**
+ * Stops the units of the given kinds of the server on `port`, in the given
+ * order, and gives the names of the units that stopped. A unit that is not
+ * loaded is no error. Without a user manager, it does nothing. It never
+ * stops the unit of the calling process (`ownUnit`): a stop of the own
+ * cgroup would end the caller in the middle of its work. Throws when
+ * `systemctl` fails for another reason.
+ */
+export function stopPortUnits(
+  port: number,
+  kinds: readonly PortUnitKind[],
+  deps: UnitDeps = defaultUnitDeps,
+): string[] {
+  if (!deps.available()) return [];
+  const own = deps.ownUnit();
+  const stopped: string[] = [];
+  for (const kind of kinds) {
+    const unit = portUnitName(kind, port);
+    if (unit === own) continue;
+    if (stopUnit(unit, deps)) stopped.push(unit);
+  }
+  return stopped;
 }

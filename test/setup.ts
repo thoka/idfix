@@ -24,6 +24,13 @@
  * `git init` or `git rev-parse` in a temp folder acts on the idfix
  * repository itself (meta lesson git-hook-env-leaks-into-other-repos).
  *
+ * The preload also guards the real user manager. `up`, `down`, and the
+ * watchdog start and stop `ocsub-<kind>-<port>` units, and a unit test that
+ * forgets its fake `UnitDeps` would stop the real server of another session
+ * on the same port. So the real runner of `units.ts` refuses a start or a
+ * stop of any unit other than `ocsub-test-*` (the live test of units.ts)
+ * and the units of the ports of the integration tests, and throws instead.
+ *
  * Bun 1.4 has a trap here: `Bun.spawn` and `Bun.spawnSync` without an `env`
  * option pass the environment of the process start, not the current
  * `process.env`. A deleted or changed variable does not reach the child. So
@@ -35,6 +42,7 @@ import { afterAll } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { defaultUnitDeps } from "../src/units";
 
 export const RUN_PREFIX = "oc-sub-test-run-";
 const STALE_MS = 6 * 60 * 60 * 1000;
@@ -95,6 +103,38 @@ Bun.spawn = withCurrentEnv(Bun.spawn);
 Bun.spawnSync = withCurrentEnv(Bun.spawnSync);
 
 clearLocalGitEnv();
+
+/** The ports of the servers of test/integration.test.ts. */
+export const INTEGRATION_PORTS = { first: 8790, last: 8900 } as const;
+
+/** Whether a test may start or stop this real unit. Pure. */
+export function testMayTouchUnit(unit: string): boolean {
+  const name = unit.replace(/\.service$/, "");
+  if (name.startsWith("ocsub-test-")) return true;
+  const match = /^ocsub-[a-z]+-(\d+)$/.exec(name);
+  if (match === null) return false;
+  const port = Number(match[1]);
+  return port >= INTEGRATION_PORTS.first && port <= INTEGRATION_PORTS.last;
+}
+
+/** The unit that a `systemd-run` or `systemctl stop` call starts or stops, or null. Pure. */
+export function unitOfCall(cmd: readonly string[]): string | null {
+  if (cmd[0] === "systemd-run") {
+    const flag = cmd.find((arg) => arg.startsWith("--unit="));
+    return flag === undefined ? null : flag.slice("--unit=".length);
+  }
+  if (cmd[0] === "systemctl" && cmd.includes("stop")) return cmd[cmd.length - 1] ?? null;
+  return null;
+}
+
+const realUnitRun = defaultUnitDeps.run;
+defaultUnitDeps.run = (cmd, opts) => {
+  const unit = unitOfCall(cmd);
+  if (unit !== null && !testMayTouchUnit(unit)) {
+    throw new Error(`a test reached the real user manager for ${unit}; pass a fake UnitDeps (test/fake-units.ts)`);
+  }
+  return realUnitRun(cmd, opts);
+};
 
 const systemTmp = tmpdir();
 

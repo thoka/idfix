@@ -7,7 +7,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { up, defaultUpDeps, type UpDeps } from "../src/up";
+import { up, type UpDeps } from "../src/up";
+import { spawnDetached } from "../src/spawn";
+import { noUnits } from "./fake-units";
 import {
   appendLogMarker,
   isLogMarkerLine,
@@ -41,6 +43,7 @@ function makeDeps(overrides: Partial<UpDeps> = {}): UpDeps {
     spawnProxy: () => ({ pid: 1002, exitCode: () => null }),
     // Never a real watchdog in a unit test.
     spawnIdleWatch: () => ({ pid: 1003, exitCode: () => null }),
+    units: noUnits(),
     projectName: () => "test",
     readKeyFile: () => null,
     ...overrides,
@@ -111,15 +114,16 @@ describe("log marker helpers", () => {
   });
 });
 
-describe("spawnServe opens the log in append mode", () => {
+describe("the fallback spawn opens the log in append mode", () => {
+  // On the unit path, systemd appends (`StandardOutput=append:`, see units.test.ts).
   test("a second start keeps the lines of the first start", async () => {
     const env = makeEnv();
     const logPath = serveLogPath(env, 8790);
     mkdirSync(path.dirname(logPath), { recursive: true });
     const pidPath = path.join(tempDir(), "serve.pid");
     // A real command that writes one line, so both starts leave output.
-    defaultUpDeps.spawnServe(["sh", "-c", "echo start-output"], logPath, pidPath, env);
-    defaultUpDeps.spawnServe(["sh", "-c", "echo start-output"], logPath, pidPath, env);
+    spawnDetached(["sh", "-c", "echo start-output"], logPath, pidPath, process.cwd(), env);
+    spawnDetached(["sh", "-c", "echo start-output"], logPath, pidPath, process.cwd(), env);
     // The starts are detached; give the echo processes a moment.
     await Bun.sleep(100);
     expect(readFileSync(logPath, "utf8").match(/start-output/g)).toHaveLength(2);
@@ -173,7 +177,7 @@ describe("up marks each start and keeps older log lines", () => {
     try {
       result = await up({ port: 8790, noCostProxy: true }, env, makeDeps({
         probe: async () => ({ state: "down" }),
-        spawnServe: (_cmd, logPath) => {
+        spawnServe: ({ logPath }) => {
           writeFileSync(logPath, `${readFileSync(logPath, "utf8")}opencode serve: fatal error\n`);
           return { pid: 1001, exitCode: () => 1 };
         },
@@ -200,7 +204,7 @@ describe("up marks each start and keeps older log lines", () => {
       result = await up({ port: 8790, noCostProxy: true }, env, makeDeps({
         probe: async () => ({ state: "down" }),
         // The server starts, writes output, and exits after some health polls.
-        spawnServe: (_cmd, logPath) => {
+        spawnServe: ({ logPath }) => {
           writeFileSync(logPath, `${readFileSync(logPath, "utf8")}waiting for the database\n`);
           let polls = 0;
           return { pid: 1001, exitCode: () => (polls++ > 10 ? 1 : null) };

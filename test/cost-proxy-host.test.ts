@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { serveEnv, up, type UpDeps } from "../src/up";
+import { PROXY_RESTART_SEC, proxyCommand, serveEnv, up, type UpDeps } from "../src/up";
 import { pluginDataDir, proxyBundleIn } from "../src/plugin-sync";
 import { proxyLoopScript } from "../src/sandbox";
 import { proxyLogPath, proxyPidPath, readPid, readServePlugin, servePidPath, servePluginPath } from "../src/state";
@@ -11,6 +11,8 @@ import { PLUGIN_CONFIG_DIR } from "../src/up";
 import { down, isProxyLoop, stopStartedGroups, type DownDeps } from "../src/down";
 import { parseArgs } from "../src/args";
 import { idlePidPath, isIdleWatch } from "../src/idle";
+import { UNIT_STOP_TIMEOUT_SEC, type UnitOptions } from "../src/units";
+import { fakeUnits, noUnits } from "./fake-units";
 
 function tempDir(): string {
   return mkdtempSync(path.join(tmpdir(), "oc-sub-hostproxy-"));
@@ -35,6 +37,8 @@ function makeDeps(overrides: Partial<UpDeps> = {}): UpDeps {
     spawnProxy: () => ({ pid: 1002, exitCode: () => null }),
     // Never a real watchdog in a unit test.
     spawnIdleWatch: () => ({ pid: 1003, exitCode: () => null }),
+    // The fallback path by default; the tests of the unit path pass their own.
+    units: noUnits(),
     projectName: () => "test",
     // No DeepInfra key file unless a test sets one; never the real file.
     readKeyFile: () => null,
@@ -124,7 +128,7 @@ describe("up starts the idle watchdog on the host", () => {
         order.push("serve");
         return { pid: 1001, exitCode: () => null };
       },
-      spawnIdleWatch: (cmd, logPath, pidPath) => {
+      spawnIdleWatch: ({ cmd, logPath, pidPath }) => {
         order.push("idle");
         spawned.push([...cmd, logPath, pidPath]);
         return { pid: 1003, exitCode: () => null };
@@ -138,7 +142,7 @@ describe("up starts the idle watchdog on the host", () => {
 
   test("--idle-minutes sets the limit, and 0 starts no watchdog", async () => {
     const minutes: string[] = [];
-    const spawnIdleWatch = (cmd: readonly string[]) => {
+    const spawnIdleWatch = ({ cmd }: UnitOptions) => {
       minutes.push(cmd[6] as string);
       return { pid: 1003, exitCode: () => null };
     };
@@ -167,12 +171,12 @@ describe("up starts the cost proxy on the host", () => {
     const calls: { cmd: string[]; logPath: string; pidPath: string }[] = [];
     const order: string[] = [];
     const deps = makeDeps({
-      spawnProxy: (cmd, logPath, pidPath) => {
+      spawnProxy: ({ cmd, logPath, pidPath }) => {
         calls.push({ cmd: [...cmd], logPath, pidPath });
         order.push("proxy");
         return { pid: 1002, exitCode: () => null };
       },
-      spawnServe: (cmd, logPath, pidPath) => {
+      spawnServe: ({ cmd, logPath, pidPath }) => {
         order.push("serve");
         return { pid: 1001, exitCode: () => null };
       },
@@ -196,7 +200,7 @@ describe("up starts the cost proxy on the host", () => {
     const env = makeEnv();
     let serveEnvValue: string | undefined;
     const deps = makeDeps({
-      spawnServe: (_cmd, _logPath, _pidPath, serveEnvInput) => {
+      spawnServe: ({ env: serveEnvInput }) => {
         serveEnvValue = serveEnvInput.OPENCODE_CONFIG_CONTENT;
         return { pid: 1001, exitCode: () => null };
       },
@@ -217,7 +221,7 @@ describe("up starts the cost proxy on the host", () => {
         proxies += 1;
         return { pid: 1002, exitCode: () => null };
       },
-      spawnServe: (_cmd, _logPath, _pidPath, serveEnvInput) => {
+      spawnServe: ({ env: serveEnvInput }) => {
         serveEnvValue = serveEnvInput.OPENCODE_CONFIG_CONTENT;
         return { pid: 1001, exitCode: () => null };
       },
@@ -293,7 +297,7 @@ describe("up stops the proxy group when the server does not start", () => {
     let result: number;
     try {
       result = await up({ port: 19790 }, env, makeDeps({
-        spawnProxy: (_cmd, _logPath, pidPath) => {
+        spawnProxy: ({ pidPath }) => {
           writeFileSync(pidPath, "1002\n");
           return { pid: 1002, exitCode: () => null };
         },
@@ -321,6 +325,7 @@ describe("stopStartedGroups", () => {
     await Bun.write(proxyPidPath(env, 19790), `${loop.pid}\n`);
     await Bun.write(servePidPath(env, 19790), "2147483000\n");
     const signaled = await stopStartedGroups(env, 19790, "SIGKILL", {
+      units: noUnits(),
       commandLineOf: (pid) => (pid === loop.pid ? PROXY_LINE : null),
       killGroup: () => {
         throw new Error("stopStartedGroups signals the group itself");
@@ -337,6 +342,7 @@ describe("stopStartedGroups", () => {
     await Bun.write(proxyPidPath(env, 19790), `${other.pid}\n`);
     try {
       const signaled = await stopStartedGroups(env, 19790, "SIGKILL", {
+        units: noUnits(),
         commandLineOf: () => "sh -c sleep 30",
         killGroup: () => {},
       });
@@ -353,6 +359,7 @@ describe("down stops the cost proxy", () => {
     return {
       commandLineOf: () => commandLine,
       killGroup: (pid) => killed.push(pid),
+      units: noUnits(),
     };
   }
 
@@ -368,6 +375,7 @@ describe("down stops the cost proxy", () => {
     await Bun.write(proxyLogPath(env, 19790), "log\n");
     const killed: number[] = [];
     const deps: DownDeps = {
+      units: noUnits(),
       commandLineOf: (pid) => (pid === proxy.pid ? PROXY_LINE : "opencode serve --port 19790 --hostname 127.0.0.1"),
       // Records and really signals, so that the real wait sees the exit.
       killGroup: (pid) => {
@@ -408,6 +416,7 @@ describe("down stops the cost proxy", () => {
     await Bun.write(servePidPath(env, 19790), "2147483000\n");
     const killed: number[] = [];
     const deps: DownDeps = {
+      units: noUnits(),
       commandLineOf: (pid) => (pid === loop.pid ? PROXY_LINE : null),
       killGroup: (pid) => {
         killed.push(pid);
@@ -461,6 +470,7 @@ describe("down stops the cost proxy", () => {
     expect(isIdleWatch(idleLine, 19790)).toBe(true);
     const killed: number[] = [];
     const deps: DownDeps = {
+      units: noUnits(),
       commandLineOf: (pid) => (pid === watchdog.pid ? idleLine : "opencode serve --port 19790"),
       killGroup: (pid) => {
         killed.push(pid);
@@ -485,11 +495,11 @@ describe("up syncs the plugin folder", () => {
     let configDir: string | undefined;
     let proxyCmd: string[] = [];
     const deps = makeDeps({
-      spawnServe: (_cmd, _logPath, _pidPath, serveEnvInput) => {
+      spawnServe: ({ env: serveEnvInput }) => {
         configDir = serveEnvInput.OPENCODE_CONFIG_DIR;
         return { pid: 1001, exitCode: () => null };
       },
-      spawnProxy: (cmd) => {
+      spawnProxy: ({ cmd }) => {
         proxyCmd = [...cmd];
         return { pid: 1002, exitCode: () => null };
       },
@@ -564,7 +574,7 @@ describe("DeepInfra in host mode", () => {
         readFiles.push(file);
         return file.endsWith("deepinfra.key") ? (opts.keyFile ?? null) : null;
       },
-      spawnServe: (_cmd, _log, _pid, serveEnvArg) => {
+      spawnServe: ({ env: serveEnvArg }) => {
         serveEnvSeen = { ...serveEnvArg };
         return { pid: 1001, exitCode: () => null };
       },
@@ -619,5 +629,243 @@ describe("DeepInfra in host mode", () => {
     expect(providerOf(env)?.deepinfra).toEqual({ options: { baseURL: "http://127.0.0.1:8791/deepinfra/v1" } });
     const plain = serveEnv({ HOME: "/home/user" }, "/plugin/opencode", "/srv/agents").env;
     expect(plain.DEEPINFRA_API_KEY).toBeUndefined();
+  });
+});
+
+describe("up on the unit path", () => {
+  /** Runs up with a user manager and records each start and each unit call in one list. */
+  async function upOnUnits(over: Partial<UpDeps> = {}, loaded: string[] = []) {
+    const env = makeEnv();
+    const units = fakeUnits({ loaded });
+    const started: UnitOptions[] = [];
+    const record = (opts: UnitOptions) => {
+      started.push(opts);
+      units.calls.push(`start ${opts.kind}`);
+      return { pid: 1000 + started.length, exitCode: () => null };
+    };
+    const deps = makeDeps({ units: units.deps, spawnProxy: record, spawnServe: record, spawnIdleWatch: record, ...over });
+    const result = await up({ port: 8790 }, env, deps);
+    return { env, result, started, calls: units.calls };
+  }
+
+  test("starts the proxy as the plain bun command that always restarts, without a start limit", async () => {
+    const { env, result, started } = await upOnUnits();
+    expect(result).toBe(0);
+    const proxy = started.find((opts) => opts.kind === "proxy") as UnitOptions;
+    expect(proxy.cmd).toEqual([
+      "/opt/bun/bin/bun",
+      proxyBundleIn(pluginDataDir(env)),
+      "--port",
+      "8791",
+      "--hostname",
+      "127.0.0.1",
+    ]);
+    expect(proxy.restart).toBe("always");
+    expect(proxy.restartSec).toBe(PROXY_RESTART_SEC);
+    expect(proxy.startLimitIntervalSec).toBe(0);
+    expect(proxy.logPath).toBe(proxyLogPath(env, 8790));
+    expect(proxy.pidPath).toBe(proxyPidPath(env, 8790));
+  });
+
+  test("labels each unit with the kind, the port, the project, and a reason", async () => {
+    const { started } = await upOnUnits();
+    expect(started.map((opts) => [opts.kind, opts.name, opts.owner, opts.reason])).toEqual([
+      ["proxy", "8790", "test", "cost proxy for port 8790"],
+      ["serve", "8790", "test", "opencode server of up on port 8790"],
+      ["idle", "8790", "test", "idle watchdog for port 8790, stops the server after 30m without activity"],
+    ]);
+    expect(started.find((opts) => opts.kind === "serve")?.timeoutStopSec).toBe(UNIT_STOP_TIMEOUT_SEC);
+  });
+
+  test("stops the units of a dead server of the same port before the start", async () => {
+    const { result, calls } = await upOnUnits({}, ["ocsub-serve-8790", "ocsub-proxy-8790", "ocsub-idle-8790"]);
+    expect(result).toBe(0);
+    expect(calls).toEqual([
+      "stop ocsub-serve-8790",
+      "stop ocsub-proxy-8790",
+      "stop ocsub-idle-8790",
+      "start proxy",
+      "start serve",
+      "start idle",
+    ]);
+  });
+
+  test("a failed stop of an old unit stops up before any start", async () => {
+    const env = makeEnv();
+    const units = fakeUnits({ failStop: "ocsub-proxy-8790" });
+    let started = 0;
+    const count = () => {
+      started += 1;
+      return { pid: 1, exitCode: () => null };
+    };
+    const original = console.error;
+    console.error = () => {};
+    let result: number;
+    try {
+      result = await up({ port: 8790 }, env, makeDeps({ units: units.deps, spawnProxy: count, spawnServe: count }));
+    } finally {
+      console.error = original;
+    }
+    expect(result).toBe(1);
+    expect(started).toBe(0);
+  });
+
+  test("a failed server start stops the proxy unit, not the PID group", async () => {
+    const killed: number[] = [];
+    const original = console.error;
+    console.error = () => {};
+    let outcome: Awaited<ReturnType<typeof upOnUnits>>;
+    try {
+      outcome = await upOnUnits({
+        spawnServe: () => {
+          throw new Error("no opencode");
+        },
+        killGroup: (pid) => killed.push(pid),
+      });
+    } finally {
+      console.error = original;
+    }
+    expect(outcome.result).toBe(1);
+    expect(killed).toEqual([]);
+    expect(outcome.calls.slice(-1)).toEqual(["stop ocsub-proxy-8790"]);
+    expect(existsSync(proxyPidPath(outcome.env, 8790))).toBe(false);
+  });
+
+  test("the fallback path keeps the sh loop and sets no restart", async () => {
+    const env = makeEnv();
+    const started: UnitOptions[] = [];
+    const deps = makeDeps({
+      spawnProxy: (opts) => {
+        started.push(opts);
+        return { pid: 1002, exitCode: () => null };
+      },
+    });
+    expect(await up({ port: 8790 }, env, deps)).toBe(0);
+    expect(started[0]?.cmd[0]).toBe("sh");
+    expect(started[0]?.restart).toBeUndefined();
+    expect(started[0]?.restartSec).toBeUndefined();
+    expect(started[0]?.startLimitIntervalSec).toBeUndefined();
+  });
+});
+
+describe("proxyCommand", () => {
+  test("is the plain bun command on the unit path and the sh loop on the fallback path", () => {
+    expect(proxyCommand(true, "/b/bun", "/p/cost-proxy.js", 8791)).toEqual([
+      "/b/bun",
+      "/p/cost-proxy.js",
+      "--port",
+      "8791",
+      "--hostname",
+      "127.0.0.1",
+    ]);
+    expect(proxyCommand(false, "/b/bun", "/p/cost-proxy.js", 8791)).toEqual([
+      "sh",
+      "-c",
+      proxyLoopScript("/b/bun", "/p/cost-proxy.js", 8791, "127.0.0.1"),
+    ]);
+  });
+
+  test("isProxyLoop knows the plain command of the unit path", () => {
+    const line = proxyCommand(true, "/b/bun", "/p/cost-proxy/cost-proxy.js", 19791).join(" ");
+    expect(isProxyLoop(line, 19791)).toBe(true);
+  });
+
+  test("isProxyLoop rejects the systemd executor right after a start", () => {
+    // Before the exec, `ps` shows the executor, not the proxy.
+    expect(isProxyLoop("(sd-executor)", 19791)).toBe(false);
+  });
+});
+
+describe("down on the unit path", () => {
+  /** A state with a running serve unit whose PID file still names the systemd executor. */
+  async function unitState() {
+    const env = makeEnv();
+    mkdirSync(path.join(env.XDG_STATE_HOME as string, "oc-sub"), { recursive: true });
+    await Bun.write(servePidPath(env, 19790), "2147483000\n");
+    await Bun.write(proxyPidPath(env, 19790), "2147483001\n");
+    return env;
+  }
+
+  async function quietDown(env: Record<string, string>, deps: DownDeps): Promise<number> {
+    const original = console.log;
+    console.log = () => {};
+    try {
+      return await down({ port: 19790, force: true }, env, deps);
+    } finally {
+      console.log = original;
+    }
+  }
+
+  test("stops the serve unit, then the proxy unit, then the idle unit", async () => {
+    const env = await unitState();
+    const units = fakeUnits({ loaded: ["ocsub-serve-19790", "ocsub-proxy-19790", "ocsub-idle-19790"] });
+    const killed: number[] = [];
+    const result = await quietDown(env, {
+      // The window right after a start: the PID is still the executor.
+      commandLineOf: () => "(sd-executor)",
+      killGroup: (pid) => killed.push(pid),
+      units: units.deps,
+    });
+    expect(result).toBe(0);
+    expect(units.calls.filter((call) => call.startsWith("stop"))).toEqual([
+      "stop ocsub-serve-19790",
+      "stop ocsub-proxy-19790",
+      "stop ocsub-idle-19790",
+    ]);
+    expect(units.loaded.size).toBe(0);
+    expect(killed).toEqual([]);
+    expect(existsSync(servePidPath(env, 19790))).toBe(false);
+    expect(existsSync(proxyPidPath(env, 19790))).toBe(false);
+  });
+
+  test("the watchdog stops the server and the proxy, but never its own unit", async () => {
+    const env = await unitState();
+    const units = fakeUnits({
+      loaded: ["ocsub-serve-19790", "ocsub-proxy-19790", "ocsub-idle-19790"],
+      own: "ocsub-idle-19790",
+    });
+    const result = await quietDown(env, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
+    expect(result).toBe(0);
+    expect(units.calls.filter((call) => call.startsWith("stop"))).toEqual([
+      "stop ocsub-serve-19790",
+      "stop ocsub-proxy-19790",
+    ]);
+    // The watchdog ends by itself after the stop; its unit stays until then.
+    expect([...units.loaded]).toEqual(["ocsub-idle-19790"]);
+  });
+
+  test("a dead server: down still stops the proxy unit", async () => {
+    const env = await unitState();
+    const units = fakeUnits({ loaded: ["ocsub-proxy-19790"] });
+    const result = await quietDown(env, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
+    expect(result).toBe(0);
+    expect(units.calls).toContain("stop ocsub-proxy-19790");
+    expect(units.loaded.size).toBe(0);
+  });
+
+  test("a failed unit stop is an error", async () => {
+    const env = await unitState();
+    const units = fakeUnits({ loaded: ["ocsub-serve-19790"], failStop: "ocsub-serve-19790" });
+    const original = console.error;
+    console.error = () => {};
+    let result: number;
+    try {
+      result = await quietDown(env, { commandLineOf: () => null, killGroup: () => {}, units: units.deps });
+    } finally {
+      console.error = original;
+    }
+    expect(result).toBe(1);
+  });
+
+  test("stopStartedGroups stops the units before it signals the groups", async () => {
+    const env = await unitState();
+    const units = fakeUnits({ loaded: ["ocsub-serve-19790", "ocsub-proxy-19790"] });
+    const signaled = await stopStartedGroups(env, 19790, "SIGKILL", {
+      commandLineOf: () => null,
+      killGroup: () => {},
+      units: units.deps,
+    });
+    expect(signaled).toEqual([]);
+    expect(units.calls).toEqual(["stop ocsub-serve-19790", "stop ocsub-proxy-19790", "stop ocsub-idle-19790"]);
   });
 });

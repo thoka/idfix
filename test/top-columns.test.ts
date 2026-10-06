@@ -46,8 +46,8 @@ describe("sessionCode", () => {
 
 describe("splitFolder", () => {
   test("a folder under .worktrees gives the project and the worktree", () => {
-    expect(splitFolder("/home/u/dv/opencode-subagents/.worktrees/8g-top-view")).toEqual({
-      project: "opencode-subagents",
+    expect(splitFolder("/home/u/dv/idfix/.worktrees/8g-top-view")).toEqual({
+      project: "idfix",
       worktree: "8g-top-view",
     });
   });
@@ -111,12 +111,12 @@ describe("columnHeaders and rowCells", () => {
 
   test("the cells follow the headers, and the project keeps its full name without a resolver", () => {
     const [cells] = rowCells(
-      [row({ sessionId: "ses_xxxxABCDEF", directory: "/d/opencode-subagents/.worktrees/8f", agent: "" })],
+      [row({ sessionId: "ses_xxxxABCDEF", directory: "/d/idfix/.worktrees/8f", agent: "" })],
       { showProject: true },
     );
     expect(cells).toEqual([
       "--ABCDEF",
-      "opencode-subagents/8f",
+      "idfix/8f",
       "0.1",
       "1m05s",
       "5s",
@@ -137,10 +137,10 @@ describe("columnHeaders and rowCells", () => {
 
   test("a row uses the configured project name when the resolver gives one", () => {
     const [cells] = rowCells(
-      [row({ sessionId: "ses_xxxxABCDEF", directory: "/d/opencode-subagents/.worktrees/8i" })],
+      [row({ sessionId: "ses_xxxxABCDEF", directory: "/d/idfix/.worktrees/8i" })],
       {
         showProject: true,
-        projectName: (directory) => (directory === "/d/opencode-subagents/.worktrees/8i" ? "opsub" : directory),
+        projectName: (directory) => (directory === "/d/idfix/.worktrees/8i" ? "opsub" : directory),
       },
     );
     expect(cells?.[1]).toBe("opsub/8i");

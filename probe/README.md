@@ -164,7 +164,7 @@ because OpenRouter counts a request a minute or two late). One JSON line
 per slug goes to `probe/results/jev-<date>.jsonl`; it holds no key.
 
 The key comes from `OPENROUTER_API_KEY`, else from the project key file
-`~/.config/opencode-subagents/openrouter.key`. The key is never printed.
+`~/.config/idfix/openrouter.key`. The key is never printed.
 Without a key the script exits 2 with a message.
 
 **Cost cap**: two requests, at most 200 output tokens each, plus the two

@@ -160,8 +160,8 @@ describe("footer", () => {
 
   test("names each server with its project, port, and state", () => {
     expect(serverLabel({ project: null, url: "http://127.0.0.1:8767", sandbox: false, state: "down" })).toBe("host :8767 down");
-    expect(serverLabel({ project: "opencode-subagents", url: "http://127.0.0.1:18768", sandbox: true, state: "reconnecting" })).toBe(
-      "opencode-subagents :18768 reconnecting",
+    expect(serverLabel({ project: "idfix", url: "http://127.0.0.1:18768", sandbox: true, state: "reconnecting" })).toBe(
+      "idfix :18768 reconnecting",
     );
   });
 

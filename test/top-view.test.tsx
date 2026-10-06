@@ -24,7 +24,7 @@ function row(sessionId: string, overrides: Partial<SessionRow> = {}): SessionRow
   return {
     sessionId,
     server: "http://127.0.0.1:18768",
-    directory: "/home/u/dv/opencode-subagents/.worktrees/8g",
+    directory: "/home/u/dv/idfix/.worktrees/8g",
     title: `title ${sessionId}`,
     agent: "coder",
     state: "busy",
@@ -49,7 +49,7 @@ function fakeSource(initial: SessionRow[]): FakeSource {
   let rows = initial;
   const listeners: Array<() => void> = [];
   const servers: LiveServer[] = [
-    { project: "opencode-subagents", url: "http://127.0.0.1:18768", sandbox: true, state: "up" },
+    { project: "idfix", url: "http://127.0.0.1:18768", sandbox: true, state: "up" },
   ];
   const source: FakeSource = {
     stopped: false,
@@ -81,7 +81,7 @@ describe("TopView", () => {
   test("shows the rows, the detail of the first row, and the footer", async () => {
     const source = fakeSource([row("ses_aaaaaa111111"), row("ses_bbbbbb222222", { state: "waiting" })]);
     const { lastFrame, unmount } = render(
-      <TopView start={async () => source} initialAll={false} scopeLabel="~/dv/opencode-subagents" />,
+      <TopView start={async () => source} initialAll={false} scopeLabel="~/dv/idfix" />,
     );
     await tick();
     const frame = plain(lastFrame());
@@ -90,8 +90,8 @@ describe("TopView", () => {
     expect(frame).toContain("🔧111111 8g    ");
     expect(frame).toContain("🔧222222 8g    ");
     expect(frame).toContain("tool bash: in ses_aaaaaa111111");
-    expect(frame).toContain("servers: opencode-subagents :18768 up");
-    expect(frame).toContain("2 sessions  cost $0.0200  scope: ~/dv/opencode-subagents");
+    expect(frame).toContain("servers: idfix :18768 up");
+    expect(frame).toContain("2 sessions  cost $0.0200  scope: ~/dv/idfix");
     expect(frame).toContain("q: quit");
     unmount();
   });
@@ -193,8 +193,8 @@ describe("TopView", () => {
     await tick();
     expect(scopes).toEqual([false, true]);
     expect(sources[0]?.stopped).toBe(true);
-    expect(plain(lastFrame())).toMatch(/🔧a00001 opencode-subagents\/8g /);
-    expect(plain(lastFrame())).toContain("opencode-subagents");
+    expect(plain(lastFrame())).toMatch(/🔧a00001 idfix\/8g /);
+    expect(plain(lastFrame())).toContain("idfix");
     expect(plain(lastFrame())).toContain("scope: all projects");
     stdin.write("a");
     await tick();

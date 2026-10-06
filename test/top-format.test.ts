@@ -80,8 +80,8 @@ describe("formatTopTable", () => {
 
   test("shows the CODE, the worktree, and the project only with showProject", () => {
     const rows = [
-      row({ sessionId: "ses_abcdef123456", directory: "/home/u/dv/opencode-subagents/.worktrees/8d" }),
-      row({ sessionId: "ses_zzzzzz654321", directory: "/home/u/dv/opencode-subagents" }),
+      row({ sessionId: "ses_abcdef123456", directory: "/home/u/dv/idfix/.worktrees/8d" }),
+      row({ sessionId: "ses_zzzzzz654321", directory: "/home/u/dv/idfix" }),
     ];
     const hidden = formatTopTable(rows, NOW, { color: true });
     expect(hidden[0]?.startsWith("  id     where")).toBe(true);
@@ -91,8 +91,8 @@ describe("formatTopTable", () => {
     expect(hidden.join("\n")).not.toContain("opsub");
     // Without a configured name, the full project name shows, with the worktree in one cell.
     const shown = formatTopTable(rows, NOW, { showProject: true });
-    expect(shown[1]?.startsWith("🔧123456 busy  opencode-subagents/8d ")).toBe(true);
-    expect(shown[2]?.startsWith("🔧654321 busy  opencode-subagents    ")).toBe(true);
+    expect(shown[1]?.startsWith("🔧123456 busy  idfix/8d ")).toBe(true);
+    expect(shown[2]?.startsWith("🔧654321 busy  idfix    ")).toBe(true);
     // With a configured name, the shortName shows.
     const short = formatTopTable(rows, NOW, { showProject: true, projectName: () => "opsub" });
     expect(short[1]?.startsWith("🔧123456 busy  opsub/8d ")).toBe(true);

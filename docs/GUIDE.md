@@ -19,8 +19,8 @@ This guide is for you, the user. It says how to install the plugin in a project,
 The repository is a plugin and a plugin marketplace at the same time. Run these commands once, in any folder:
 
 ```
-claude plugin marketplace add thoka/opencode-subagents
-claude plugin install opencode-subagents@opencode-subagents
+claude plugin marketplace add thoka/idfix
+claude plugin install idfix@idfix
 ```
 
 This installs the plugin for you in all projects (user scope). To enable it only in one project, run the install command in that project with `--scope local`. To enable it for everyone who works in the repository, use `--scope project`.
@@ -29,10 +29,10 @@ Check the install:
 
 ```
 claude plugin list
-claude plugin details opencode-subagents
+claude plugin details idfix
 ```
 
-To get a newer version, run `claude plugin marketplace update opencode-subagents`, then `/reload-plugins` in a session. If you work on a local clone instead, add the clone as the marketplace (`claude plugin marketplace add <path-to-a-clone>`). Claude Code then reads it in place, and a `git pull` plus `/reload-plugins` is enough.
+To get a newer version, run `claude plugin marketplace update idfix`, then `/reload-plugins` in a session. If you work on a local clone instead, add the clone as the marketplace (`claude plugin marketplace add <path-to-a-clone>`). Claude Code then reads it in place, and a `git pull` plus `/reload-plugins` is enough.
 
 To try the plugin for one session without an install:
 
@@ -43,9 +43,20 @@ claude --plugin-dir <path-to-a-clone>
 To remove it:
 
 ```
+claude plugin uninstall idfix@idfix
+claude plugin marketplace remove idfix
+```
+
+Until 2026-10-05 the plugin and its marketplace had the name `opencode-subagents`. If you installed it under that name, remove the old install and install it again under the new name:
+
+```
 claude plugin uninstall opencode-subagents@opencode-subagents
 claude plugin marketplace remove opencode-subagents
+claude plugin marketplace add thoka/idfix
+claude plugin install idfix@idfix
 ```
+
+`oc-sub doctor` warns in the check `plugin-fresh` when only the old install exists.
 
 ## Set up a project
 
@@ -125,7 +136,7 @@ When the `research-due` check warns that a report is due, recheck the facts with
 
    The key command must print `source: project key file ...` and `openrouter: ok`. If it warns that the server uses another key, follow the warning. The rules command must print `rules: pass`.
 
-Then ask Claude, for example: "Delegate step 4 to the opencode coder." Claude invokes the skill by itself. You can also type `/opencode-subagents:oc-sub`.
+Then ask Claude, for example: "Delegate step 4 to the opencode coder." Claude invokes the skill by itself. You can also type `/idfix:oc-sub`.
 
 ## Research agents
 
@@ -390,14 +401,34 @@ Run `bun run typecheck` before a commit: `bun test` does not check types.
 
 ## Troubleshooting
 
-| Problem | Cause and fix |
-| --- | --- |
-| `oc-sub: command not found` | The plugin is not enabled in this session. Run `claude plugin list`, then `/reload-plugins`. |
-| `opencode run` hangs | The command waits for input. Add `< /dev/null`. |
-| `oc-sub status` shows nothing | The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. `oc-sub status --all` shows the running sessions of all known servers, all projects, and their worktrees, each with its folder. From a host git worktree of the project, `status` resolves to the project root through the git common dir; if git fails there (for example a dubious-ownership error), it cannot, so run it with `--dir <root>` instead. `--json` prints the sessions as one JSON array. |
-| A run seems stuck | The agent may wait for an answer to a question or a permission request. Run `oc-sub watch <session-id> --dir <worktree>` again. It ends with exit code 3 and prints the request. |
-| `watch` ends with exit code 4 | The watch saw a warning sign: a loop of identical tool calls, a stalled session, or runaway reasoning in one step. The run itself keeps running. Claude reads the block, then aborts the run or sends a correction. A session whose model claims broken tools is poisoned. Claude starts a fresh session with the same brief instead of a follow-up message. |
-| The agent cannot read a file | The agent cannot leave its project folder. Copy the file into the worktree, or put its content into the brief. |
-| A run takes very long | The step is too big. Abort it and split the brief into smaller steps. |
-| `oc-sub ping` shows an old key after a configuration change | The server caches the configuration. Run `oc-sub restart`. |
-| An old research agent runs | The server still runs the plugin content that it got at start. Run `oc-sub doctor`: the `server-plugin` check names the stale server, and `oc-sub doctor --fix` restarts it when it is idle. |
+```tbl
+problem: Problem
+cause-and-fix: Cause and fix
+--
+problem: `oc-sub: command not found`
+cause-and-fix: The plugin is not enabled in this session. Run `claude plugin list`, then `/reload-plugins`.
+--
+problem: `opencode run` hangs
+cause-and-fix: The command waits for input. Add `< /dev/null`.
+--
+problem: `oc-sub status` shows nothing
+cause-and-fix: The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. `oc-sub status --all` shows the running sessions of all known servers, all projects, and their worktrees, each with its folder. From a host git worktree of the project, `status` resolves to the project root through the git common dir; if git fails there (for example a dubious-ownership error), it cannot, so run it with `--dir <root>` instead. `--json` prints the sessions as one JSON array.
+--
+problem: A run seems stuck
+cause-and-fix: The agent may wait for an answer to a question or a permission request. Run `oc-sub watch <session-id> --dir <worktree>` again. It ends with exit code 3 and prints the request.
+--
+problem: `watch` ends with exit code 4
+cause-and-fix: The watch saw a warning sign: a loop of identical tool calls, a stalled session, or runaway reasoning in one step. The run itself keeps running. Claude reads the block, then aborts the run or sends a correction. A session whose model claims broken tools is poisoned. Claude starts a fresh session with the same brief instead of a follow-up message.
+--
+problem: The agent cannot read a file
+cause-and-fix: The agent cannot leave its project folder. Copy the file into the worktree, or put its content into the brief.
+--
+problem: A run takes very long
+cause-and-fix: The step is too big. Abort it and split the brief into smaller steps.
+--
+problem: `oc-sub ping` shows an old key after a configuration change
+cause-and-fix: The server caches the configuration. Run `oc-sub restart`.
+--
+problem: An old research agent runs
+cause-and-fix: The server still runs the plugin content that it got at start. Run `oc-sub doctor`: the `server-plugin` check names the stale server, and `oc-sub doctor --fix` restarts it when it is idle.
+```

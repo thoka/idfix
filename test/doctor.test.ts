@@ -8,6 +8,8 @@ import { UsageError, parseArgs } from "../src/args";
 import {
   ALL_CHECKS,
   FAST_CHECKS,
+  OLD_PLUGIN_KEY,
+  OLD_PLUGIN_REINSTALL_FIX,
   PLUGIN_KEY,
   PLUGIN_UPDATE_FIX,
   defaultReplaceWithSymlink,
@@ -384,6 +386,15 @@ describe("plugin-fresh", () => {
     expect(check?.status).toBe("warn");
     expect(check?.fix).toBe(PLUGIN_UPDATE_FIX);
   });
+
+  test("warns and names the reinstall when only the old plugin name is installed", () => {
+    const old = JSON.stringify({ version: 2, plugins: { [OLD_PLUGIN_KEY]: [{ scope: "user", gitCommitSha: "aaaa" }] } });
+    const deps = makeDeps({ files: map({ "/home/u/.claude/plugins/installed_plugins.json": { content: old } }) });
+    const check = byName(results(deps, SLOW_CHECKS), "plugin-fresh");
+    expect(check?.status).toBe("warn");
+    expect(check?.message).toContain(OLD_PLUGIN_KEY);
+    expect(check?.fix).toBe(OLD_PLUGIN_REINSTALL_FIX);
+  });
 });
 
 describe("sandbox-mounts", () => {
@@ -728,7 +739,7 @@ describe("the plugin-fresh fix", () => {
     expect(outcome.ok).toBe(true);
     expect(outcome.note).toContain(`plugin update ${PLUGIN_KEY}`);
     expect(calls).toEqual([
-      "claude plugin marketplace update opencode-subagents",
+      "claude plugin marketplace update idfix",
       `claude plugin update ${PLUGIN_KEY}`,
     ]);
   });
@@ -739,6 +750,17 @@ describe("the plugin-fresh fix", () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.note).toContain("marketplace update");
     expect(calls).toHaveLength(1);
+  });
+
+  test("runs nothing and names the reinstall for an install under the old name", () => {
+    const calls: string[] = [];
+    const old = JSON.stringify({ version: 2, plugins: { [OLD_PLUGIN_KEY]: [{ scope: "user", gitCommitSha: "aaaa" }] } });
+    const deps = makeDeps({ files: map({ "/home/u/.claude/plugins/installed_plugins.json": { content: old } }) });
+    const check = byName(results(deps, SLOW_CHECKS), "plugin-fresh") as CheckResult;
+    const outcome = pluginFreshFix(depsWithClaude(calls, [0, 0]), check, { force: false });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.note).toContain(OLD_PLUGIN_REINSTALL_FIX);
+    expect(calls).toEqual([]);
   });
 
   test("fails with the command in the note when the second command fails", () => {

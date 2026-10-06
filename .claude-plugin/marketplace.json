@@ -1,12 +1,12 @@
 {
-  "name": "opencode-subagents",
-  "description": "Personal marketplace for the opencode-subagents plugin.",
+  "name": "idfix",
+  "description": "Personal marketplace for the idfix plugin.",
   "owner": {
     "name": "Thomas Kalka"
   },
   "plugins": [
     {
-      "name": "opencode-subagents",
+      "name": "idfix",
       "source": "./",
       "description": "Delegate research and small coding steps to cheap opencode subagents with the oc-sub tool."
     }

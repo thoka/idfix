@@ -223,8 +223,18 @@ export const defaultRootRunner: RootRunner = (cmd) => {
 };
 
 /** The check of `installed_plugins.json` and the fix for an old install. */
-export const PLUGIN_KEY = "opencode-subagents@opencode-subagents";
-export const PLUGIN_UPDATE_FIX = "claude plugin marketplace update opencode-subagents && claude plugin update opencode-subagents@opencode-subagents";
+export const PLUGIN_MARKETPLACE = "idfix";
+export const PLUGIN_KEY = "idfix@idfix";
+export const PLUGIN_UPDATE_FIX = "claude plugin marketplace update idfix && claude plugin update idfix@idfix";
+/**
+ * The key of the plugin before the rename to idfix (2026-10-05). An install
+ * under this key needs a new install by hand, because `plugin update` cannot
+ * change the name of a plugin or a marketplace.
+ */
+export const OLD_PLUGIN_KEY = "opencode-subagents@opencode-subagents";
+export const OLD_PLUGIN_REINSTALL_FIX =
+  "claude plugin uninstall opencode-subagents@opencode-subagents && claude plugin marketplace remove opencode-subagents && claude plugin marketplace add thoka/idfix && claude plugin install idfix@idfix";
+const OLD_PLUGIN_MESSAGE = `the plugin is installed under the old name ${OLD_PLUGIN_KEY}`;
 
 /** The real git call: `git rev-parse origin/alpha` in the plugin repository. */
 export function defaultOriginAlphaSha(repoRoot: string): string | null {
@@ -665,6 +675,10 @@ function pluginFreshCheck(deps: DoctorDeps): CheckResult {
   }
   const list = (plugins as Record<string, unknown>)[PLUGIN_KEY];
   if (!Array.isArray(list) || list.length === 0) {
+    const old = (plugins as Record<string, unknown>)[OLD_PLUGIN_KEY];
+    if (Array.isArray(old) && old.length > 0) {
+      return result("plugin-fresh", "warn", OLD_PLUGIN_MESSAGE, OLD_PLUGIN_REINSTALL_FIX);
+    }
     return result("plugin-fresh", "skip", `no ${PLUGIN_KEY} entry in the installed plugins file`);
   }
   const sha = (list[0] as Record<string, unknown>)?.gitCommitSha;
@@ -685,10 +699,17 @@ function pluginFreshCheck(deps: DoctorDeps): CheckResult {
 /**
  * The fix of `plugin-fresh`: update the marketplace metadata, then update the
  * plugin from it. The second command runs only when the first exited 0. A
- * non-zero exit is a failed fix, with the command in the note.
+ * non-zero exit is a failed fix, with the command in the note. An install
+ * under the old name is a failed fix that names the reinstall commands, and
+ * nothing runs.
  */
-export function pluginFreshFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): FixOutcome {
-  const marketplaceUpdate = [deps.claudeBin, "plugin", "marketplace", "update", "opencode-subagents"];
+export function pluginFreshFix(deps: DoctorDeps, res: CheckResult, _ctx: { force: boolean }): FixOutcome {
+  // An install under the old name changes the plugin configuration of the
+  // user, so the fix leaves it to the user and names the commands.
+  if (res.message === OLD_PLUGIN_MESSAGE) {
+    return { ok: false, note: `reinstall the plugin by hand: ${OLD_PLUGIN_REINSTALL_FIX}` };
+  }
+  const marketplaceUpdate = [deps.claudeBin, "plugin", "marketplace", "update", PLUGIN_MARKETPLACE];
   const first = deps.claudeRunner(marketplaceUpdate);
   if (first.exitCode !== 0) {
     return { ok: false, note: `${marketplaceUpdate.join(" ")} exited with code ${first.exitCode}` };

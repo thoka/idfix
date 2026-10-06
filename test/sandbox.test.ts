@@ -511,7 +511,7 @@ describe("mise helpers", () => {
 });
 
 describe("sandboxMountPlan", () => {
-  const PLUGIN = "/home/u/dv/opencode-subagents/opencode";
+  const PLUGIN = "/home/u/dv/idfix/opencode";
   const INSTALLS = "/home/u/.local/share/mise/installs";
   const SHARED = "/home/u/dv/meta/agents";
 
@@ -539,7 +539,7 @@ describe("sandboxMountPlan", () => {
   });
 
   test("leaves out the plugin folder when the project is the plugin itself", () => {
-    expect(sandboxMountPlan("/home/u/dv/opencode-subagents", PLUGIN, INSTALLS, SHARED)).toEqual({
+    expect(sandboxMountPlan("/home/u/dv/idfix", PLUGIN, INSTALLS, SHARED)).toEqual({
       mounted: [INSTALLS, SHARED],
       inClone: [PLUGIN],
     });
@@ -1774,11 +1774,11 @@ describe("DeepInfra in sandbox mode (step 16)", () => {
     expect(listsDeepInfraSecret(SECRETS_OPENROUTER, "oc-sub-test")).toBe(false);
     expect(listsDeepInfraSecret(SECRETS_BOTH, "oc-sub-other")).toBe(false);
     // The live output of the project sandbox, verbatim.
-    const live = "CUSTOM SECRETS\nSCOPE                      TARGETS            ENV\noc-sub-opencode-subagents  api.deepinfra.com  DEEPINFRA_API_KEY\n";
-    expect(listsDeepInfraSecret(live, "oc-sub-opencode-subagents")).toBe(true);
+    const live = "CUSTOM SECRETS\nSCOPE                      TARGETS            ENV\noc-sub-idfix  api.deepinfra.com  DEEPINFRA_API_KEY\n";
+    expect(listsDeepInfraSecret(live, "oc-sub-idfix")).toBe(true);
     expect(listsDeepInfraSecret(live, "oc-sub-test")).toBe(false);
     // The openrouter rule does not take the custom row for an openrouter secret.
-    expect(listsOpenRouterSecret(live, "oc-sub-opencode-subagents")).toBe(false);
+    expect(listsOpenRouterSecret(live, "oc-sub-idfix")).toBe(false);
     expect(listsOpenRouterSecret(CUSTOM_TABLE("oc-sub-test"), "oc-sub-test")).toBe(false);
     expect(listsOpenRouterSecret(SECRETS_BOTH, "oc-sub-test")).toBe(true);
     expect(listsDeepInfraSecret("No secrets found.\n", "oc-sub-test")).toBe(false);

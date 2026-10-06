@@ -3,7 +3,7 @@
   "provider": {
     "openrouter": {
       "options": {
-        "apiKey": "{file:~/.config/opencode-subagents/openrouter.key}"
+        "apiKey": "{file:~/.config/idfix/openrouter.key}"
       }
     }
   }

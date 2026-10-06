@@ -1,16 +1,16 @@
-# opencode-subagents
+# idfix
 
 Status: experimental alpha. The tool and the skill were built in September 2026 and have few real runs so far. The command line and the file formats can change.
 
-This project makes cheap opencode subagents usable from Claude Code. It contains a small command line tool `oc-sub` and a Claude Code skill `oc-sub`, packaged as a Claude Code plugin. The research of the design is in [docs/research/prior-art.md](docs/research/prior-art.md). The lessons from the first use are in [docs/EXPERIENCE.md](docs/EXPERIENCE.md).
+This project makes cheap opencode subagents usable from Claude Code. Its name is idfix 🐕, after the dog Idefix in Asterix, because it will support clients other than opencode. Until 2026-10-05 its name was opencode-subagents. It contains a small command line tool `oc-sub` and a Claude Code skill `oc-sub`, packaged as a Claude Code plugin. The research of the design is in [docs/research/prior-art.md](docs/research/prior-art.md). The lessons from the first use are in [docs/EXPERIENCE.md](docs/EXPERIENCE.md).
 
 ## Use it in another project
 
 The repository is a Claude Code plugin and a plugin marketplace. Install it once:
 
 ```
-claude plugin marketplace add thoka/opencode-subagents
-claude plugin install opencode-subagents@opencode-subagents
+claude plugin marketplace add thoka/idfix
+claude plugin install idfix@idfix
 ```
 
 You need no agent file in the project: the plugin serves the `coder`, `researcher`, and `reader` agents itself, through `OPENCODE_CONFIG_DIR`. [docs/GUIDE.md](docs/GUIDE.md) explains the setup, how to watch a run live, how to follow up and abort, how to read the cost, and the security notes.
@@ -20,23 +20,23 @@ You need no agent file in the project: the plugin serves the `coder`, `researche
 The manifest has no `version` field, so Claude Code uses the git commit as the version, and every pushed commit counts as an update. Claude Code does not update a third-party marketplace by itself. To get the new commits, run these commands and then start a new Claude session:
 
 ```
-claude plugin marketplace update opencode-subagents
-claude plugin update opencode-subagents@opencode-subagents
+claude plugin marketplace update idfix
+claude plugin update idfix@idfix
 ```
 
-To update at every start instead, open `/plugin`, select the marketplace, and enable auto-update. On the machine where you develop the plugin, add the marketplace from the local folder (`claude plugin marketplace add ~/dv/opencode-subagents`). Claude Code then reads the files live, and `/reload-plugins` loads a change. [docs/research/plugin-updates.md](docs/research/plugin-updates.md) has the sources.
+To update at every start instead, open `/plugin`, select the marketplace, and enable auto-update. On the machine where you develop the plugin, add the marketplace from the local folder (`claude plugin marketplace add ~/dv/idfix`). Claude Code then reads the files live, and `/reload-plugins` loads a change. [docs/research/plugin-updates.md](docs/research/plugin-updates.md) has the sources.
 
 ## Plugin layout
 
-- `.claude-plugin/plugin.json` — the plugin manifest (name `opencode-subagents`)
-- `.claude-plugin/marketplace.json` — a marketplace `opencode-subagents` that lists this folder as the plugin
+- `.claude-plugin/plugin.json` — the plugin manifest (name `idfix`)
+- `.claude-plugin/marketplace.json` — a marketplace `idfix` that lists this folder as the plugin
 - `skills/oc-sub/SKILL.md` — the skill: when to delegate, the workflow, and the rules
 - `skills/oc-sub/reference.md` — the full command reference and the details
 - `opencode/agents/` — the agents of the plugin: `coder`, `researcher`, and its hidden subagent `reader`. `oc-sub up` serves them through `OPENCODE_CONFIG_DIR`.
-- `bin/idfx` — a second launcher with the future name. It calls `bin/oc-sub`.
+- `bin/idfx` — a second launcher with the name of the project. It calls `bin/oc-sub`.
 - `bin/oc-sub` — the launcher. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), installs the locked dependencies on the first call, and runs `src/cli.ts`.
 
-Check the plugin with `claude plugin validate .` and `claude --plugin-dir . plugin details opencode-subagents`.
+Check the plugin with `claude plugin validate .` and `claude --plugin-dir . plugin details idfix`.
 
 ## Setup
 
@@ -47,19 +47,7 @@ mise install
 bun install
 ```
 
-To run `oc-sub` from any shell on this machine, link the launcher into a folder on your PATH:
-
-```
-ln -sfn "$PWD/bin/oc-sub" ~/.local/bin/oc-sub
-```
-
-The launcher follows the symlink back to this repository. Updates to the repository take effect at once.
-
-The project will become idfix 🐕, after the dog Idefix in Asterix, because it will support clients other than opencode. The command `idfx` already runs the same CLI as `oc-sub`. Link it the same way:
-
-```
-ln -sfn "$PWD/bin/idfx" ~/.local/bin/idfx
-```
+The project gives only its start scripts `bin/oc-sub` and `bin/idfx`. Both run the same CLI. It does not link them into a folder on your PATH. On the machines of the user, arch-helper owns the links `~/.local/bin/oc-sub` and `~/.local/bin/idfx` through chezmoi. The launcher follows a symlink back to this repository, so updates to the repository take effect at once.
 
 `mise.toml` pins `bun` and `opencode`. Check the setup with:
 
@@ -290,24 +278,60 @@ With `--fix`, the command first runs the checks, then the fix action of every ch
 
 Which checks have a fix action:
 
-- `plugin-fresh`: runs `claude plugin marketplace update opencode-subagents` and, when that exited 0, `claude plugin update opencode-subagents@opencode-subagents`. A non-zero exit is a failed fix.
+- `plugin-fresh`: runs `claude plugin marketplace update idfix` and, when that exited 0, `claude plugin update idfix@idfix`. A non-zero exit is a failed fix. When only the old key `opencode-subagents@opencode-subagents` is installed, the check warns and names the reinstall commands, and the fix runs nothing, because the reinstall changes the plugin configuration of the user.
 - `global-rules`: for each of the three rule paths, a copy whose content equals the shared `AGENTS.md` exactly becomes a symlink to it; a copy with different content is left alone (the fix fails and names it), so no edit is lost. A broken or wrong symlink is re-pointed. A missing path is not created. Without the shared file, the fix fails and changes nothing.
 
 The checks:
 
-| Check | What it checks | Fail means |
-| --- | --- | --- |
-| `env-files` | No real `.env` or `.env.*` file in the project root or in any folder of `.worktrees/`, except names that end in `.example` or `.sample`. It never opens the file. | A key file sits in the project. Move the keys to `~/.config/<project>/<provider>.key` and delete the file. |
-| `claude-md` | No `CLAUDE.md` or `CLAUDE.local.md` in the project root. | Claude Code would read the wrong rules file. Rename it to `AGENTS.md`. |
-| `agents-md` | The project root has `AGENTS.md`. | Warn only. The agent misses the rules of the project. |
-| `global-rules` | `~/.claude/CLAUDE.md`, `~/.config/opencode/AGENTS.md`, and `~/.codex/AGENTS.md` are symlinks to `<shared>/AGENTS.md`. | A copy drifts from the source, or a link is broken. Missing paths are a warn, because the tool may not be installed. `--fix` replaces an equal copy or a broken link with a symlink; a copy with different content is not changed. |
-| `skill-links` | Every symlink in `~/.claude/skills/` and `~/.agents/skills/` resolves to an existing folder. | A skill is gone. Remove the broken link or point it back. |
-| `agent-copies` | `.opencode/agents/coder.md`, `researcher.md`, and `reader.md` are permission-only files or absent (see `docs/research/agent-merge.md`). | A project copy overrides the plugin agent. Delete it, or keep only a permission block. |
-| `opencode-version` | The opencode version that `mise current opencode` resolves in the project root equals the `opencode` pin in the `mise.toml` of oc-sub, the tested version, and the pin that decides it (the project `mise.toml`, else the global mise configuration) is that exact version. A pin such as `"latest"` warns even when it resolves to the tested version today, because the next release changes it. | Warn. Set the tested version in the project `mise.toml` (or in the global mise configuration when the project has no pin) and run `mise install`. No `--fix` action yet. |
-| `opencode-release` | The latest opencode release (`mise latest opencode`) is not newer than the tested version, or not newer than the reviewed version in `opencode-review.json` of the oc-sub repository. It reminds you to review a new release from time to time. A failed or empty `mise latest` call (no network) skips the check, and so does a missing tested pin. | Warn. Read the release notes of the new version, then either raise the pin in the `mise.toml` of oc-sub and run the tests, or record the decision in `opencode-review.json`. No `--fix` action. |
-| `plugin-fresh` | The installed plugin commit matches `origin/alpha` of the plugin repository. | Warn. `--fix` runs the plugin update commands that the fix names. |
-| `sandbox-mounts` | When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires (a folder inside the project root is not mounted, the clone holds it), the project has the `sandbox-<name>` git remote of clone mode, and the clone exists inside the sandbox (`git -C <root> rev-parse --git-dir`). | Run `sbx rm --force NAME` and then `oc-sub up`, which creates the sandbox again in clone mode. |
-| `deepinfra-key` | The optional DeepInfra key file `~/.config/<project>/deepinfra.key` has mode 600 or stricter. It only reads the mode, never the content. Without the file, it skips (DeepInfra is off). | Warn only. Other users may read the key. Run `chmod 600` on the file. |
+```tbl
+check: Check
+what-it-checks: What it checks
+fail-means: Fail means
+--
+check: `env-files`
+what-it-checks: No real `.env` or `.env.*` file in the project root or in any folder of `.worktrees/`, except names that end in `.example` or `.sample`. It never opens the file.
+fail-means: A key file sits in the project. Move the keys to `~/.config/<project>/<provider>.key` and delete the file.
+--
+check: `claude-md`
+what-it-checks: No `CLAUDE.md` or `CLAUDE.local.md` in the project root.
+fail-means: Claude Code would read the wrong rules file. Rename it to `AGENTS.md`.
+--
+check: `agents-md`
+what-it-checks: The project root has `AGENTS.md`.
+fail-means: Warn only. The agent misses the rules of the project.
+--
+check: `global-rules`
+what-it-checks: `~/.claude/CLAUDE.md`, `~/.config/opencode/AGENTS.md`, and `~/.codex/AGENTS.md` are symlinks to `<shared>/AGENTS.md`.
+fail-means: A copy drifts from the source, or a link is broken. Missing paths are a warn, because the tool may not be installed. `--fix` replaces an equal copy or a broken link with a symlink; a copy with different content is not changed.
+--
+check: `skill-links`
+what-it-checks: Every symlink in `~/.claude/skills/` and `~/.agents/skills/` resolves to an existing folder.
+fail-means: A skill is gone. Remove the broken link or point it back.
+--
+check: `agent-copies`
+what-it-checks: `.opencode/agents/coder.md`, `researcher.md`, and `reader.md` are permission-only files or absent (see `docs/research/agent-merge.md`).
+fail-means: A project copy overrides the plugin agent. Delete it, or keep only a permission block.
+--
+check: `opencode-version`
+what-it-checks: The opencode version that `mise current opencode` resolves in the project root equals the `opencode` pin in the `mise.toml` of oc-sub, the tested version, and the pin that decides it (the project `mise.toml`, else the global mise configuration) is that exact version. A pin such as `"latest"` warns even when it resolves to the tested version today, because the next release changes it.
+fail-means: Warn. Set the tested version in the project `mise.toml` (or in the global mise configuration when the project has no pin) and run `mise install`. No `--fix` action yet.
+--
+check: `opencode-release`
+what-it-checks: The latest opencode release (`mise latest opencode`) is not newer than the tested version, or not newer than the reviewed version in `opencode-review.json` of the oc-sub repository. It reminds you to review a new release from time to time. A failed or empty `mise latest` call (no network) skips the check, and so does a missing tested pin.
+fail-means: Warn. Read the release notes of the new version, then either raise the pin in the `mise.toml` of oc-sub and run the tests, or record the decision in `opencode-review.json`. No `--fix` action.
+--
+check: `plugin-fresh`
+what-it-checks: The installed plugin commit matches `origin/alpha` of the plugin repository.
+fail-means: Warn. `--fix` runs the plugin update commands that the fix names.
+--
+check: `sandbox-mounts`
+what-it-checks: When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires (a folder inside the project root is not mounted, the clone holds it), the project has the `sandbox-<name>` git remote of clone mode, and the clone exists inside the sandbox (`git -C <root> rev-parse --git-dir`).
+fail-means: Run `sbx rm --force NAME` and then `oc-sub up`, which creates the sandbox again in clone mode.
+--
+check: `deepinfra-key`
+what-it-checks: The optional DeepInfra key file `~/.config/<project>/deepinfra.key` has mode 600 or stricter. It only reads the mode, never the content. Without the file, it skips (DeepInfra is off).
+fail-means: Warn only. Other users may read the key. Run `chmod 600` on the file.
+```
 
 The fast checks `env-files` to `agent-copies` also run on every `oc-sub up` and `oc-sub run`. A fail stops the command with exit code 1 before anything changes state and before any paid call, and names the fixes plus the hint `run oc-sub doctor for details`. A warn prints one line and the command continues. The checks take about 1 ms. When they take over 50 ms, the command prints a warning with the time.
 

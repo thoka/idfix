@@ -1,5 +1,5 @@
 {
-  "name": "opencode-subagents",
+  "name": "idfix",
   "description": "Delegate research and small coding steps to cheap opencode subagents with the oc-sub tool, and watch and review each run.",
   "author": {
     "name": "Thomas Kalka"
@@ -12,5 +12,5 @@
     "openrouter"
   ],
   "license": "MIT",
-  "repository": "https://github.com/thoka/opencode-subagents"
+  "repository": "https://github.com/thoka/idfix"
 }

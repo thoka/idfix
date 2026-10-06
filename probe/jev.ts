@@ -80,7 +80,7 @@ export function buildRequestBody(model: string): object {
 export function readKey(env: Env, readText: (file: string) => string | null): string | null {
   const fromEnv = env.OPENROUTER_API_KEY?.trim();
   if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
-  return readText(projectKeyPath("opencode-subagents", env))?.trim() ?? null;
+  return readText(projectKeyPath("idfix", env))?.trim() ?? null;
 }
 
 /** One line of the result file: everything but the key. Pure. */
@@ -293,7 +293,7 @@ function readFileSyncOrNull(file: string): string | null {
 export async function main(argv: readonly string[], env: Env = process.env): Promise<number> {
   const key = readKey(env, (file) => readFileSyncOrNull(file));
   if (key === null || key.length === 0) {
-    console.error(`no key: set OPENROUTER_API_KEY or create ${projectKeyPath("opencode-subagents", env)}`);
+    console.error(`no key: set OPENROUTER_API_KEY or create ${projectKeyPath("idfix", env)}`);
     return 2;
   }
   const resultsDir = path.join(import.meta.dir, "results");

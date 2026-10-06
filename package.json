@@ -1,5 +1,5 @@
 {
-  "name": "opencode-subagents",
+  "name": "idfix",
   "type": "module",
   "private": true,
   "devDependencies": {

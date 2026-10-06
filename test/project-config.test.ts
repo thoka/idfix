@@ -109,22 +109,22 @@ describe("makeProjectNameResolver", () => {
 
   test("a row uses the configured shortName of its project root", () => {
     const deps = depsWith(
-      { [projectConfigFile("/d/opencode-subagents")]: '{"shortName": "opsub"}' },
-      ["/d/opencode-subagents"],
+      { [projectConfigFile("/d/idfix")]: '{"shortName": "opsub"}' },
+      ["/d/idfix"],
     );
     const resolve = makeProjectNameResolver(deps, new Map());
-    expect(resolve("/d/opencode-subagents")).toBe("opsub");
-    expect(resolve("/d/opencode-subagents/.worktrees/8i")).toBe("opsub");
+    expect(resolve("/d/idfix")).toBe("opsub");
+    expect(resolve("/d/idfix/.worktrees/8i")).toBe("opsub");
   });
 
   test("a folder that exists only in the sandbox maps to its host root", () => {
     // The worktree folder does not exist on the host; the root does. The
     // config of the root decides.
     const deps = depsWith(
-      { [projectConfigFile("/d/opencode-subagents")]: '{"shortName": "opsub"}' },
-      ["/d/opencode-subagents"],
+      { [projectConfigFile("/d/idfix")]: '{"shortName": "opsub"}' },
+      ["/d/idfix"],
     );
     const resolve = makeProjectNameResolver(deps, new Map());
-    expect(resolve("/d/opencode-subagents/.worktrees/8i")).toBe("opsub");
+    expect(resolve("/d/idfix/.worktrees/8i")).toBe("opsub");
   });
 });

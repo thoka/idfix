@@ -5,6 +5,10 @@ This file holds the plan as it stood on 2026-10-01, with every finished step and
 
 ## Steps after 2026-10-01
 
+## Step 29e: the start script sets NODE_ENV
+
+Done on 2026-10-06. The fix of 29d broke `idfx top` when the user started it outside the repository: `error: jsxDEV_7x81h0kn is not a function`. Root cause: bun picks its JSX transform from `NODE_ENV` when the process starts, and 29d set `NODE_ENV` only at run time. Inside the repository bun read `tsconfig.json` (`react-jsx`), so the transform matched by luck and the test of 29d passed. From another folder bun compiled with `jsxDEV`, which the production build of React exports as undefined. Fix: `bin/oc-sub` exports `NODE_ENV="${NODE_ENV:-production}"` before it starts bun, and `preferReactProduction` is gone. `test/top-react-build.test.ts` now runs the real `bin/oc-sub top --all` from a temp folder with a fake `bun` on the PATH, renders `TopView` once, and checks the React build. It fails on 48cc99c. Known gap: `bun src/cli.ts top` without the start script loads the development build again.
+
 ## Step 29d: `top` loads the production build of React
 
 Done on 2026-10-06 (48cc99c). Root cause: `bin/oc-sub` starts bun without `NODE_ENV`, so `react` 19.3.0 (through Ink 7.1.1) loaded its development build, which keeps data of every render. The live view redraws once per second, so it grew about 1.5 MB per minute (7 GB after 2 days on 2026-10-04).

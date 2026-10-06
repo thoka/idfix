@@ -2,15 +2,15 @@
 
 ## Hand-off
 
-Next step: 29e. Fix the crash of `idfx top` outside the repository: the start script sets NODE_ENV (a subagent works in .worktrees/29e-node-env-at-start).
+Next step: 39b. Move the planning files into the clone of thoka/idfix-plan in .plan/ (plain move), by the recipe of the supervisor in section 17.
 Waits for: nothing
-New context: no. 29e runs in this context. After it, step 39b follows (plan_dir is ready since meta 44).
+New context: yes. Step 39 has a new topic, and this context holds steps 29d and 29e.
 
 2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5).
 
-State: step 29d is done and on `alpha` (48cc99c, see HISTORY). `top` now loads the production build of React, and the leak of about 1.5 MB per minute is gone in a live check. The suite has 1286 tests and passes. A `top` view that started before 48cc99c still runs the old code and still leaks: quit it with `q` and start it again. The lesson of step 29d (`react-cli-needs-node-env-production`) is imported into meta.
+State: steps 29d and 29e are done and on `alpha` (see HISTORY). `top` loads the production build of React, because `bin/oc-sub` sets `NODE_ENV=production` at start. The leak of about 1.5 MB per minute is gone in a live check, and `top` works from any folder again. The outbox holds a task for meta: the lesson `react-cli-needs-node-env-production` recommends the run-time setting that broke 29d. The suite has 1286 tests and passes. A `top` view that started before 48cc99c still runs the old code and still leaks: quit it with `q` and start it again. The lesson of step 29d (`react-cli-needs-node-env-production`) is imported into meta.
 
-The next step is 39 in section 17 below: the planning files move to the private repository `thoka/idfix-plan`, by the new rule `public-repo-no-private-context`. The move waits until meta reads `.plan/` in `handover check` and in `mise run outbox scan`. The supervisor sends the notice "plan_dir ready" when meta step 44 is merged. Severin restarts this session after the hand-off, with a ping first.
+The next step is 39 in section 17 below: the planning files move to the private repository `thoka/idfix-plan`, by the new rule `public-repo-no-private-context`. Meta step 44 is merged (44a 25ab4ab, 44b fad5cb7, rule `plan-folder` in meta `agents/AGENTS.md`), so 39a is done.
 
 Open tasks of the user: none from idfix. The user has not yet tried the key `o` of `top` in real tmux.
 
@@ -190,9 +190,9 @@ Research: [process-labels.md](research/process-labels.md), with the review of th
 
 The supervisor sent the rule `public-repo-no-private-context` on 2026-10-06 (user, meta `agents/AGENTS.md`, section Git). A public repository names no local path, no private project, and no private decision of the user. idfix is public. Its planning files live in the private companion repository `thoka/idfix-plan` (exists, empty), cloned into the git-ignored folder `.plan/`.
 
-1. 39a: coordinate the order with meta. Meta builds `plan_dir` for `handover check` and for `mise run outbox scan`. Do not move before both read `.plan/`, or the hand-off check and the outbox scan break.
-2. 39b: a plain move, no history rewrite (the user decides on a rewrite later). Move `docs/PLAN.md`, `docs/HISTORY.md`, `docs/review-queue.md`, `docs/EXPERIENCE.md`, `docs/research/`, `docs/design/`, `docs/reports/`, and `docs/outbox/` into the clone in `.plan/`, add `.plan/` to `.gitignore`, and fix the links in `README.md`, `docs/GUIDE.md`, `AGENTS.md`, and the code comments that name these files.
-3. 39c: search the public files that stay (code, tests, `docs/GUIDE.md`, the skill) for local paths (`/home/toka`, `~/dv/...`), names of private projects, and private decisions, and remove them. The public repositories on 2026-10-06 are tbl-md, idfix, musescore-icons, sqrt2, and sqrt2-gh, so every other project name in `~/dv` is private. Use the list `agents/private-projects.txt` and the check `dv/bin/public-check` of meta step 44b when they land, not a copy.
+1. 39a: done. Meta reads `plan_dir` in `handover check` and in the outbox scan since meta step 44.
+2. 39b: a plain move, no history rewrite (the user decides on a rewrite later). The recipe of the supervisor: put `plan_dir = ".plan"` into `.handover.toml`, add `.plan/` to `.gitignore`, clone `thoka/idfix-plan` into `.plan/`, move `PLAN.md`, `HISTORY.md` (the supervisor wrote PLAN_DONE.md), `review-queue.md`, `research/`, and `outbox/` there, and run `handover check` in the main checkout. Also decide on `docs/EXPERIENCE.md`, `docs/design/`, and `docs/reports/`, and fix the links in `README.md`, `docs/GUIDE.md`, `AGENTS.md`, and the code comments that name these files.
+3. 39c: search the public files that stay (code, tests, `docs/GUIDE.md`, the skill) for local paths (`/home/toka`, `~/dv/...`), names of private projects, and private decisions, and remove them. The public repositories on 2026-10-06 are tbl-md, idfix, musescore-icons, sqrt2, and sqrt2-gh, so every other project name in `~/dv` is private. Use the list `agents/private-projects.txt` and the check `dv/bin/public-check` of meta step 44b (meta README, section "public-check", with a lefthook snippet), not a copy. A first run of the supervisor found 474 hits in 69 files: 322 `/home/`, mostly test fixtures, 67 `~/dv`, and 38 arch-helper.
 
 ### Later
 

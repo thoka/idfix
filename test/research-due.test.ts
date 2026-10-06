@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseResearchHead, recheckState, todayString } from "../src/research-head";
-import { makeDoctorDeps, RESEARCH_DUE_FIX, researchDueCheck } from "../src/doctor";
+import { makeDoctorDeps, PLAN_DIR_FIX, RESEARCH_DUE_FIX, researchDueCheck, type DoctorDeps } from "../src/doctor";
+import { readPlanDir } from "../src/plan-dir";
 
 /** A report text with a recheck head. */
 function report(head: string): string {
@@ -123,6 +124,7 @@ describe("researchDueCheck", () => {
     try {
       const result = researchDueCheck(makeDoctorDeps(process.env, root, { today: "2026-10-01" }));
       expect(result.status).toBe("pass");
+      expect(result.message).toBe("no docs/research folder, so no report has a recheck head");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -150,7 +152,7 @@ describe("researchDueCheck", () => {
     try {
       const result = researchDueCheck(deps);
       expect(result.status).toBe("pass");
-      expect(result.message).toBe("no report is due");
+      expect(result.message).toBe("no report in docs/research is due");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -192,7 +194,7 @@ describe("researchDueCheck", () => {
     try {
       const result = researchDueCheck(deps);
       expect(result.status).toBe("pass");
-      expect(result.message).toBe("no report has a recheck head");
+      expect(result.message).toBe("no report in docs/research has a recheck head");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -201,4 +203,101 @@ describe("researchDueCheck", () => {
 
 test("todayString returns YYYY-MM-DD", () => {
   expect(todayString()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+});
+
+/** A reader of an in-memory file tree: path relative to /p to text. */
+function memoryFiles(files: Record<string, string>): (file: string) => string | null {
+  return (file) => files[path.relative("/p", file)] ?? null;
+}
+
+describe("readPlanDir", () => {
+  const read = (toml: string | undefined) => readPlanDir("/p", memoryFiles(toml === undefined ? {} : { ".handover.toml": toml }));
+
+  test("no file or no key gives docs without a problem", () => {
+    expect(read(undefined)).toEqual({ planDir: "docs" });
+    expect(read("local_only = true\n")).toEqual({ planDir: "docs" });
+  });
+
+  test("a relative folder is used, normalized like a POSIX path", () => {
+    expect(read('plan_dir = ".plan"\n')).toEqual({ planDir: ".plan" });
+    expect(read('plan_dir = " ./notes//plan/ "\n')).toEqual({ planDir: "notes/plan" });
+  });
+
+  test("a bad TOML gives docs and a problem", () => {
+    const got = read("plan_dir = \n");
+    expect(got.planDir).toBe("docs");
+    expect(got.problem).toStartWith("bad .handover.toml: ");
+  });
+
+  test("a value that is not a non-empty string gives docs and a problem", () => {
+    for (const value of ["42", "true", "[\".plan\"]", '""', '"   "']) {
+      expect(read(`plan_dir = ${value}\n`)).toEqual({
+        planDir: "docs",
+        problem: "bad .handover.toml: plan_dir is not a non-empty string",
+      });
+    }
+  });
+
+  test("an absolute path, a path with .., or a backslash gives docs and a problem", () => {
+    for (const value of ["/abs/plan", "../plan", "a/../../b", "a\\\\b"]) {
+      const got = read(`plan_dir = "${value}"\n`);
+      expect(got.planDir).toBe("docs");
+      expect(got.problem).toStartWith("bad .handover.toml: plan_dir is not a relative path inside the project: ");
+    }
+  });
+
+  test("the project root itself gives docs and a problem", () => {
+    for (const value of [".", "./", "./."]) {
+      expect(read(`plan_dir = "${value}"\n`)).toEqual({
+        planDir: "docs",
+        problem: "bad .handover.toml: plan_dir must not be the project root",
+      });
+    }
+  });
+});
+
+describe("researchDueCheck with plan_dir", () => {
+  /** Doctor deps whose project root /p holds only the given files. */
+  function memoryDeps(files: Record<string, string>): DoctorDeps {
+    const base = makeDoctorDeps(process.env, "/p", { today: "2026-10-01" });
+    return {
+      ...base,
+      readText: memoryFiles(files),
+      readdir: (folder) => {
+        const rel = path.relative("/p", folder);
+        const names = Object.keys(files)
+          .filter((file) => path.dirname(file) === rel)
+          .map((file) => path.basename(file));
+        return names.length > 0 ? names : null;
+      },
+    };
+  }
+
+  const DUE = report("checked: 2026-09-17\nrecheck: 2w\n");
+
+  test("with plan_dir = .plan it reads .plan/research and not docs/research", () => {
+    const deps = memoryDeps({ ".handover.toml": 'plan_dir = ".plan"\n', "docs/research/DUE.md": DUE });
+    expect(researchDueCheck(deps)).toMatchObject({
+      status: "pass",
+      message: "no .plan/research folder, so no report has a recheck head",
+    });
+    const due = researchDueCheck(memoryDeps({ ".handover.toml": 'plan_dir = ".plan"\n', ".plan/research/DUE.md": DUE }));
+    expect(due.status).toBe("warn");
+    expect(due.message).toContain("DUE.md was due on 2026-10-01");
+    expect(due.fix).toBe(RESEARCH_DUE_FIX);
+  });
+
+  test("a bad plan_dir reads docs/research and warns with the problem", () => {
+    const fresh = report("checked: 2026-10-01\nrecheck: 1m\n");
+    const result = researchDueCheck(memoryDeps({ ".handover.toml": 'plan_dir = "../x"\n', "docs/research/FRESH.md": fresh }));
+    expect(result.status).toBe("warn");
+    expect(result.message).toBe(
+      "bad .handover.toml: plan_dir is not a relative path inside the project: '../x', so the check read docs/research; no report in docs/research is due",
+    );
+    expect(result.fix).toBe(PLAN_DIR_FIX);
+    const due = researchDueCheck(memoryDeps({ ".handover.toml": "plan_dir = 1\n", "docs/research/DUE.md": DUE }));
+    expect(due.status).toBe("warn");
+    expect(due.message).toContain("plan_dir is not a non-empty string, so the check read docs/research; DUE.md was due");
+    expect(due.fix).toBe(RESEARCH_DUE_FIX);
+  });
 });

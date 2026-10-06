@@ -13,6 +13,7 @@ import path from "node:path";
 import type { Env } from "./config";
 import { defaultKvmDeps, execFailedMessage, hostRefsKeepingCommit, KVM_CHMOD_COMMAND, kvmAccessCheck, miseBin as miseBinOf, miseInstallsDir, missingCloneMessage, missingMountsMessage, parseFeatureBranches, parseWorktrees, readSandboxState, RECREATE_REF_FORMAT, recreateSandbox, sandboxName, sandboxRecreateCase, sandboxRecreateFix, sandboxStatePath, defaultRunner, type KvmDeps, type Runner, type SandboxState } from "./sandbox";
 import { deepinfraKeyPath, projectRootOfRun } from "./keys";
+import { PLAN_CONFIG, readPlanDir } from "./plan-dir";
 import { parseResearchHead, recheckState, todayString } from "./research-head";
 import { sharedAgentsDir } from "./shared";
 import { PLUGIN_CONFIG_DIR } from "./up";
@@ -1249,21 +1250,32 @@ export function deepinfraKeyCheck(deps: DoctorDeps): CheckResult {
  */
 export const RESEARCH_DUE_FIX = "Recheck the facts with a researcher run, then set `checked` to today";
 
+/** The fix text of `research-due` when `.handover.toml` has a bad `plan_dir`. */
+export const PLAN_DIR_FIX = `Set plan_dir in ${PLAN_CONFIG} to a relative folder inside the project, for example ".plan", or remove the key`;
+
 /**
  * The `research-due` check (PLAN.md step 17c): every report in
- * `docs/research/` of the project root can start with a recheck head
- * (`checked`, `recheck`, `decisions`, see `src/research-head.ts`). The
- * check warns when one or more reports are due (the due date is today or
- * earlier) or have an invalid head, and names each report, its due date,
- * and its decisions. A trigger (`on ...`) is never due by date and is only
- * information. Reports without a head do not count. Without any head the
- * check passes with the note "no report has a recheck head". It never
- * fails. `deps.today` replaces the real date in the tests.
+ * `<plan_dir>/research/` of the project root can start with a recheck head
+ * (`checked`, `recheck`, `decisions`, see `src/research-head.ts`). The plan
+ * folder is `plan_dir` of `.handover.toml` (default `docs`, see
+ * `src/plan-dir.ts`). The check warns when one or more reports are due (the
+ * due date is today or earlier) or have an invalid head, and names each
+ * report, its due date, and its decisions. A trigger (`on ...`) is never due
+ * by date and is only information. Reports without a head do not count.
+ * Without any head the check passes with the note "no report has a recheck
+ * head". A bad `plan_dir` makes the check read `docs` and warn with the
+ * problem. It never fails. `deps.today` replaces the real date in the tests.
  */
 export function researchDueCheck(deps: DoctorDeps): CheckResult {
-  const folder = path.join(deps.root, "docs", "research");
+  const { planDir, problem } = readPlanDir(deps.root, deps.readText);
+  const shown = `${planDir}/research`;
+  const done = (status: CheckResult["status"], message: string, fix?: string): CheckResult =>
+    problem === undefined
+      ? result("research-due", status, message, fix)
+      : result("research-due", "warn", `${problem}, so the check read ${shown}; ${message}`, fix ?? PLAN_DIR_FIX);
+  const folder = path.join(deps.root, planDir, "research");
   const entries = deps.readdir(folder);
-  if (entries === null) return result("research-due", "pass", "no docs/research folder, so no report has a recheck head");
+  if (entries === null) return done("pass", `no ${shown} folder, so no report has a recheck head`);
   const today = deps.today ?? todayString();
   const names = entries.filter((name) => name.endsWith(".md")).sort();
   const due: string[] = [];
@@ -1282,13 +1294,13 @@ export function researchDueCheck(deps: DoctorDeps): CheckResult {
     else if (state.kind === "invalid") invalid.push(`${name}: ${state.problem}`);
     else if (state.kind === "trigger") triggers.push(`${name} rechecks ${head.recheck}`);
   }
-  if (heads === 0) return result("research-due", "pass", "no report has a recheck head");
+  if (heads === 0) return done("pass", `no report in ${shown} has a recheck head`);
   if (due.length > 0 || invalid.length > 0) {
     const lines = [...invalid, ...due].join("; and ");
-    return result("research-due", "warn", lines, RESEARCH_DUE_FIX);
+    return done("warn", lines, RESEARCH_DUE_FIX);
   }
-  if (triggers.length > 0) return result("research-due", "pass", `no report is due; ${triggers.join(", ")}`);
-  return result("research-due", "pass", "no report is due");
+  if (triggers.length > 0) return done("pass", `no report in ${shown} is due; ${triggers.join(", ")}`);
+  return done("pass", `no report in ${shown} is due`);
 }
 
 /** The RSS limit of the `top-memory` check: 1 GiB. */

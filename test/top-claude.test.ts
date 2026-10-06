@@ -56,14 +56,14 @@ describe("sortTopRows with inactive rows", () => {
 
 describe("scopeClaudeRows", () => {
   const rows = [
-    claudeRowOf("in", { directory: "/dv/idfix" }),
-    claudeRowOf("tree", { directory: "/dv/idfix/.worktrees/25g2/src" }),
-    claudeRowOf("out", { directory: "/dv/meta" }),
-    claudeRowOf("prefix", { directory: "/dv/idfix-old" }),
+    claudeRowOf("in", { directory: "/src/idfix" }),
+    claudeRowOf("tree", { directory: "/src/idfix/.worktrees/25g2/src" }),
+    claudeRowOf("out", { directory: "/src/proj-a" }),
+    claudeRowOf("prefix", { directory: "/src/idfix-old" }),
   ];
 
   test("without --all only the folders of the project and its worktrees show", () => {
-    const scope = ["/dv/idfix", "/dv/idfix/.worktrees/25g2"];
+    const scope = ["/src/idfix", "/src/idfix/.worktrees/25g2"];
     expect(scopeClaudeRows(rows, scope).map((row) => row.sessionId)).toEqual(["in", "tree"]);
   });
 

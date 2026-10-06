@@ -69,8 +69,8 @@ The server URL comes from `--url` or the environment variable `OC_SUB_URL`, defa
 ### oc-sub up
 
 ```
-bun run src/cli.ts up [--dir DIR]
-bun run src/cli.ts up --no-sandbox [--port N]
+bun run src/cli.ts up [--dir DIR] [--idle-minutes N]
+bun run src/cli.ts up --no-sandbox [--port N] [--idle-minutes N]
 ```
 
 Checks the health of the host server (`GET /global/health`). When nothing answers, it starts `opencode serve --port N --hostname 127.0.0.1` in the background (detached, so it outlives the command), waits until it is healthy, and prints the URL and the version. Without `--port`, the port comes from the URL, then from 8767. With `--port N`, `up` checks and starts the server on port N and keeps the host of the URL (so `OC_SUB_URL` keeps its host). When both `--url` and `--port` are given and their ports differ, `up` stops with a usage error. Without `--no-sandbox`, `up` starts a sandbox instead (see `docs/GUIDE.md`).
@@ -86,7 +86,21 @@ One server serves many project folders, so its state lives in one folder per use
 - `serve-<port>.log` holds the output of the server.
 - `serve-<port>.pid` holds its PID.
 - `serve-<port>.dirs` lists the folders that `oc-sub run` sent sessions to. `oc-sub down` checks these folders for busy sessions.
+- `idle-<port>.pid` holds the PID of the idle watchdog of the server.
 - `runs/` holds a copy of every run record, so `watch` and `log` find the real cost from any working directory.
+
+#### The idle watchdog
+
+After a new server is healthy, `up` also starts an idle watchdog in the background. The watchdog stops the server when it is idle, so an unused server does not run for days. It works in both modes.
+
+- The server is idle when no session is busy and no event came for 30 minutes. A heartbeat of the server is not an event. The watchdog follows the event stream of all folders (`GET /global/event`). A session counts as busy from `session.status` with `busy` or `retry` until `session.status` with `idle` or `session.idle`.
+- `--idle-minutes N` sets the limit. `0` turns the watchdog off. The option also works with `restart`.
+- Before the stop, the watchdog asks `GET /session/status` of each folder in `serve-<port>.dirs` and of each folder that the event stream named. A busy session resets the timer.
+- The watchdog stops the server the same way as `oc-sub down` without `--force`: the busy check, then SIGTERM to the process group. In sandbox mode, it uses the stop of `oc-sub down`, which also runs `sbx stop`. So the VM stops too.
+- It writes one line with the reason into `serve-<port>.log`, for example `idle-stop port=8767 idle=30m`, and then exits.
+- It also exits without a stop when the server PID file changes or disappears, or when the server does not answer the health check 3 times in a row. So it never outlives its server for long.
+- `down`, `down --all`, and `restart` stop the watchdog after the server stops. A stale `idle-<port>.pid` does no harm.
+- An `up` that finds a running server starts no watchdog.
 
 ### oc-sub down
 
@@ -107,7 +121,7 @@ Stops every server that oc-sub started: each sandbox with a state file that `sbx
 ### oc-sub restart
 
 ```
-oc-sub restart --no-sandbox [--port N] [--force]
+oc-sub restart --no-sandbox [--port N] [--force] [--idle-minutes N]
 ```
 
 Runs `down` and then `up` on the same port. If `down` fails, `restart` stops there. In sandbox mode (`oc-sub restart` without `--no-sandbox`), it restarts the sandbox of the project.
@@ -391,6 +405,7 @@ A git hook sets repository-local git variables such as `GIT_DIR` and `GIT_INDEX_
 - `src/realcost.ts` — the real-cost output of `watch` and `log`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
 - `src/state.ts` — per-user state files of the server (PID, log, folders with runs)
+- `src/idle.ts`: the idle watchdog of a server: the pure busy tracker, the hidden `idle-watch` command, and its start and stop
 - `src/attach.ts` — the `attach` command
 - `src/doctor.ts` — the health checks, the fast gate for `up` and `run`, and the `doctor` command
 - `src/top/` — `oc-sub top`: `model.ts` (the pure session model), `load.ts` (the REST seed and `--once`), `live.ts` (the event streams), `columns.ts` and `format.ts` (the columns and the text table, pure), `view-model.ts` (the pure view logic), `view.tsx` and `app.tsx` (the Ink view)

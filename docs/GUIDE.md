@@ -497,6 +497,19 @@ Details:
 - Every command finds its server on its own. The URL comes from `--url`, then `OC_SUB_URL`, then the sandbox state of the project of `--dir` (or of the current folder), then the default `http://127.0.0.1:8767`. `run`, `ping`, `watch`, `log`, `abort`, `answer`, `say`, and `status` follow that order. `status --all` covers every known server: the host server (from `--url`, `OC_SUB_URL`, or the default) plus every sandbox with a valid state file. `up`, `down`, and `restart` keep their own target resolution with `--port`.
 - `run`, `ping`, and the real cost work with a sandboxed server. The sandbox reports the placeholder key `proxy-managed`; `oc-sub` then reads the project key file on the host and checks that key at OpenRouter. The shared-key check of `run` and the real-cost line use it too. `ping` prints the source as `sbx proxy with the project key file <path>`. It prints only fingerprints, never a key.
 
+### The idle watchdog
+
+An idle server stops by itself. After a new server is healthy, `oc-sub up` starts a small watchdog process in the background, in both modes. The watchdog follows the events of the server. It stops the server when no session is busy and no event came for 30 minutes. A heartbeat of the server does not count as an event.
+
+- `oc-sub up --idle-minutes N` sets the limit. `--idle-minutes 0` turns the watchdog off. `oc-sub restart` takes the same option.
+- Before the stop, the watchdog asks the server again for the busy sessions of each known folder. A busy session resets the timer.
+- The watchdog uses the stop of `oc-sub down` without `--force`. On the host, the server process group gets SIGTERM. In sandbox mode, the stop also runs `sbx stop`, so the VM stops too. The next `oc-sub up` starts the sandbox again, and the sessions stay on its disk.
+- The server log `serve-<port>.log` gets one line with the reason, for example `2026-10-06T21:00:00.000Z idle-stop port=18768 idle=30m`, and the line `stopped ...` of the stop.
+- The watchdog keeps its PID in `idle-<port>.pid` in the state folder. `oc-sub down`, `down --all`, and `restart` stop it.
+- The watchdog also ends without a stop when the server PID file changes or disappears, or when the server does not answer the health check 3 times in a row.
+- An `oc-sub up` that finds a running server starts no watchdog. A server that an older oc-sub started has none, so stop it once with `oc-sub down`.
+- A session that you only read in `opencode attach` is not busy. The watchdog can stop its server after the limit.
+
 ### Recreating a sandbox
 
 The `sandbox-mounts` check fails when the sandbox lacks a required mount, has no clone, or is not in clone mode. All three need the same repair: remove the sandbox and create it again. `oc-sub doctor --fix --force` does this for you. It runs `oc-sub down` (when the server of the sandbox runs), then `sbx rm --force NAME`, then `oc-sub up`, which creates the sandbox again in clone mode with all required mounts.
@@ -630,6 +643,9 @@ cause-and-fix: The command waits for input. Add `< /dev/null`.
 --
 problem: `oc-sub status` shows nothing
 cause-and-fix: The server lists only busy sessions in its status map. Use `oc-sub log` for a finished run. Also check that `--dir` is the folder of the run. `oc-sub status --all` shows the running sessions of all known servers, all projects, and their worktrees, each with its folder. From a host git worktree of the project, `status` resolves to the project root through the git common dir; if git fails there (for example a dubious-ownership error), it cannot, so run it with `--dir <root>` instead. `--json` prints one object, and the sessions are in its `items`.
+--
+problem: The server stopped by itself
+cause-and-fix: The idle watchdog stopped it, because no session was busy and no event came for the idle limit. The server log `serve-<port>.log` shows the line `idle-stop port=<port> idle=<limit>`. Start it again with `oc-sub up`. To keep a server up longer, start it with `oc-sub up --idle-minutes N`, or with `--idle-minutes 0` for no limit.
 --
 problem: A run seems stuck
 cause-and-fix: The agent may wait for an answer to a question or a permission request. Run `oc-sub watch <session-id> --dir <worktree>` again. It ends with exit code 3 and prints the request.

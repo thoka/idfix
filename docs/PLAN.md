@@ -191,6 +191,14 @@ Research: [process-labels.md](research/process-labels.md), with the review of th
 3. 31c: the integration tests use the same path with a test owner, and the teardown stops their units (this also closes the follow-up of step 30).
 4. 31d: `doctor` lists the `ocsub-*` units with owner and reason, and warns for a unit whose owner is gone. `--fix --force` stops it.
 
+### 17. Step 35: a pre-push hook that runs the tests
+
+Task from the supervisor, 2026-10-06. `mise run pre-push-scan` in meta lists idfix as a project without a pre-push hook. The global rule (section Git) asks that the tests run locally before each push. Add lefthook through `mise.toml`, and a `lefthook.yml` with one pre-push job `mise run test`, like `~/dv/meta/lefthook.yml`. Give `mise.toml` a task `test` that runs `bun test` and `bun run typecheck`, if it has none, and a task `hooks-install`. Install the hook in the main checkout. The flaky `test/watch-guards.test.ts` (see Later) must not block a push, so fix it or mark it first.
+
+### 18. Step 36: stable names for workers
+
+User decision 2026-10-06 (meta plan, step 26). Each worker gets a stable name: its project folder, plus its step if a project runs more than one worker, for example `idfix-25g`. idfix starts every Claude worker with `-n <name>`. `idfx watch` (the watch slice of step 25g) reports a session without a name as an event. This session cannot run `/rename` on itself, so the next restart of the idfix main session uses `-n idfix`.
+
 ### Later
 
 - Flaky test: `test/watch-guards.test.ts` ("watch with a guard finding") times out after 20 seconds in some runs, with or without the temp folder fix of 2026-10-05. It was seen at a load average of about 10. The fake server likely pushes events before `watch` subscribes.

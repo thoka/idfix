@@ -27,9 +27,11 @@
  * The preload also guards the real user manager. `up`, `down`, and the
  * watchdog start and stop `idfx-<kind>-<port>` units (`ocsub-` of older code), and a unit test that
  * forgets its fake `UnitDeps` would stop the real server of another session
- * on the same port. So the real runner of `units.ts` refuses a start or a
- * stop of any unit other than `idfx-test-*` (the live test of units.ts)
- * and the units of the ports of the integration tests, and throws instead.
+ * on the same port. So the real runner of `units.ts` refuses a start, a
+ * stop, or another change (`CHANGING_VERBS`, for example `enable` or
+ * `restart`) of any unit other than `idfx-test-*` (the live test of
+ * units.ts) and the units of the ports of the integration tests, and throws
+ * instead. This also covers the installed unit `idfx-proxy` of `doctor`.
  *
  * After the last test, the preload also reaps the units that a test left
  * loaded, like the Ryuk container of Testcontainers. The integration tests
@@ -135,13 +137,39 @@ export function testMayTouchUnit(unit: string): boolean {
   return port >= INTEGRATION_PORTS.first && port <= INTEGRATION_PORTS.last;
 }
 
-/** The unit that a `systemd-run` or `systemctl stop` call starts or stops, or null. Pure. */
+/**
+ * The `systemctl` verbs that change a unit. A read such as `show` or
+ * `is-active` stays allowed, and so does `daemon-reload`, which names no unit.
+ */
+export const CHANGING_VERBS: ReadonlySet<string> = new Set([
+  "start",
+  "stop",
+  "restart",
+  "try-restart",
+  "reload",
+  "reload-or-restart",
+  "try-reload-or-restart",
+  "kill",
+  "enable",
+  "disable",
+  "reenable",
+  "mask",
+  "unmask",
+  "link",
+  "revert",
+  "preset",
+]);
+
+/**
+ * The unit that a `systemd-run` call starts, or that a `systemctl` call with
+ * a changing verb (`CHANGING_VERBS`) changes, or null. Pure.
+ */
 export function unitOfCall(cmd: readonly string[]): string | null {
   if (cmd[0] === "systemd-run") {
     const flag = cmd.find((arg) => arg.startsWith("--unit="));
     return flag === undefined ? null : flag.slice("--unit=".length);
   }
-  if (cmd[0] === "systemctl" && cmd.includes("stop")) return cmd[cmd.length - 1] ?? null;
+  if (cmd[0] === "systemctl" && cmd.some((arg) => CHANGING_VERBS.has(arg))) return cmd[cmd.length - 1] ?? null;
   return null;
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { createTranscriptReader, summarizeTranscript, tokensOf } from "../src/claude/transcript";
+import { API_ERROR_TEXT_LENGTH, apiErrorText, createTranscriptReader, summarizeTranscript, tokensOf } from "../src/claude/transcript";
 import { FIXTURE_ROOT, S1 } from "./claude-fixture";
 
 const encoder = new TextEncoder();
@@ -39,6 +39,8 @@ describe("summarizeTranscript", () => {
     expect(summary.agentName).toBe("proj");
     expect(summary.cwd).toBe("/home/u/dv/proj");
     expect(summary.apiErrors).toBe(1);
+    expect(summary.lastApiErrorText).toBe("529 overloaded");
+    expect(summary.lastApiErrorMs).toBe(Date.parse("2026-10-06T10:01:10.000Z"));
     expect(summary.firstActivityMs).toBe(Date.parse("2026-10-06T10:00:05.000Z"));
     expect(summary.lastActivityMs).toBe(Date.parse("2026-10-06T10:01:30.000Z"));
   });
@@ -93,5 +95,33 @@ describe("tokensOf", () => {
       cacheWrite5m: 30,
       cacheWrite1h: 0,
     });
+  });
+});
+
+describe("apiErrorText", () => {
+  test("takes formatted, then message, then a plain string", () => {
+    expect(apiErrorText({ formatted: "401 OAuth access token is invalid.", message: "401 {raw}" })).toBe(
+      "401 OAuth access token is invalid.",
+    );
+    expect(apiErrorText({ message: "529 overloaded" })).toBe("529 overloaded");
+    expect(apiErrorText("rate limit")).toBe("rate limit");
+    expect(apiErrorText({ status: 500 })).toBeUndefined();
+    expect(apiErrorText(null)).toBeUndefined();
+  });
+
+  test("cuts the text to 200 characters", () => {
+    expect(apiErrorText("x".repeat(500))).toHaveLength(API_ERROR_TEXT_LENGTH);
+    expect(API_ERROR_TEXT_LENGTH).toBe(200);
+  });
+
+  test("the reader keeps the text and the time of the last error line only", () => {
+    const line = (message: string, time: string) =>
+      JSON.stringify({ type: "system", subtype: "api_error", error: { message }, timestamp: time }) + "\n";
+    const summary = summarizeTranscript(
+      new TextEncoder().encode(line("first", "2026-10-06T10:00:00.000Z") + line("second", "2026-10-06T10:05:00.000Z")),
+    );
+    expect(summary.apiErrors).toBe(2);
+    expect(summary.lastApiErrorText).toBe("second");
+    expect(summary.lastApiErrorMs).toBe(Date.parse("2026-10-06T10:05:00.000Z"));
   });
 });

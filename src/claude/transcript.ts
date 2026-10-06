@@ -7,7 +7,12 @@
  * The reader parses only the line types that it needs: `assistant`,
  * `system`, `custom-title`, `ai-title`, and `agent-name`. It never parses a
  * `user` line or a `last-prompt` line, so prompts stay out of its state.
+ * Of an `api_error` line it keeps only the error text, cut to
+ * `API_ERROR_TEXT_LENGTH` characters, and the time.
  */
+
+/** The longest error text that the reader keeps of an `api_error` line. */
+export const API_ERROR_TEXT_LENGTH = 200;
 
 /** The tokens of one model. */
 export type TokenCounts = {
@@ -47,6 +52,10 @@ export type TranscriptSummary = {
   cwd: string | undefined;
   /** The count of `system` lines with subtype `api_error`. */
   apiErrors: number;
+  /** The error text of the last `api_error` line, cut to `API_ERROR_TEXT_LENGTH` characters. */
+  lastApiErrorText: string | undefined;
+  /** The `timestamp` of the last `api_error` line, in ms. */
+  lastApiErrorMs: number | undefined;
 };
 
 export type TranscriptReader = {
@@ -83,6 +92,7 @@ type Line = {
   customTitle?: string;
   aiTitle?: string;
   agentName?: string;
+  error?: unknown;
   message?: {
     id?: string;
     model?: string;
@@ -135,6 +145,23 @@ export function mergeUsage(into: Map<string, TokenCounts>, from: ReadonlyMap<str
   for (const [model, tokens] of from) into.set(model, addTokens(into.get(model) ?? emptyTokens(), tokens));
 }
 
+/**
+ * The text of the `error` field of an `api_error` line: `formatted`, else
+ * `message`, else a plain string, cut to `API_ERROR_TEXT_LENGTH` characters.
+ */
+export function apiErrorText(error: unknown): string | undefined {
+  let text: string | undefined;
+  if (typeof error === "string") text = error;
+  else if (error !== null && typeof error === "object") {
+    const record = error as { formatted?: unknown; message?: unknown };
+    if (typeof record.formatted === "string") text = record.formatted;
+    else if (typeof record.message === "string") text = record.message;
+  }
+  if (text === undefined) return undefined;
+  const trimmed = text.trim();
+  return trimmed.length === 0 ? undefined : trimmed.slice(0, API_ERROR_TEXT_LENGTH);
+}
+
 export function createTranscriptReader(): TranscriptReader {
   const decoder = new TextDecoder();
   let rest = "";
@@ -155,6 +182,8 @@ export function createTranscriptReader(): TranscriptReader {
     agentName: undefined as string | undefined,
     cwd: undefined as string | undefined,
     apiErrors: 0,
+    lastApiErrorText: undefined as string | undefined,
+    lastApiErrorMs: undefined as number | undefined,
   };
 
   const handle = (line: Line): void => {
@@ -180,7 +209,12 @@ export function createTranscriptReader(): TranscriptReader {
         if (typeof line.agentName === "string") state.agentName = line.agentName;
         return;
       case "system":
-        if (line.subtype === "api_error") state.apiErrors += 1;
+        if (line.subtype === "api_error") {
+          state.apiErrors += 1;
+          state.lastApiErrorText = apiErrorText(line.error);
+          const ms = typeof line.timestamp === "string" ? Date.parse(line.timestamp) : Number.NaN;
+          state.lastApiErrorMs = Number.isFinite(ms) ? ms : state.lastActivityMs;
+        }
         return;
       case "assistant": {
         const message = line.message;

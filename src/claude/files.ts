@@ -112,6 +112,8 @@ export type SessionFile = {
   startedAtMs: number | undefined;
   /** The newest of `updatedAt` and `statusUpdatedAt`, in ms. */
   updatedAtMs: number | undefined;
+  /** `statusUpdatedAt`: the time of the last change of `status`, in ms. */
+  statusUpdatedAtMs: number | undefined;
 };
 
 const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
@@ -164,6 +166,7 @@ export function parseSessionFile(text: string): SessionFile | undefined {
     tmux: nonEmpty(raw.tmux),
     startedAtMs: finite(raw.startedAt),
     updatedAtMs: updated.length === 0 ? undefined : Math.max(...updated),
+    statusUpdatedAtMs: finite(raw.statusUpdatedAt),
   };
 }
 

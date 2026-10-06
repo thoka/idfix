@@ -12,6 +12,7 @@ import { top } from "./top/load";
 import { ping } from "./ping";
 import { pingRules } from "./rules";
 import { watch } from "./watch";
+import { watchAll } from "./watch/run";
 import { log } from "./log";
 import { trace } from "./trace";
 import { abort } from "./abort";
@@ -38,6 +39,7 @@ Usage:
   oc-sub ping [--dir DIR]
   oc-sub ping --rules [--dir DIR]
   oc-sub watch SESSION [--dir DIR] [--json]
+  oc-sub watch --all [--json] [--once]
   oc-sub log SESSION [--dir DIR]
   oc-sub trace SESSION [--dir DIR] [--out FILE] [--tag] [--max-steps N]
   oc-sub abort SESSION [--dir DIR]
@@ -82,6 +84,18 @@ Environment:
   SBX_BIN                    the sbx binary (default: sbx on PATH)
   CLAUDE_BIN                 the claude binary for doctor --fix
                              (default: claude on PATH)
+
+Watch all Claude Code sessions:
+  watch --all     polls the Claude Code sessions of this machine every 15
+                  seconds. Each change of a condition (a session waits for
+                  the user, stalls, has a high context, ends without a clean
+                  hand-off, hits an API error, or has no name) becomes one
+                  CloudEvent in $XDG_STATE_HOME/idfx/events.jsonl. A
+                  heartbeat follows every 5 minutes. Only one watcher runs at
+                  a time; a second one exits with code 1.
+  --json          also prints each new event on stdout, one JSON line each.
+  --once          polls one time and exits.
+  watch SESSION follows one opencode run and cannot be combined with --all.
 
 Doctor fixes:
   --fix           runs the safe fixes, then all checks again. It never
@@ -138,6 +152,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return args.rules ? pingRules(args) : ping(args);
     case "watch":
       return watch(args);
+    case "watch-all":
+      return watchAll(args, process.env);
     case "log":
       return log(args);
     case "trace":

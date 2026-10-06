@@ -286,6 +286,17 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["run", "--agent", "a", "--dir", "/w", "--no-sandbox", "text"])).toThrow(/unknown option/);
   });
 
+  test("watch --all with --json and --once", () => {
+    expect(parseArgs(["watch", "--all"])).toEqual({ command: "watch-all", json: false, once: false });
+    expect(parseArgs(["watch", "--all", "--json", "--once"])).toEqual({ command: "watch-all", json: true, once: true });
+  });
+
+  test("watch SESSION --all, --all with --dir, and --once without --all are usage errors", () => {
+    expect(() => parseArgs(["watch", "ses_1", "--all"])).toThrow(UsageError);
+    expect(() => parseArgs(["watch", "--all", "--dir", "/w"])).toThrow(UsageError);
+    expect(() => parseArgs(["watch", "ses_1", "--once"])).toThrow(/--once/);
+  });
+
   test("rejects a session-less watch/log/abort", () => {
     expect(() => parseArgs(["watch"])).toThrow(/session/);
     expect(() => parseArgs(["log"])).toThrow(/session/);

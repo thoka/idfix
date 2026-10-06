@@ -2,6 +2,12 @@
 
 Decisions that a session made from the canon of values. Newest entry first.
 
+## 2026-10-06: technical choices of W1 of `idfx watch --all`
+
+- Decision: the lock is a file `events.lock`, created with `O_EXCL`, that holds the PID and the process start time (field 22 of `/proc/<pid>/stat`). A lock whose process is gone, or whose PID now belongs to another process, is stale, and the next watcher removes it. This replaces the `flock` of the design. Bun has no `flock` call without FFI, and `proper-lockfile` decides staleness by an age of the file, so it needs a refresh timer and a guess of the age. The start-time check is the same check that idfix already uses for the session files of Claude Code. The state of the conditions is keyed by condition and full session ID, not by subject, so two sessions with the same name stay apart. A new API error line counts by the line count between two polls. At the first sight of a session (after a start or a restart), an error line counts only when it is newer than the last event in the log. The same rule finds a session that ended while the watcher was down, so `handover check` runs for it. Without a log, the first poll only takes a baseline for these two conditions.
+- Values: use established tools, but do not add a dependency for 60 lines. One state in one place (the log). Deliver first.
+- Conditions: Linux `/proc`. On another system, or if Bun gets `flock`, the lock choice is open again.
+
 ## 2026-10-06: technical defaults of the design of `idfx watch --all`
 
 - Decision: the watcher polls every 15 seconds and watches Claude sessions only. `idfx watch SESSION` keeps its old meaning, and `--all` starts the watcher. The event file is the only state of the watcher. It wakes the supervisor at most once per 60 seconds. `status --json` and `doctor --json` change to the object form of the protocol, because no code outside idfix reads the old arrays. idfix ships the systemd unit file, and arch-helper installs it. A sixth condition `SessionUnnamed` reports a session without a name. The design is [idfx-watch.md](design/idfx-watch.md).

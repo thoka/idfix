@@ -243,6 +243,77 @@ With `--json`, a Claude entry also has these fields:
 
 The prices and the model windows come from the LiteLLM file `model_prices_and_context_window.json`. idfix downloads it at most once per 24 hours into `$XDG_CACHE_HOME/idfix/litellm-prices.json` (default `~/.cache/idfix/`). Without network, it uses the cached copy. Without a copy, the prices stay empty. The design is `docs/design/claude-sessions-top.md`.
 
+### Watch all Claude Code sessions: `idfx watch --all`
+
+`idfx watch --all` finds the Claude Code sessions that need attention, without an LLM. It reads the same files as `top` and `status`, every 15 seconds. When a condition of a session changes, it appends one event to a log file. The supervisor can read the log instead of each project.
+
+```
+idfx watch --all            # runs until Ctrl-C or SIGTERM
+idfx watch --all --json     # also prints each new event as one JSON line on stdout
+idfx watch --all --once     # polls one time, writes the events, and exits
+```
+
+The conditions of a session:
+
+```tbl
+type: Condition
+true: True when
+sev: Severity
+reason: Reasons
+--
+type: SessionWaitsForUser
+true: the session waits for more than 10 minutes
+sev: WARN
+reason: PermissionDialog, InputNeeded, JobBlocked, Other
+--
+type: SessionStalled
+true: the session is busy, and its transcript (with its subagents) did not grow for 15 minutes
+sev: WARN
+reason: NoTranscriptGrowth
+--
+type: ContextHigh
+true: the context is over 50% of the model window
+sev: WARN
+reason: OverHalfWindow
+--
+type: HandoverFailed
+true: the session ended, and `handover check <folder>` exits with code 1
+sev: WARN
+reason: HandoverCheckFailed
+--
+type: ApiError
+true: the transcript has a new API error line, or a blocked job waits with `API Error`
+sev: ERROR
+reason: UsageLimit, AuthError, ApiError
+--
+type: SessionUnnamed
+true: a live session has no name
+sev: INFO
+reason: NoName
+```
+
+- An event reports a change, not each poll. A condition that stays True gives no second event. A condition that turns False gives an INFO event. Its reason is `Cleared`. If the session left the list, the reason is `SessionGone`.
+- At the end of a session, `handover check` runs one time. Exit code 2 (for example a folder outside git) gives no event.
+- An API error turns False at the next poll without a new error line, so each new error gives one True event.
+- `message` holds only the waiting text, the error text (at most 200 characters), the first line of `handover check`, or numbers. It never holds a prompt.
+
+The log is `$XDG_STATE_HOME/idfx/events.jsonl` (default `~/.local/state/idfx/events.jsonl`). Each line is one CloudEvents 1.0 event in JSON. Its fields:
+
+- `source`: `//<hostname>/idfx`.
+- `type`: for example `dv.idfx.session.waits-for-user`.
+- `subject`: the session name, else the first 8 characters of the session ID.
+- `sequence`: a number with 20 digits. `id` is the same number without the leading zeros.
+- `severitytext` and `severitynumber`: INFO 9, WARN 13, or ERROR 17.
+- `data`: `condition`, `status`, `reason`, `message`, `lastTransitionTime`, `session`, `cwd`, and `kind`.
+ Every 5 minutes a heartbeat event `dv.idfx.watch.heartbeat` shows that the watcher lives.
+
+- Only one watcher runs. The lock file `events.lock` holds its PID. A second watcher exits with code 1. A lock of a process that is gone does not block.
+- The sequence grows by 1 for each event and continues after a restart. Above 10 MB, the watcher renames the file to `events.<first sequence>.jsonl` and starts a new one.
+- At start, the watcher reads the last event of each condition and session from the log. So a restart does not repeat a True event, and a condition that cleared while the watcher was down gets its False event.
+- `idfx watch SESSION` keeps its old meaning (one opencode run). `watch SESSION --all` is a usage error with exit code 2.
+
+The design is `docs/design/idfx-watch.md`. The wake-up of the supervisor, the systemd unit, and the protocol form of `status --json` and `doctor --json` come in the next steps.
+
 ## Follow up, abort, and read the cost
 
 - **Follow up**: tell Claude what to change. Claude sends the message into the same session with `oc-sub say <session-id> --dir <worktree> "<message>"`. The command returns at once and does not block. It keeps the model of the run; `--model PROVIDER/MODEL` overrides it. If the session or one of its subagent sessions already waits for a question or permission request, `say` warns on stderr and prints the matching `oc-sub answer` command, because the message stays queued until that request has an answer. You can also type into the attached opencode interface yourself.

@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dv.invalid/idfx/idfx-event.schema.json",
+  "description": "An event of idfx watch: CloudEvents 1.0 JSON (cloudevents.schema.json, a copy of cloudevents/spec formats/cloudevents.json) plus the required extensions sequence, severitytext, and severitynumber of the tool protocol version 0 (meta docs/research/tool-protocol.md, section 6).",
+  "allOf": [{ "$ref": "cloudevents.schema.json" }],
+  "type": "object",
+  "required": ["id", "source", "specversion", "type", "time", "sequence", "severitytext", "severitynumber", "data"],
+  "properties": {
+    "specversion": { "const": "1.0" },
+    "id": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "source": { "type": "string", "pattern": "^//[^/]+/idfx$" },
+    "type": { "type": "string", "pattern": "^dv\\.idfx\\.[a-z]+\\.[a-z-]+$" },
+    "sequence": { "type": "string", "pattern": "^[0-9]{20}$" },
+    "severitytext": { "enum": ["INFO", "WARN", "ERROR"] },
+    "severitynumber": { "enum": [9, 13, 17] },
+    "data": { "type": "object" }
+  }
+}

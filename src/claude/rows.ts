@@ -62,12 +62,21 @@ export type ClaudeSession = {
   state: SessionRowState;
   /** What the session waits for: `waitingFor` of the session file, or `needs` of a blocked job. */
   waitingFor: string | undefined;
+  /** Where the wait comes from: the session file (`status: waiting`) or a blocked job. */
+  waitingSource: "session" | "job" | undefined;
   pid: number | undefined;
   tmux: string | undefined;
   jobId: string | undefined;
   startTimeMs: number | undefined;
   /** The newest time of the transcript, the session file, and the job state. */
   lastActivityMs: number | undefined;
+  /**
+   * Since when the session is in its state: `statusUpdatedAt` of the session
+   * file, or `updatedAt` of a blocked job. `idfx watch --all` uses it.
+   */
+  stateSinceMs: number | undefined;
+  /** The newest modification time of the transcript and of the transcripts of its subagents. */
+  transcriptGrowthMs: number | undefined;
   summary: TranscriptSummary | undefined;
   subagents: ClaudeSubagent[];
 };
@@ -78,13 +87,21 @@ export type ClaudeRow = SessionRow & {
   kind: SessionKind;
   name: string | undefined;
   waitingFor: string | undefined;
+  waitingSource: "session" | "job" | undefined;
   pid: number | undefined;
   tmux: string | undefined;
   jobId: string | undefined;
   lastActivityMs: number | undefined;
+  /** Since when the row is in its state, see `ClaudeSession.stateSinceMs`. */
+  stateSinceMs: number | undefined;
+  /** The last growth of the transcripts, see `ClaudeSession.transcriptGrowthMs`. */
+  transcriptGrowthMs: number | undefined;
   /** The API price of the tokens of the session and its subagents, or undefined without a price. */
   apiEquivalentUsd: number | undefined;
   apiErrors: number;
+  /** The cut text and the time of the last API error line of the session itself. */
+  lastApiErrorText: string | undefined;
+  lastApiErrorMs: number | undefined;
   /** One row per subagent. */
   children: ClaudeRow[];
 };
@@ -151,14 +168,18 @@ export function createClaudeSource(root: string, fs: ClaudeFs = nodeClaudeFs): C
     return reader.summary();
   };
 
-  const subagentsOf = (transcript: TranscriptFile | undefined): ClaudeSubagent[] => {
-    if (transcript === undefined) return [];
-    return listSubagents(transcript.file, fs).map((agent) => ({
+  const subagentsOf = (transcript: TranscriptFile | undefined): { agents: ClaudeSubagent[]; growthMs: number | undefined } => {
+    if (transcript === undefined) return { agents: [], growthMs: undefined };
+    const files = listSubagents(transcript.file, fs);
+    const agents = files.map((agent) => ({
       agentId: agent.agentId,
       agentType: agent.agentType,
       description: agent.description,
       summary: readTranscript(agent.file) ?? createTranscriptReader().summary(),
     }));
+    // A session that waits for its subagents does not write its own transcript.
+    const growthMs = newest(transcript.mtimeMs, ...files.map((agent) => fs.mtimeMs(agent.file)));
+    return { agents, growthMs };
   };
 
   return {
@@ -181,6 +202,11 @@ export function createClaudeSource(root: string, fs: ClaudeFs = nodeClaudeFs): C
         const transcript = transcripts.get(session.sessionId);
         const summary = transcript === undefined ? undefined : readTranscript(transcript.file);
         const state = liveState(session, job);
+        const subagents = subagentsOf(transcript);
+        const stateSinceMs =
+          session.status === "waiting" || job?.state !== "blocked"
+            ? (session.statusUpdatedAtMs ?? session.updatedAtMs)
+            : job.updatedAtMs;
         result.push({
           sessionId: session.sessionId,
           kind: session.kind,
@@ -189,13 +215,16 @@ export function createClaudeSource(root: string, fs: ClaudeFs = nodeClaudeFs): C
           live: true,
           state,
           waitingFor: session.status === "waiting" ? session.waitingFor : state === "waiting" ? job?.needs : undefined,
+          waitingSource: session.status === "waiting" ? "session" : state === "waiting" ? "job" : undefined,
           pid: session.pid,
           tmux: session.tmux,
           jobId: session.jobId ?? job?.jobId,
           startTimeMs: session.startedAtMs ?? job?.createdAtMs ?? summary?.firstActivityMs,
           lastActivityMs: newest(summary?.lastActivityMs, session.updatedAtMs, job?.updatedAtMs),
+          stateSinceMs,
+          transcriptGrowthMs: subagents.growthMs,
           summary,
-          subagents: subagentsOf(transcript),
+          subagents: subagents.agents,
         });
       }
 
@@ -209,6 +238,7 @@ export function createClaudeSource(root: string, fs: ClaudeFs = nodeClaudeFs): C
         const summary = transcript === undefined ? undefined : readTranscript(transcript.file);
         const cwd = job.cwd ?? summary?.cwd;
         if (cwd === undefined) continue;
+        const subagents = subagentsOf(transcript);
         result.push({
           sessionId: job.sessionId,
           kind: "background",
@@ -217,13 +247,16 @@ export function createClaudeSource(root: string, fs: ClaudeFs = nodeClaudeFs): C
           live: false,
           state,
           waitingFor: state === "waiting" ? job.needs : undefined,
+          waitingSource: state === "waiting" ? "job" : undefined,
           pid: undefined,
           tmux: undefined,
           jobId: job.jobId,
           startTimeMs: job.createdAtMs ?? summary?.firstActivityMs,
           lastActivityMs: newest(summary?.lastActivityMs, job.updatedAtMs),
+          stateSinceMs: job.updatedAtMs,
+          transcriptGrowthMs: subagents.growthMs,
           summary,
-          subagents: subagentsOf(transcript),
+          subagents: subagents.agents,
         });
       }
 
@@ -233,6 +266,7 @@ export function createClaudeSource(root: string, fs: ClaudeFs = nodeClaudeFs): C
         const summary = readTranscript(transcript.file);
         if (summary?.cwd === undefined) continue;
         seen.add(transcript.sessionId);
+        const subagents = subagentsOf(transcript);
         result.push({
           sessionId: transcript.sessionId,
           kind: "interactive",
@@ -241,13 +275,16 @@ export function createClaudeSource(root: string, fs: ClaudeFs = nodeClaudeFs): C
           live: false,
           state: "ended",
           waitingFor: undefined,
+          waitingSource: undefined,
           pid: undefined,
           tmux: undefined,
           jobId: undefined,
           startTimeMs: summary.firstActivityMs,
           lastActivityMs: newest(summary.lastActivityMs),
+          stateSinceMs: newest(summary.lastActivityMs),
+          transcriptGrowthMs: subagents.growthMs,
           summary,
-          subagents: subagentsOf(transcript),
+          subagents: subagents.agents,
         });
       }
       return result;
@@ -344,11 +381,16 @@ export function claudeRow(session: ClaudeSession, prices: PriceTable | undefined
       kind: session.kind,
       name: undefined,
       waitingFor: undefined,
+      waitingSource: undefined,
       pid: undefined,
       tmux: undefined,
       jobId: undefined,
       lastActivityMs: agent.summary.lastActivityMs,
+      stateSinceMs: undefined,
+      transcriptGrowthMs: undefined,
       apiErrors: agent.summary.apiErrors,
+      lastApiErrorText: agent.summary.lastApiErrorText,
+      lastApiErrorMs: agent.summary.lastApiErrorMs,
       children: [],
     };
   });
@@ -373,11 +415,16 @@ export function claudeRow(session: ClaudeSession, prices: PriceTable | undefined
     kind: session.kind,
     name: session.name,
     waitingFor: session.waitingFor,
+    waitingSource: session.waitingSource,
     pid: session.pid,
     tmux: session.tmux,
     jobId: session.jobId,
     lastActivityMs: session.lastActivityMs,
+    stateSinceMs: session.stateSinceMs,
+    transcriptGrowthMs: session.transcriptGrowthMs,
     apiErrors: session.summary?.apiErrors ?? 0,
+    lastApiErrorText: session.summary?.lastApiErrorText,
+    lastApiErrorMs: session.summary?.lastApiErrorMs,
     children,
   };
 }

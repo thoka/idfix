@@ -114,6 +114,21 @@ describe("the row of a session", () => {
     expect(row?.msSinceEvent).toBe(NOW - 1791284100000);
   });
 
+  test("the watch fields: the state time, the transcript growth with the subagents, and the last API error", async () => {
+    const rows = await rowsAt(NOW);
+    const s1 = rows.find((r) => r.sessionId === S1);
+    // statusUpdatedAt of the session file.
+    expect(s1?.stateSinceMs).toBe(1791284100000);
+    // The main transcript changed 1 minute before NOW; the subagent file has the default age.
+    expect(s1?.transcriptGrowthMs).toBe(NOW - 1 * MINUTE);
+    expect(s1?.lastApiErrorText).toBe("529 overloaded");
+    expect(s1?.lastApiErrorMs).toBe(Date.parse("2026-10-06T10:01:10.000Z"));
+    // A blocked job without a process: updatedAt of the job.
+    expect(rows.find((r) => r.sessionId === S5)?.stateSinceMs).toBe(Date.parse("2026-10-03T09:00:00.000Z"));
+    expect(s1?.waitingSource).toBe("session");
+    expect(rows.find((r) => r.sessionId === S5)?.waitingSource).toBe("job");
+  });
+
   test("a subagent becomes a child row with its own numbers and the icon of its agent type", async () => {
     const row = (await rowsAt(NOW)).find((r) => r.sessionId === S1);
     expect(row?.children).toHaveLength(1);
@@ -202,11 +217,14 @@ describe("helpers", () => {
         live: true,
         state: "idle",
         waitingFor: undefined,
+        waitingSource: undefined,
         pid: 1,
         tmux: undefined,
         jobId: undefined,
         startTimeMs: NOW - 1000,
         lastActivityMs: NOW - 500,
+        stateSinceMs: undefined,
+        transcriptGrowthMs: undefined,
         summary: undefined,
         subagents: [],
       },

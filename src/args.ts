@@ -26,6 +26,8 @@ export type ParsedArgs =
   | { command: "attach"; url?: string; code: string }
   | { command: "ping"; url?: string; dir?: string; rules: boolean }
   | { command: "watch"; url?: string; session: string; dir?: string; json: boolean }
+  /** `watch --all`: the watcher of all Claude Code sessions. */
+  | { command: "watch-all"; json: boolean; once: boolean }
   | { command: "log"; url?: string; session: string; dir?: string }
   | { command: "trace"; url?: string; session: string; dir?: string; out?: string; tag: boolean; maxSteps?: number }
   | { command: "abort"; url?: string; session: string; dir?: string }
@@ -294,10 +296,23 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "watch": {
       const { flags, positionals, globals } = collectFlags(
         rest,
-        new Set(["dir", "json", "url"]),
-        new Set(["json"]),
+        new Set(["dir", "json", "url", "all", "once"]),
+        new Set(["json", "all", "once"]),
       );
       const json = flags.get("json") === true;
+      const once = flags.get("once") === true;
+      if (flags.get("all") === true) {
+        if (positionals.length > 0) {
+          throw new UsageError(`watch --all takes no SESSION, got "${positionals.join(" ")}"`);
+        }
+        if (globals.url !== undefined || flags.has("dir")) {
+          throw new UsageError("watch --all watches the Claude Code sessions and takes no --dir or --url");
+        }
+        return { command: "watch-all", json, once };
+      }
+      if (once) {
+        throw new UsageError("--once is only allowed with watch --all");
+      }
       return {
         command: "watch",
         url: globals.url,

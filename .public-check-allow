@@ -3,5 +3,8 @@
 /home/user
 # The home folder of the user inside a Docker sandbox, not a host path.
 /home/agent
-# The default of OC_SUB_SHARED_DIR, until step 39e removes it.
+# until step 39e (the default of OC_SUB_SHARED_DIR)
 ~/dv/meta/agents
+# OPEN (step 39c report): the default sbx source path of the spike scripts in
+# scripts/ is code; it stays until the owner decides how to change it.
+/home/${SUDO_USER:-toka}/

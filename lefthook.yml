@@ -1,6 +1,13 @@
 # Git hooks of idfix. The tests run locally before each push, not as CI on
-# GitHub (global rules, section Git).
+# GitHub.
 # Install once after clone: mise run hooks-install
+pre-commit:
+  commands:
+    # This repository is public: the staged files name no local path and no
+    # private project. Without public-check on the PATH, the hook passes, and
+    # test/public.test.ts still checks the paths before each push.
+    public-check:
+      run: if command -v public-check >/dev/null 2>&1; then public-check {staged_files}; else echo "public-check not found, skipped"; fi
 pre-push:
   jobs:
     - name: idfix tests

@@ -58,6 +58,8 @@ mise run test       # bun install if node_modules is missing, then typecheck and
 
 `mise run test` is also the pre-push hook. `lefthook.yml` defines it, and `mise run hooks-install` (`lefthook install`) installs it into `.git/hooks`. A push runs the tests on your machine first, and a failed test stops the push. A fresh git worktree has no `node_modules`. The task installs the locked packages first in that case. Without this step, a test can leave a partial `node_modules`, and the Ink tests then fail with two copies of React.
 
+This repository is public, so its tracked files name no local path of a developer and no private project. The pre-commit hook runs `public-check` on the staged files when that tool is on your PATH, and else prints a note and passes. `test/public.test.ts` checks the paths of all tracked files in every test run, also without the tool. The file `.public-check-allow` lists the exact strings that both checks allow, for example the example home folder `/home/user` of the tests.
+
 ## oc-sub
 
 `oc-sub` drives an opencode server: start it, launch subagent runs, watch them live, and read the results. Entry point: `src/cli.ts`. Run it with `bin/oc-sub`, `bun run src/cli.ts`, or `bun src/cli.ts`. With the plugin enabled, Claude runs it as `oc-sub`.

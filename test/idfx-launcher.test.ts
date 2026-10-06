@@ -39,7 +39,7 @@ describe("the command name in the help", () => {
     const { code, out } = runHelp(link("idfx", "idfix"));
     expect(code).toBe(0);
     expect(out.startsWith("idfix - drive an opencode server")).toBe(true);
-    expect(out).toContain("\n  idfix up [--dir DIR] [--no-cost-proxy]\n");
+    expect(out).toContain("\n  idfix up [--dir DIR] [--no-cost-proxy] [--idle-minutes N]\n");
     expect(out).not.toContain("oc-sub ");
   });
 
@@ -70,7 +70,7 @@ describe("progName", () => {
 
   test("helpText and helpExitHint default to oc-sub", () => {
     expect(helpText().split("\n")[0]).toBe("oc-sub - drive an opencode server for subagent runs");
-    expect(helpText()).toContain("\n  oc-sub up [--dir DIR] [--no-cost-proxy]\n");
+    expect(helpText()).toContain("\n  oc-sub up [--dir DIR] [--no-cost-proxy] [--idle-minutes N]\n");
     expect(helpExitHint()).toBe("run `oc-sub --help` for usage");
   });
 });

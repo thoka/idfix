@@ -1,5 +1,8 @@
 /** Command line parsing for oc-sub. Pure: throws UsageError on bad input. */
 
+/** The default idle limit of the server watchdog, in minutes (`up --idle-minutes`). */
+export const DEFAULT_IDLE_MINUTES = 30;
+
 export class UsageError extends Error {
   constructor(message: string) {
     super(message);
@@ -8,7 +11,7 @@ export class UsageError extends Error {
 }
 
 export type ParsedArgs =
-  | { command: "up"; url?: string; port?: number; sandbox: boolean; dir?: string; noCostProxy: boolean }
+  | { command: "up"; url?: string; port?: number; sandbox: boolean; dir?: string; noCostProxy: boolean; idleMinutes?: number }
   | {
       command: "down" | "restart";
       url?: string;
@@ -19,7 +22,11 @@ export type ParsedArgs =
       sandbox: boolean;
       dir?: string;
       noCostProxy: boolean;
+      /** Only `restart`: the idle limit of the new server, in minutes. */
+      idleMinutes?: number;
     }
+  /** The hidden watchdog that `up` spawns. */
+  | { command: "idle-watch"; port: number; minutes: number }
   | { command: "run"; url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string; model?: string }
   | { command: "status"; url?: string; dir?: string; all: boolean; json: boolean }
   | { command: "top"; url?: string; dir?: string; all: boolean; once: boolean; json: boolean }
@@ -129,6 +136,20 @@ function parsePort(flags: Flags): number | undefined {
   return port;
 }
 
+/**
+ * A number of minutes of `--<name>`: zero or more, fractions allowed. Zero
+ * turns the idle watchdog off.
+ */
+function parseMinutes(flags: Flags, name: string): number | undefined {
+  const raw = flags.get(name);
+  if (raw === undefined) return undefined;
+  const minutes = Number(raw);
+  if (typeof raw !== "string" || raw.trim().length === 0 || !Number.isFinite(minutes) || minutes < 0) {
+    throw new UsageError(`--${name} must be a number of minutes, 0 or more, got "${raw}"`);
+  }
+  return minutes;
+}
+
 function requireSession(positionals: readonly string[]): string {
   const session = positionals[0];
   if (session === undefined || session.trim().length === 0) {
@@ -170,7 +191,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "up": {
       const { flags, positionals, globals } = collectFlags(
         rest,
-        new Set(["port", "url", "sandbox", "no-sandbox", "dir", "no-cost-proxy"]),
+        new Set(["port", "url", "sandbox", "no-sandbox", "dir", "no-cost-proxy", "idle-minutes"]),
         new Set(["sandbox", "no-sandbox", "no-cost-proxy"]),
       );
       if (positionals.length > 0) {
@@ -182,13 +203,25 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         port: parsePort(flags),
         ...parseSandboxFlags(flags, globals),
         noCostProxy: flags.get("no-cost-proxy") === true,
+        idleMinutes: parseMinutes(flags, "idle-minutes"),
       };
+    }
+    case "idle-watch": {
+      const { flags, positionals } = collectFlags(rest, new Set(["port", "minutes"]), new Set<string>());
+      if (positionals.length > 0) {
+        throw new UsageError(`idle-watch takes no positional arguments, got "${positionals.join(" ")}"`);
+      }
+      const port = parsePort(flags);
+      if (port === undefined) throw new UsageError("idle-watch requires --port");
+      const minutes = parseMinutes(flags, "minutes") ?? DEFAULT_IDLE_MINUTES;
+      if (minutes === 0) throw new UsageError("idle-watch needs --minutes above 0");
+      return { command: "idle-watch", port, minutes };
     }
     case "down":
     case "restart": {
       const { flags, positionals, globals } = collectFlags(
         rest,
-        new Set(["port", "force", "url", "sandbox", "no-sandbox", "dir", "no-cost-proxy", "all"]),
+        new Set(["port", "force", "url", "sandbox", "no-sandbox", "dir", "no-cost-proxy", "all", "idle-minutes"]),
         new Set(["force", "sandbox", "no-sandbox", "no-cost-proxy", "all"]),
       );
       if (positionals.length > 0) {
@@ -201,6 +234,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (all && (globals.url !== undefined || ["dir", "port", "sandbox", "no-sandbox", "no-cost-proxy"].some((name) => flags.has(name)))) {
         throw new UsageError("--all takes only --force, because it stops every server");
       }
+      if (head === "down" && flags.has("idle-minutes")) {
+        throw new UsageError("--idle-minutes is only allowed with up and restart");
+      }
       return {
         command: head,
         url: globals.url,
@@ -209,6 +245,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         all,
         ...parseSandboxFlags(flags, globals),
         noCostProxy: flags.get("no-cost-proxy") === true,
+        idleMinutes: parseMinutes(flags, "idle-minutes"),
       };
     }
     case "run": {

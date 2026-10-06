@@ -20,6 +20,7 @@ import { answer } from "./answer";
 import { say } from "./say";
 import { doctor, gateForCommand } from "./doctor";
 import { fetch, worktree, worktreeRm } from "./clone";
+import { runIdleWatch } from "./idle";
 
 /** The command name when the launcher does not pass one. */
 export const DEFAULT_PROG = "oc-sub";
@@ -39,13 +40,13 @@ export function helpText(prog: string = DEFAULT_PROG): string {
   return `${prog} - drive an opencode server for subagent runs
 
 Usage:
-  ${prog} up [--dir DIR] [--no-cost-proxy]
-  ${prog} up --no-sandbox [--port N] [--no-cost-proxy]
+  ${prog} up [--dir DIR] [--no-cost-proxy] [--idle-minutes N]
+  ${prog} up --no-sandbox [--port N] [--no-cost-proxy] [--idle-minutes N]
   ${prog} down [--dir DIR] [--force]
   ${prog} down --no-sandbox [--port N] [--force]
   ${prog} down --all [--force]
-  ${prog} restart [--dir DIR] [--force] [--no-cost-proxy]
-  ${prog} restart --no-sandbox [--port N] [--force] [--no-cost-proxy]
+  ${prog} restart [--dir DIR] [--force] [--no-cost-proxy] [--idle-minutes N]
+  ${prog} restart --no-sandbox [--port N] [--force] [--no-cost-proxy] [--idle-minutes N]
   ${prog} run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T] [--model PROVIDER/MODEL]
   ${prog} attach CODE [--url URL]
   ${prog} status [--dir DIR | --all] [--json]
@@ -86,6 +87,11 @@ Sandbox mode:
   --no-cost-proxy run without the cost proxy, in both modes. The server then
                   calls OpenRouter directly. Use it when the proxy breaks
                   runs.
+  --idle-minutes N
+                  stop the new server after N minutes without a busy
+                  session and without events (default 30). 0 turns the
+                  idle watchdog off. In sandbox mode, the stop also stops
+                  the VM.
 
   worktree and fetch run only in sandbox mode: in clone mode, the worktree
   of a run lives inside the sandbox clone, not on the host.
@@ -206,6 +212,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return args.remove ? await worktreeRm(args, process.env) : await worktree(args, process.env);
     case "fetch":
       return fetch(args, process.env);
+    case "idle-watch":
+      return runIdleWatch(args, process.env);
     case "doctor":
       return doctor(args);
   }

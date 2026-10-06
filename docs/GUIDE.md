@@ -596,7 +596,7 @@ Known gaps:
 
 ## Development
 
-Run `bun run typecheck` before a commit: `bun test` does not check types.
+Run `mise run hooks-install` once after clone. It installs the pre-push hook of `lefthook.yml`, which runs `mise run test` before each push. `mise run test` installs the packages if `node_modules` is missing (for example in a fresh worktree), then runs `bun run typecheck` and `bun test`. `bun test` alone does not check types.
 
 ## Troubleshooting
 

@@ -3,3 +3,20 @@ bun = "1.4.2"
 opencode = "1.18.32"
 "github:docker/sbx-releases" = "0.45.1"
 claude = { version = "latest", minimum_release_age = "0" }
+# Git hooks: pre-push runs the tests (global rules, section Git).
+lefthook = "2.1.16"
+
+[tasks.test]
+description = "Install the packages if node_modules is missing, then type-check and run the tests"
+# A fresh worktree has no node_modules. Without this install, a test step
+# can leave a partial node_modules, and the Ink tests then fail with two
+# copies of React.
+run = [
+  "test -d node_modules || bun install --frozen-lockfile",
+  "bun run typecheck",
+  "bun test",
+]
+
+[tasks.hooks-install]
+description = "Install the git hooks of lefthook.yml (pre-push: mise run test)"
+run = "lefthook install"

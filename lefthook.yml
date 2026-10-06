@@ -1,0 +1,7 @@
+# Git hooks of idfix. The tests run locally before each push, not as CI on
+# GitHub (global rules, section Git).
+# Install once after clone: mise run hooks-install
+pre-push:
+  jobs:
+    - name: idfix tests
+      run: mise run test

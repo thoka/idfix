@@ -45,16 +45,18 @@ Install the tools with mise, then the packages with bun:
 ```
 mise install
 bun install
+mise run hooks-install   # once after clone: the pre-push hook runs the tests
 ```
 
 The project gives only its start scripts `bin/oc-sub` and `bin/idfx`. Both run the same CLI. It does not link them into a folder on your PATH. On the machines of the user, arch-helper owns the links `~/.local/bin/oc-sub`, `~/.local/bin/idfx`, and `~/.local/bin/idfix` through chezmoi. The link `idfix` points to `bin/idfx`. The launcher follows a symlink back to this repository, so updates to the repository take effect at once. The help and the usage hints show the name that you called, for example `idfix` for a link `~/.local/bin/idfix` to `bin/idfx`. Each launcher passes the base name of its `$0` in the variable `IDFX_PROG`. Without it, the CLI uses `oc-sub`.
 
-`mise.toml` pins `bun` and `opencode`. Check the setup with:
+`mise.toml` pins `bun`, `opencode`, and `lefthook`. Check the setup with:
 
 ```
-bun test            # unit tests plus one integration test
-bun run typecheck   # tsc --noEmit
+mise run test       # bun install if node_modules is missing, then typecheck and bun test
 ```
+
+`mise run test` is also the pre-push hook. `lefthook.yml` defines it, and `mise run hooks-install` (`lefthook install`) installs it into `.git/hooks`. A push runs the tests on your machine first, and a failed test stops the push. A fresh git worktree has no `node_modules`. The task installs the locked packages first in that case. Without this step, a test can leave a partial `node_modules`, and the Ink tests then fail with two copies of React.
 
 ## oc-sub
 
@@ -368,6 +370,8 @@ bun run src/cli.ts log <session-id> --dir <repo>
 `bun test` runs the unit tests in `test/` (argument parsing, event filtering and line formatting, cost and token summary, the end check of a session missing from the status map, the child sessions of a session and their usage, run records, state files, the process check of `down`, client helpers, the pending question and permission requests, and the pause detection of `watch` against a fake server) and integration tests. The integration tests start a real `opencode serve` on a free port from 8790 upward, run `up`, create sessions over the SDK without sending any prompt, check `status`, run `abort`, check the pending lists and `answer` against a server without pending requests, and stop the server with `restart` and `down`. They never call a model and cost nothing. They skip themselves with a clear message when the command `opencode` is not on the PATH.
 
 The preload `test/setup.ts` gives each test run one temporary folder, `oc-sub-test-run-*` in the system temp folder. It points `TMPDIR` and the XDG data and state folders at it, and a global `afterAll` hook removes it after the last test. So a test can create temporary folders with `mkdtempSync(tmpdir())` and leaves nothing in `/tmp`. The preload also removes run folders older than six hours, which a killed run left behind. `test/temp-hygiene.test.ts` makes sure that the redirect is active.
+
+A git hook sets repository-local git variables such as `GIT_DIR` and `GIT_INDEX_FILE`. A git command in a temporary folder would then act on the idfix repository. So the preload removes every variable that `git rev-parse --local-env-vars` names. Bun 1.4 has a trap here: `Bun.spawn` and `Bun.spawnSync` without an `env` option pass the environment of the process start, not the current `process.env`. So the preload wraps both, and a call without `env` passes `process.env`. `test/git-env.test.ts` checks this. To prove it, run `GIT_DIR=$PWD/.git GIT_INDEX_FILE=$PWD/.git/index mise run test` and check that `git status` does not change.
 
 ## Layout
 

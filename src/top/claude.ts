@@ -8,7 +8,8 @@
  * - `claudeDetail` turns a Claude row into the `SessionDetail` of the
  *   detail pane. The subagents become its children, like the child sessions
  *   of an opencode run. A Claude detail has no log lines in this step.
- * - `sortTopRows` puts waiting rows first and ended rows last.
+ * - `sortTopRows` puts the active rows first and the inactive rows last,
+ *   and inside each part the waiting rows first and the ended rows last.
  * - `withClaudeRows` wraps a `TopModel`, so that `rows` and `session` also
  *   cover the Claude rows. The opencode model stays as it is.
  */
@@ -23,13 +24,29 @@ export function stateRank(state: SessionRowState): number {
 }
 
 /**
- * The order of the table: waiting rows first, ended rows last, and inside
- * each group the newest start first (the order of the opencode model).
- * The start time keeps the order stable while the sessions work, so the
- * rows do not jump on every tick.
+ * Whether a process belongs to the row. A row in the state `ended` is
+ * never active, whatever its `active` field says.
+ */
+export function isActive(row: Pick<SessionRow, "active" | "state">): boolean {
+  return row.active && row.state !== "ended";
+}
+
+/**
+ * The order of the table: the active rows first, then the inactive rows
+ * (only a job file or a transcript is left, no process). Inside each part,
+ * the waiting rows come first and the ended rows last, and inside each
+ * state group the newest start comes first (the order of the opencode
+ * model). The start time keeps the order stable while the sessions work,
+ * so the rows do not jump on every tick.
  */
 export function sortTopRows<T extends SessionRow>(rows: T[]): T[] {
-  return rows.sort((a, b) => stateRank(a.state) - stateRank(b.state) || (b.startTimeMs ?? 0) - (a.startTimeMs ?? 0));
+  const part = (row: SessionRow) => (isActive(row) ? 0 : 1);
+  return rows.sort(
+    (a, b) =>
+      part(a) - part(b) ||
+      stateRank(a.state) - stateRank(b.state) ||
+      (b.startTimeMs ?? 0) - (a.startTimeMs ?? 0),
+  );
 }
 
 /**

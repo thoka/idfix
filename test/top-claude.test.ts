@@ -1,6 +1,6 @@
 /** Tests for the merge of the Claude rows into the model of `top`. */
 import { describe, expect, test } from "bun:test";
-import { claudeDetail, scopeClaudeRows, sortTopRows, withClaudeRows } from "../src/top/claude";
+import { claudeDetail, isActive, scopeClaudeRows, sortTopRows, withClaudeRows } from "../src/top/claude";
 import { createTopModel, type TopModel } from "../src/top/model";
 import { claudeRowOf, openRow } from "./top-rows";
 
@@ -22,6 +22,35 @@ describe("sortTopRows", () => {
       "ended-new",
       "ended-old",
     ]);
+  });
+});
+
+describe("sortTopRows with inactive rows", () => {
+  test("an inactive waiting row comes after an active busy row, and ended rows come last", () => {
+    const rows = [
+      claudeRowOf("ended-new", { state: "ended", active: false, startTimeMs: 90 }),
+      claudeRowOf("wait-gone", { state: "waiting", active: false, startTimeMs: 80 }),
+      openRow("busy-old", { startTimeMs: 10 }),
+      claudeRowOf("idle-gone", { state: "idle", active: false, startTimeMs: 70 }),
+      claudeRowOf("wait-live", { state: "waiting", startTimeMs: 5 }),
+      claudeRowOf("busy-gone-old", { state: "busy", active: false, startTimeMs: 20 }),
+      claudeRowOf("ended-old", { state: "ended", active: false, startTimeMs: 1 }),
+    ];
+    expect(sortTopRows(rows).map((row) => row.sessionId)).toEqual([
+      "wait-live",
+      "busy-old",
+      "wait-gone",
+      "idle-gone",
+      "busy-gone-old",
+      "ended-new",
+      "ended-old",
+    ]);
+  });
+
+  test("an ended row is inactive even when its active field is true", () => {
+    expect(isActive(claudeRowOf("e", { state: "ended", active: true }))).toBe(false);
+    expect(isActive(claudeRowOf("b", { state: "busy", active: true }))).toBe(true);
+    expect(isActive(claudeRowOf("w", { state: "waiting", active: false }))).toBe(false);
   });
 });
 

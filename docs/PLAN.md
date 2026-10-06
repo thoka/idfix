@@ -3,14 +3,14 @@
 ## Hand-off
 
 Next step: 39a. Agree the order of the move of the planning files with the supervisor and meta.
-Waits for: meta builds plan_dir for handover check and the outbox scan
+Waits for: the notice plan_dir ready from the supervisor (meta step 44)
 New context: yes. Step 39 has a new topic, and this context holds the measurements of step 29d.
 
 2026-10-06, interactive session `idfix` in `~/dv/idfix` (Opus 5.5).
 
-State: step 29d is done and on `alpha` (48cc99c, see HISTORY). `top` now loads the production build of React, and the leak of about 1.5 MB per minute is gone in a live check. The suite has 1286 tests and passes. A `top` view that started before 48cc99c still runs the old code and still leaks: quit it with `q` and start it again. The outbox holds a lesson (a React or Ink terminal app needs `NODE_ENV=production`).
+State: step 29d is done and on `alpha` (48cc99c, see HISTORY). `top` now loads the production build of React, and the leak of about 1.5 MB per minute is gone in a live check. The suite has 1286 tests and passes. A `top` view that started before 48cc99c still runs the old code and still leaks: quit it with `q` and start it again. The lesson of step 29d (`react-cli-needs-node-env-production`) is imported into meta.
 
-The next step is 39 in section 17 below: the planning files move to the private repository `thoka/idfix-plan`, by the new rule `public-repo-no-private-context`. The move waits until meta reads `.plan/` in `handover check` and in `mise run outbox scan`. Ask the supervisor for that state first.
+The next step is 39 in section 17 below: the planning files move to the private repository `thoka/idfix-plan`, by the new rule `public-repo-no-private-context`. The move waits until meta reads `.plan/` in `handover check` and in `mise run outbox scan`. The supervisor sends the notice "plan_dir ready" when meta step 44 is merged. Severin restarts this session after the hand-off, with a ping first.
 
 Open tasks of the user: none from idfix. The user has not yet tried the key `o` of `top` in real tmux.
 
@@ -192,7 +192,7 @@ The supervisor sent the rule `public-repo-no-private-context` on 2026-10-06 (use
 
 1. 39a: coordinate the order with meta. Meta builds `plan_dir` for `handover check` and for `mise run outbox scan`. Do not move before both read `.plan/`, or the hand-off check and the outbox scan break.
 2. 39b: a plain move, no history rewrite (the user decides on a rewrite later). Move `docs/PLAN.md`, `docs/HISTORY.md`, `docs/review-queue.md`, `docs/EXPERIENCE.md`, `docs/research/`, `docs/design/`, `docs/reports/`, and `docs/outbox/` into the clone in `.plan/`, add `.plan/` to `.gitignore`, and fix the links in `README.md`, `docs/GUIDE.md`, `AGENTS.md`, and the code comments that name these files.
-3. 39c: search the public files that stay (code, tests, `docs/GUIDE.md`, the skill) for local paths (`/home/toka`, `~/dv/...`), names of private projects, and private decisions, and remove them. Open question for the supervisor: which projects are public.
+3. 39c: search the public files that stay (code, tests, `docs/GUIDE.md`, the skill) for local paths (`/home/toka`, `~/dv/...`), names of private projects, and private decisions, and remove them. The public repositories on 2026-10-06 are tbl-md, idfix, musescore-icons, sqrt2, and sqrt2-gh, so every other project name in `~/dv` is private. Use the list `agents/private-projects.txt` and the check `dv/bin/public-check` of meta step 44b when they land, not a copy.
 
 ### Later
 

@@ -8,7 +8,7 @@ This project makes cheap opencode subagents (for example GLM through OpenRouter)
 
 - Purpose: make coding agent sessions easy to start, watch, and review from one place, for opencode subagents and Claude Code sessions.
 - Owns: the CLI `idfx` (runs, sandboxes, the cost proxy, `doctor`, `top`, `idfx watch` and its event log), the opencode plugin and its agents, the skill `idfx`, and the systemd unit in `contrib/`.
-- Does not own: the configuration of the machine (shell settings, links into `~/.local/bin`, the install of the unit), the shared agent rules and skills that `OC_SUB_SHARED_DIR` points to, the `handover` tool that `idfx watch` calls, and the decisions that act on its events.
+- Does not own: the configuration of the machine (shell settings, links into `~/.local/bin`, the install of the unit), the shared agent rules and skills that `IDFX_SHARED_DIR` points to, the `handover` tool that `idfx watch` calls, and the decisions that act on its events.
 - Delegator: the user.
 
 ## Rules

@@ -69,16 +69,12 @@ The server URL comes from `--url` or the environment variable `IDFX_URL`, defaul
 
 #### Old names
 
-The CLI had the name `oc-sub` before. Some names that live on disk or in the environment had that name too. They have new names now, and the old names still work:
+The CLI had the name `oc-sub` before. Some names that live on disk or in the environment had that name too. They have new names now, and the old names in this table still work:
 
 ```tbl
 what: What
 new-name: New name
 old-name: Old name, still read
---
-what: Environment variables
-new-name: `IDFX_URL`, `IDFX_OWNER`, `IDFX_SHARED_DIR`
-old-name: `OC_SUB_URL`, `OC_SUB_OWNER`, `OC_SUB_SHARED_DIR`
 --
 what: State folder
 new-name: `$XDG_STATE_HOME/idfx/`
@@ -101,7 +97,9 @@ new-name: `idfx-cost-proxy`
 old-name: `oc-sub-cost-proxy`
 ```
 
-idfx reads the new name first and the old name second. A blank value counts as unset. It writes only the new names. `idfx doctor` warns about each old name that is still in use (checks `state-names`, `env-names`, and `project-config-name`), and `idfx doctor --fix` moves the state folder and renames the project file. Some names stay: the data folder `$XDG_DATA_HOME/oc-sub/`, because each sandbox mounts it by its path, the sandbox name `oc-sub-<project>`, its clone remote, and the label variables `OCSUB_OWNER` and `OCSUB_REASON`.
+idfx reads the new name first and the old name second. It writes only the new names. `idfx doctor` warns about each old name that is still in use (checks `state-names` and `project-config-name`), and `idfx doctor --fix` moves the state folder and renames the project file. Some names stay: the data folder `$XDG_DATA_HOME/oc-sub/`, because each sandbox mounts it by its path, the sandbox name `oc-sub-<project>`, its clone remote, and the label variables `OCSUB_OWNER` and `OCSUB_REASON`.
+
+The environment variables are `IDFX_URL`, `IDFX_OWNER`, and `IDFX_SHARED_DIR`. Their old names with the prefix `OC_SUB` do not work any more. A blank value counts as unset.
 
 ### idfx up
 
@@ -114,7 +112,7 @@ Checks the health of the host server (`GET /global/health`). When nothing answer
 
 `up` sets `OPENCODE_CONFIG_DIR` in the environment of the child process to the `opencode/` folder of this repository (computed from the location of the source file, not from the working directory). opencode then loads the research agents of the plugin for every project, after the project `.opencode` folder, so its agent wins over a project agent with the same name. If the environment already sets `OPENCODE_CONFIG_DIR` to another value, `up` keeps that value and prints a warning to stderr, because the research agents are then not loaded. If `OPENCODE_CONFIG_DIR` already holds the folder of the plugin, `up` prints no warning.
 
-`up` also needs the shared agents folder. Set `IDFX_SHARED_DIR` to it. There is no default. The old name `OC_SUB_SHARED_DIR` still works. It holds your global rules in `AGENTS.md` and your skills in `skills/<name>/SKILL.md`. It is the only source, and `up` never copies it. When `IDFX_SHARED_DIR` is not set or blank, `up` stops before it starts anything, with an error that names the variable and what the folder must hold. When `<shared>/AGENTS.md` is missing, `up` stops with an error that names the path and `IDFX_SHARED_DIR`. Otherwise `up` sets `OPENCODE_CONFIG_CONTENT` for the child, with the rules file under `instructions` and the skills folder under `skills.paths`. The reason: opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever `OPENCODE_CONFIG_DIR` is set, and `up` always sets it. An absolute path in `instructions` still loads (see `.plan/research/opencode-rules.md`). If the environment already sets `OPENCODE_CONFIG_CONTENT`, `up` keeps it and prints a warning, because the shared entries are then not added.
+`up` also needs the shared agents folder. Set `IDFX_SHARED_DIR` to it. There is no default. It holds your global rules in `AGENTS.md` and your skills in `skills/<name>/SKILL.md`. It is the only source, and `up` never copies it. When `IDFX_SHARED_DIR` is not set or blank, `up` stops before it starts anything, with an error that names the variable and what the folder must hold. When `<shared>/AGENTS.md` is missing, `up` stops with an error that names the path and `IDFX_SHARED_DIR`. Otherwise `up` sets `OPENCODE_CONFIG_CONTENT` for the child, with the rules file under `instructions` and the skills folder under `skills.paths`. The reason: opencode 1.18.32 drops the global `~/.config/opencode/AGENTS.md` whenever `OPENCODE_CONFIG_DIR` is set, and `up` always sets it. An absolute path in `instructions` still loads (see `.plan/research/opencode-rules.md`). If the environment already sets `OPENCODE_CONFIG_CONTENT`, `up` keeps it and prints a warning, because the shared entries are then not added.
 
 DeepInfra is an optional second model provider. When the project has the key file `~/.config/<project>/deepinfra.key`, `up` sets it up: in sandbox mode the key stays on the host as a custom secret of `sbx`, and in host mode the server gets `DEEPINFRA_API_KEY` (the environment first, then the key file). A run picks it with `--model deepinfra/zai-org/GLM-5.3-Flash`. DeepInfra serves this model only in fp4 precision, see `.plan/research/deepinfra.md`. The setup and the cost log are in `docs/GUIDE.md`, section "DeepInfra as a direct provider".
 
@@ -129,7 +127,7 @@ One server serves many project folders, so its state lives in one folder per use
 
 #### Background processes
 
-`up` starts each long-lived process as a transient systemd user unit (a user service that exists only while it runs). The name is `idfx-<kind>-<port>`, in the slice `idfx.slice`. The kind is `serve` (the host server), `proxy` (the cost proxy), `holder` (the `sbx exec` holder of sandbox mode), or `idle` (the idle watchdog). The description of each unit gives the owner (the project of the folder where you ran `up`) and the reason, for example `owner=idfix reason=cost proxy for port 4096`. The environment variable `IDFX_OWNER` (old name `OC_SUB_OWNER`) overrides the owner, for example `IDFX_OWNER=my-session idfx up`. It changes only the label, not the project of the key files. A blank value keeps the project name, and white space in the value becomes `_`. The integration tests set `IDFX_OWNER=test`, and their teardown stops their units. Older versions named the units `ocsub-<kind>-<port>`. `down`, `down --all`, the idle watchdog, and `doctor` stop and list both names. List them with:
+`up` starts each long-lived process as a transient systemd user unit (a user service that exists only while it runs). The name is `idfx-<kind>-<port>`, in the slice `idfx.slice`. The kind is `serve` (the host server), `proxy` (the cost proxy), `holder` (the `sbx exec` holder of sandbox mode), or `idle` (the idle watchdog). The description of each unit gives the owner (the project of the folder where you ran `up`) and the reason, for example `owner=idfix reason=cost proxy for port 4096`. The environment variable `IDFX_OWNER` overrides the owner, for example `IDFX_OWNER=my-session idfx up`. It changes only the label, not the project of the key files. A blank value keeps the project name, and white space in the value becomes `_`. The integration tests set `IDFX_OWNER=test`, and their teardown stops their units. Older versions named the units `ocsub-<kind>-<port>`. `down`, `down --all`, the idle watchdog, and `doctor` stop and list both names. List them with:
 
 ```
 systemctl --user list-units 'idfx-*' 'ocsub-*' --all
@@ -419,10 +417,6 @@ check: `state-names`
 what-it-checks: The old state folder `$XDG_STATE_HOME/oc-sub/` is missing or is a link. While it is a real folder, idfx keeps its state there.
 fail-means: Warn. `--fix` moves the old folder into `$XDG_STATE_HOME/idfx/` and links the old path to it.
 --
-check: `env-names`
-what-it-checks: No variable has only its old name set (`OC_SUB_URL`, `OC_SUB_OWNER`, `OC_SUB_SHARED_DIR`). The old names still work.
-fail-means: Warn. Set the new name (`IDFX_URL`, `IDFX_OWNER`, `IDFX_SHARED_DIR`) where the old name is set. No `--fix` action, because the configuration of the machine sets the variables.
---
 check: `project-config-name`
 what-it-checks: The project root has no old config file `.opencode/oc-sub.json`.
 fail-means: Warn. `--fix` renames it to `.opencode/idfx.json`. When both files exist, merge them by hand.
@@ -507,7 +501,7 @@ A git hook sets repository-local git variables such as `GIT_DIR` and `GIT_INDEX_
 - `src/units.ts`: the start and the stop of the `idfx-*` systemd user units (and of the old `ocsub-*` units), with the fallback to a detached process (`src/spawn.ts`)
 - `src/host-proxy.ts`: the host cost proxy: the `proxy` command, the path of its unit file, and the `/api/hello` probe
 - `src/state.ts`: per-user state files of the server (PID, log, folders with runs, lock), and the move of the old state folder
-- `src/env-names.ts`: the environment variables `IDFX_*` and their old names `OC_SUB_*`
+- `src/env-names.ts`: the environment variables `IDFX_*`
 - `src/lock.ts`: the server lock `serve-<port>.lock` of `run` and the idle watchdog
 - `src/idle.ts`: the idle watchdog of a server: the pure busy tracker, the hidden `idle-watch` command, and its start and stop
 - `src/attach.ts` — the `attach` command

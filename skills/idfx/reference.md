@@ -25,7 +25,7 @@ This file holds the details for the skill `idfx`. [SKILL.md](SKILL.md) has the s
 - `idfx` needs `bun` and `opencode` on the PATH. If `bun` is missing, the launcher uses mise, if mise is installed.
 - The plugin puts `idfx` on the PATH of the Bash tool. Outside Claude Code, run `bun run src/cli.ts` in the repository of the tool, or link `bin/idfx` into a folder on your PATH.
 - On each call, the launcher runs `bun install --frozen-lockfile --production`, with its output on stderr. It installs the packages of a fresh plugin copy and a package that an update added to `bun.lock`. With no change, it takes a few milliseconds.
-- Keep your global agent files in one shared folder, and set `IDFX_SHARED_DIR` to it. There is no default. The old name `OC_SUB_SHARED_DIR` still works, and the new name wins. Put your global rules into `AGENTS.md` and each skill into `skills/<name>/SKILL.md`. It is the only source. `idfx` never copies it.
+- Keep your global agent files in one shared folder, and set `IDFX_SHARED_DIR` to it. There is no default. Put your global rules into `AGENTS.md` and each skill into `skills/<name>/SKILL.md`. It is the only source. `idfx` never copies it.
 - `up` refuses to start when `IDFX_SHARED_DIR` is not set or blank, or when `<shared>/AGENTS.md` is missing. It names the variable, and the path when it has one.
 
 ### The opencode bug with the global rules
@@ -34,7 +34,7 @@ opencode 1.18.32 has a bug: with `OPENCODE_CONFIG_DIR` set, it silently drops th
 
 ## Commands
 
-Every command accepts `--url URL`. The URL comes from `--url`, then the environment variable `IDFX_URL` (old name `OC_SUB_URL`, still read), then the sandbox state of the project of `--dir` (or of the current folder), then the default `http://127.0.0.1:8767`. The sandbox step applies to `run`, `status`, `top`, `ping`, `watch`, `log`, `abort`, `answer`, and `say`. `status --all` and `top --all` skip it, because they cover every known server: the host server (from `--url`, `IDFX_URL`, or the default) plus every sandbox with a state file. `up`, `down`, and `restart` run in sandbox mode by default. With `--no-sandbox`, `--port N`, or `--url URL` they target the host server, and `--port N` targets port N and keeps the host of the URL; a `--url` flag whose port differs from `--port` is a usage error. Sessions belong to a project folder, so give the same `--dir` to every command of one run. The default of `--dir` is the current folder.
+Every command accepts `--url URL`. The URL comes from `--url`, then the environment variable `IDFX_URL`, then the sandbox state of the project of `--dir` (or of the current folder), then the default `http://127.0.0.1:8767`. The sandbox step applies to `run`, `status`, `top`, `ping`, `watch`, `log`, `abort`, `answer`, and `say`. `status --all` and `top --all` skip it, because they cover every known server: the host server (from `--url`, `IDFX_URL`, or the default) plus every sandbox with a state file. `up`, `down`, and `restart` run in sandbox mode by default. With `--no-sandbox`, `--port N`, or `--url URL` they target the host server, and `--port N` targets port N and keeps the host of the URL; a `--url` flag whose port differs from `--port` is a usage error. Sessions belong to a project folder, so give the same `--dir` to every command of one run. The default of `--dir` is the current folder.
 
 ```tbl
 command: Command
@@ -192,11 +192,6 @@ status-on-a-problem: warn
 fix-action: `doctor --fix`
 what-it-checks-and-how-to-fix-it: The old state folder `$XDG_STATE_HOME/oc-sub/` is missing or is a link. While it is a real folder, idfx keeps its state there. The fix stops when a `serve-<port>.lock` exists, moves each entry into `$XDG_STATE_HOME/idfx/`, skips and names an entry that exists in both folders, and links the old path to the new folder.
 --
-check: `env-names`
-status-on-a-problem: warn
-fix-action: none
-what-it-checks-and-how-to-fix-it: No variable has only its old name set (`OC_SUB_URL`, `OC_SUB_OWNER`, `OC_SUB_SHARED_DIR`). The old names still work. Fix: set the new name `IDFX_URL`, `IDFX_OWNER`, or `IDFX_SHARED_DIR` where the old name is set.
---
 check: `project-config-name`
 status-on-a-problem: warn
 fix-action: `doctor --fix`
@@ -212,7 +207,7 @@ After a new server is healthy, `idfx up` starts an idle watchdog in the backgrou
 - The stop is the stop of `idfx down` without `--force`. In sandbox mode it also runs `sbx stop`, so the VM stops too. The sessions stay on the disk of the sandbox.
 - The server log `serve-<port>.log` gets one line with the reason, for example `idle-stop port=18768 idle=30m`.
 - The watchdog runs as the unit `idfx-idle-<port>` and keeps its PID in `idle-<port>.pid`. `down`, `down --all`, and `restart` stop it.
-- `up` starts each long-lived process as a systemd user unit `idfx-<kind>-<port>` (kinds `serve`, `proxy`, `holder`, `idle`), with the owner and the reason in the description. The owner is the project of the folder of `up`, or the value of `IDFX_OWNER` (old name `OC_SUB_OWNER`) when it is set. Units of older versions have the prefix `ocsub-`, and `down`, `down --all`, the watchdog, and `doctor` stop and list them too. `systemctl --user list-units 'idfx-*' 'ocsub-*' --all` lists them. `down` stops the units first, then the processes of the PID files. On the host, the cost proxy runs as the plain bun command, and the manager restarts it one second after each end, with no start limit (like the `sh` loop). Without a systemd user manager, `up` starts detached processes, and the host proxy runs in a `sh` restart loop.
+- `up` starts each long-lived process as a systemd user unit `idfx-<kind>-<port>` (kinds `serve`, `proxy`, `holder`, `idle`), with the owner and the reason in the description. The owner is the project of the folder of `up`, or the value of `IDFX_OWNER` when it is set. Units of older versions have the prefix `ocsub-`, and `down`, `down --all`, the watchdog, and `doctor` stop and list them too. `systemctl --user list-units 'idfx-*' 'ocsub-*' --all` lists them. `down` stops the units first, then the processes of the PID files. On the host, the cost proxy runs as the plain bun command, and the manager restarts it one second after each end, with no start limit (like the `sh` loop). Without a systemd user manager, `up` starts detached processes, and the host proxy runs in a `sh` restart loop.
 - The watchdog and `run` share the server lock `serve-<port>.lock` in the state folder. The watchdog tries it without a wait before its final check and keeps it through the stop. If a run holds it, the watchdog resets its timer.
 - A session that you only read in `opencode attach` is not busy, so the watchdog can stop its server.
 - After an idle stop, the next `idfx run` on the sandbox of the project starts the server again (see `run` in [Commands](#commands)).

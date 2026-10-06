@@ -14,6 +14,7 @@ export function openRow(sessionId: string, overrides: Partial<SessionRow> = {}):
     title: `title ${sessionId}`,
     agent: "coder",
     state: "busy",
+    active: true,
     startTimeMs: 0,
     elapsedMs: 0,
     msSinceEvent: 0,

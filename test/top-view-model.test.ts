@@ -27,6 +27,7 @@ function row(sessionId: string, overrides: Partial<SessionRow> = {}): SessionRow
     title: `title ${sessionId}`,
     agent: "coder",
     state: "busy",
+    active: true,
     startTimeMs: 0,
     elapsedMs: 0,
     msSinceEvent: 0,

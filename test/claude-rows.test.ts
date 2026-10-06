@@ -59,6 +59,17 @@ describe("which sessions show", () => {
     expect(row).toMatchObject({ state: "waiting", waitingFor: "approve the push", kind: "background", directory: "/home/user/src/other" });
   });
 
+  test("a row is active only when a live process belongs to it", async () => {
+    const rows = await rowsAt(NOW);
+    expect(rows.map((row) => [row.sessionId, row.active])).toEqual([
+      [S1, true],
+      // S5 is a blocked job without a process: only its job file is left.
+      [S5, false],
+      [S2, true],
+      [S7, false],
+    ]);
+  });
+
   test("a dead pid and a reused pid do not show", async () => {
     const ids = (await rowsAt(NOW)).map((row) => row.sessionId);
     expect(ids).not.toContain("33333333-0000-4000-8000-000000000003");
@@ -232,5 +243,6 @@ describe("helpers", () => {
       NOW,
     );
     expect(row).toMatchObject({ steps: 0, contextTokens: 0, costKind: "apiEquivalent", cost: 0, elapsedMs: 500, model: undefined });
+    expect(row.active).toBe(true);
   });
 });

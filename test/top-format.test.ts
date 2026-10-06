@@ -16,6 +16,7 @@ function row(overrides: Partial<TopTableRow> & { sessionId: string }): TopTableR
     title: `session ${overrides.sessionId}`,
     agent: "coder",
     state: "busy",
+    active: true,
     startTimeMs: NOW - 65_000,
     elapsedMs: 65_000,
     msSinceEvent: 5_000,

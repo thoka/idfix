@@ -56,6 +56,14 @@ export type SessionRow = {
   title: string;
   agent: string;
   state: SessionRowState;
+  /**
+   * Whether a process belongs to the session. An opencode row comes from a
+   * running server, so it is active unless it ended. A Claude row is active
+   * when its session has a live process (`ClaudeSession.live`). An inactive
+   * row only has its description left: a job file or a transcript. `top`
+   * sorts the inactive rows last, shows them dim, and can hide them.
+   */
+  active: boolean;
   /** `time.created` of the session, in ms, or undefined when unknown. */
   startTimeMs: number | undefined;
   elapsedMs: number;
@@ -303,6 +311,8 @@ export function createTopModel(options: TopModelOptions = {}): TopModel {
       title: record.info?.title ?? "",
       agent: record.agent ?? "",
       state,
+      // The row comes from a running server, so a process belongs to it.
+      active: state !== "ended",
       startTimeMs,
       elapsedMs,
       msSinceEvent: record.lastEventMs === undefined ? 0 : Math.max(0, nowMs - record.lastEventMs),

@@ -315,6 +315,8 @@ type RowInput = {
   title: string;
   agent: string;
   state: SessionRowState;
+  /** Whether a live process belongs to the session, see `SessionRow.active`. */
+  active: boolean;
   startTimeMs: number | undefined;
   lastActivityMs: number | undefined;
   own: TranscriptSummary | undefined;
@@ -336,6 +338,7 @@ function baseRow(input: RowInput, prices: PriceTable | undefined, nowMs: number)
     title: input.title,
     agent: input.agent,
     state: input.state,
+    active: input.active && input.state !== "ended",
     startTimeMs: input.startTimeMs,
     elapsedMs: input.startTimeMs === undefined ? 0 : Math.max(0, elapsedEnd - input.startTimeMs),
     msSinceEvent: input.lastActivityMs === undefined ? 0 : Math.max(0, nowMs - input.lastActivityMs),
@@ -367,6 +370,8 @@ export function claudeRow(session: ClaudeSession, prices: PriceTable | undefined
         agent: agent.agentType ?? "",
         // A subagent has no state file of its own. It ends with its session.
         state: session.state === "ended" ? "ended" : "idle",
+        // A subagent runs inside the process of its session.
+        active: session.live,
         startTimeMs: agent.summary.firstActivityMs,
         lastActivityMs: agent.summary.lastActivityMs,
         own: agent.summary,
@@ -401,6 +406,7 @@ export function claudeRow(session: ClaudeSession, prices: PriceTable | undefined
       title: sessionTitle(session.summary, session.name, session.cwd),
       agent: "",
       state: session.state,
+      active: session.live,
       startTimeMs: session.startTimeMs,
       lastActivityMs: session.lastActivityMs,
       own: session.summary,

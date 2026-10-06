@@ -168,6 +168,8 @@ describe("seed", () => {
     expect(row.outputTokens).toBe(500);
     expect(row.reasoningTokens).toBe(130);
     expect(row.state).toBe("idle");
+    // A row of a running server always has a process.
+    expect(row.active).toBe(true);
     // The last event is the newest message (completed at 901_000), not the
     // seed time and not the older `time.updated`.
     expect(row.msSinceEvent).toBe(NOW - 901_000);

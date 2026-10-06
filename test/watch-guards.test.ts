@@ -50,6 +50,8 @@ function startFakeServer(options: FakeServerOptions) {
   const controllers: ReadableStreamDefaultController<Uint8Array>[] = [];
   const encoder = new TextEncoder();
   let statusHits = 0;
+  /** The order of the stream opens and the status checks, for the tests. */
+  const order: string[] = [];
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -57,15 +59,19 @@ function startFakeServer(options: FakeServerOptions) {
       const url = new URL(request.url);
       if (url.pathname === "/global/health") return Response.json({ healthy: true, version: "1.0.0" });
       if (url.pathname === "/event") {
+        order.push("event");
         const stream = new ReadableStream({
           start(controller) {
             controllers.push(controller);
+            // Like the real server, the first event is server.connected.
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "server.connected", properties: {} })}\n\n`));
           },
         });
         return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
       }
       if (url.pathname === "/session/status") {
         statusHits += 1;
+        order.push("status");
         return Response.json(options.states ?? {});
       }
       if (url.pathname === `/session/${SESSION}`) {
@@ -95,6 +101,7 @@ function startFakeServer(options: FakeServerOptions) {
   });
   return {
     url: `http://127.0.0.1:${server.port}`,
+    order,
     push: (event: unknown) => {
       for (const controller of controllers) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
@@ -188,6 +195,23 @@ describe("watch with a guard finding", () => {
       for (let i = 0; i < 7; i++) s.push(toolEvent(SESSION, "read", input));
     });
     expect(logged.filter((line) => line === "needs attention: loop")).toHaveLength(1);
+  }, 20_000);
+});
+
+describe("watch opens the event stream first", () => {
+  test("the stream is connected before the first status check", async () => {
+    // Events that the server sends between the subscribe call and the open
+    // stream are lost. The first status check must therefore come after the
+    // stream has delivered server.connected, else the watch misses tool calls
+    // and hangs until a status poll ends it.
+    const server = startFakeServer({ states: {} });
+    let orderAtFirstStatus: string[] = [];
+    await runWatch(server, async (s) => {
+      await s.waitStatuses();
+      orderAtFirstStatus = [...s.order];
+    });
+    expect(orderAtFirstStatus.indexOf("event")).toBeGreaterThanOrEqual(0);
+    expect(orderAtFirstStatus.indexOf("event")).toBeLessThan(orderAtFirstStatus.indexOf("status"));
   }, 20_000);
 });
 

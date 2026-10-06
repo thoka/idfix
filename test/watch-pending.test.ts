@@ -57,6 +57,9 @@ function startFakeServer(options: FakeServerOptions) {
       if (url.pathname === "/event") {
         const stream = new ReadableStream({
           start(controller) {
+            // Like the real server, the first event is server.connected.
+            const connected = { type: "server.connected", properties: {} };
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(connected)}\n\n`));
             const timer = setTimeout(() => {
               try {
                 controller.close();

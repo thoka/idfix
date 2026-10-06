@@ -14,6 +14,12 @@ import { createOpenRequestReader } from "./proxycost";
 import { stateDir } from "./state";
 
 const STATUS_POLL_MS = 2000;
+/**
+ * How long the watch waits for the first item of the event stream before the
+ * first status check. The real server sends server.connected at once; the
+ * limit only matters when the stream cannot connect.
+ */
+const STREAM_CONNECT_WAIT_MS = 2000;
 
 /** The open requests of the tree, keyed by session for the guard. */
 function mapOpenRequests(open: readonly { session: string; upstream: string; startedMs?: number }[]): Map<string, OpenModelRequest> {
@@ -44,6 +50,8 @@ export async function watch(
   // Subscribe first: any idle that happens after this point is caught by the
   // stream, so the initial status check below cannot race past the end.
   // The directory query selects the instance whose events carry this session.
+  // The SDK opens the stream lazily, on the first next() of its iterator, so
+  // the watch asks for the first item now and waits for it below.
   let reconnected = false;
   const subscription = await client.event.subscribe({
     query: { directory },
@@ -53,6 +61,8 @@ export async function watch(
     },
   });
   const iterator = subscription.stream[Symbol.asyncIterator]();
+  // The next item of the stream that the loop has not read yet.
+  let nextItem: ReturnType<typeof iterator.next> | undefined = iterator.next();
 
   let finished = false;
   let exitCode = 0;
@@ -187,10 +197,15 @@ export async function watch(
   let watchedToolCalls = 0;
 
   try {
+    // Wait until the stream is open (its first item, server.connected, has
+    // arrived), so that no event after the start check is lost.
+    await Promise.race([nextItem, sleep(STREAM_CONNECT_WAIT_MS)]);
     await checkStatus(); // check at the start
     for (;;) {
       if (finished) break;
-      const next = await Promise.race([iterator.next(), finishedPromise]);
+      const pendingItem = nextItem ?? iterator.next();
+      nextItem = undefined;
+      const next = await Promise.race([pendingItem, finishedPromise]);
       if (next === null || next.done) break;
       const event = next.value;
       if (reconnected) {

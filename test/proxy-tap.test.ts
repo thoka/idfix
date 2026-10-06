@@ -199,3 +199,146 @@ describe("usageOf with a DeepInfra usage object", () => {
     expect(result.model).toBe("zai-org/GLM-5.3-Flash");
   });
 });
+
+// The Anthropic Messages shape that Claude Code reads (`POST /v1/messages`),
+// with the `cost` that OpenRouter adds to the usage of the last event
+// (.plan/research/driver-interface.md section 6.5).
+const anthropicSse = (...events: Array<Record<string, unknown>>): string =>
+  events.map((data) => `event: ${String(data.type)}\ndata: ${JSON.stringify(data)}\n\n`).join("");
+
+const messageStart = {
+  type: "message_start",
+  message: {
+    id: "gen-anthropic-1",
+    type: "message",
+    role: "assistant",
+    model: "z-ai/glm-5.3-flash",
+    content: [],
+    stop_reason: null,
+    usage: { input_tokens: 25, cache_read_input_tokens: 100, cache_creation_input_tokens: 10, output_tokens: 1 },
+  },
+};
+
+const messageDelta = {
+  type: "message_delta",
+  delta: { stop_reason: "end_turn", stop_sequence: null },
+  usage: { output_tokens: 42, cost: 0.0021, cost_details: { upstream_inference_cost: 0.002 } },
+};
+
+describe("createSseTap with the Anthropic shape", () => {
+  test("maps message_start and message_delta into the result", () => {
+    const tap = createSseTap();
+    tap.push(
+      anthropicSse(
+        messageStart,
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "ping" },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hi" } },
+        { type: "content_block_stop", index: 0 },
+        messageDelta,
+        { type: "message_stop" },
+      ),
+    );
+    expect(tap.result()).toEqual({
+      generation: "gen-anthropic-1",
+      provider: null,
+      model: "z-ai/glm-5.3-flash",
+      usage: { cost: 0.0021, upstreamCost: 0.002, input: 135, output: 42, reasoning: null, cached: 100 },
+      finishReason: "end_turn",
+      error: null,
+    });
+  });
+
+  test("message_delta keeps the input counts of message_start", () => {
+    const tap = createSseTap();
+    tap.push(
+      anthropicSse(messageStart, { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 9 } }),
+    );
+    const usage = tap.result().usage;
+    expect(usage.input).toBe(135);
+    expect(usage.cached).toBe(100);
+    expect(usage.output).toBe(9);
+    expect(usage.cost).toBeNull();
+    expect(tap.result().finishReason).toBe("tool_use");
+  });
+
+  test("message_delta with full counts replaces the counts of message_start", () => {
+    const tap = createSseTap();
+    tap.push(
+      anthropicSse(messageStart, {
+        type: "message_delta",
+        delta: { stop_reason: "end_turn" },
+        usage: { input_tokens: 30, cache_read_input_tokens: 0, output_tokens: 5, cost: 0.5 },
+      }),
+    );
+    const usage = tap.result().usage;
+    // 30 input + 0 cache read + 10 cache creation of message_start.
+    expect(usage.input).toBe(40);
+    expect(usage.cached).toBe(0);
+    expect(usage.output).toBe(5);
+    expect(usage.cost).toBe(0.5);
+  });
+
+  test("input is null when no input count came", () => {
+    const tap = createSseTap();
+    tap.push(anthropicSse({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 3 } }));
+    expect(tap.result().usage.input).toBeNull();
+    expect(tap.result().usage.output).toBe(3);
+  });
+
+  test("records the message of an error event", () => {
+    const tap = createSseTap();
+    tap.push(anthropicSse(messageStart, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } }));
+    expect(tap.result().error).toBe("Overloaded");
+    expect(tap.result().generation).toBe("gen-anthropic-1");
+  });
+
+  test("feeds an Anthropic stream in split pieces", () => {
+    const tap = createSseTap();
+    const whole = anthropicSse(messageStart, messageDelta, { type: "message_stop" });
+    for (let i = 0; i < whole.length; i += 5) tap.push(whole.slice(i, i + 5));
+    expect(tap.result().usage.cost).toBe(0.0021);
+    expect(tap.result().usage.input).toBe(135);
+  });
+
+  test("two taps do not share their counts", () => {
+    const first = createSseTap();
+    const second = createSseTap();
+    first.push(anthropicSse(messageStart));
+    second.push(anthropicSse({ type: "message_delta", delta: {}, usage: { output_tokens: 1 } }));
+    expect(second.result().usage.input).toBeNull();
+    expect(first.result().usage.input).toBe(135);
+  });
+});
+
+describe("applyChunk with an Anthropic JSON body", () => {
+  test("reads a non-streaming message", () => {
+    const state = createSseTap().result();
+    applyChunk(state, {
+      id: "gen-anthropic-2",
+      type: "message",
+      role: "assistant",
+      model: "z-ai/glm-5.3-flash",
+      content: [{ type: "text", text: "Hi" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 12, output_tokens: 4, cost: 0.0003 },
+    });
+    expect(state.generation).toBe("gen-anthropic-2");
+    expect(state.model).toBe("z-ai/glm-5.3-flash");
+    expect(state.finishReason).toBe("end_turn");
+    expect(state.usage).toEqual({ cost: 0.0003, upstreamCost: null, input: 12, output: 4, reasoning: null, cached: null });
+  });
+
+  test("reads an Anthropic error body", () => {
+    const state = createSseTap().result();
+    applyChunk(state, { type: "error", error: { type: "invalid_request_error", message: "bad beta header" } });
+    expect(state.error).toBe("bad beta header");
+  });
+
+  test("an object with an unknown type still goes the OpenAI way", () => {
+    const state = createSseTap().result();
+    applyChunk(state, { type: "something", id: "gen-x", usage: { prompt_tokens: 2, completion_tokens: 1 } });
+    expect(state.generation).toBe("gen-x");
+    expect(state.usage.input).toBe(2);
+  });
+});

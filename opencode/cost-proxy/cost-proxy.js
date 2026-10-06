@@ -384,10 +384,102 @@ function usageOf(value) {
     cached: num(promptDetails.cached_tokens)
   };
 }
+var anthropicCounts = new WeakMap;
+function objectOf(value) {
+  return value !== null && typeof value === "object" ? value : null;
+}
+function mergeAnthropicUsage(state, value) {
+  const usage = objectOf(value);
+  if (usage === null)
+    return;
+  const details = objectOf(usage.cost_details) ?? {};
+  const old = anthropicCounts.get(state) ?? {
+    input: null,
+    cacheRead: null,
+    cacheCreation: null,
+    output: null,
+    cost: null,
+    upstreamCost: null
+  };
+  const counts = {
+    input: num(usage.input_tokens) ?? old.input,
+    cacheRead: num(usage.cache_read_input_tokens) ?? old.cacheRead,
+    cacheCreation: num(usage.cache_creation_input_tokens) ?? old.cacheCreation,
+    output: num(usage.output_tokens) ?? old.output,
+    cost: num(usage.cost) ?? old.cost,
+    upstreamCost: num(details.upstream_inference_cost) ?? old.upstreamCost
+  };
+  anthropicCounts.set(state, counts);
+  const parts = [counts.input, counts.cacheRead, counts.cacheCreation];
+  state.usage = {
+    cost: counts.cost,
+    upstreamCost: counts.upstreamCost,
+    input: parts.every((part) => part === null) ? null : parts.reduce((sum, part) => sum + (part ?? 0), 0),
+    output: counts.output,
+    reasoning: null,
+    cached: counts.cacheRead
+  };
+}
+function applyAnthropicMessage(state, message) {
+  const generation = str(message.id);
+  if (generation !== null)
+    state.generation = generation;
+  const model = str(message.model);
+  if (model !== null)
+    state.model = model;
+  const provider = str(message.provider);
+  if (provider !== null)
+    state.provider = provider;
+  const stopReason = str(message.stop_reason);
+  if (stopReason !== null)
+    state.finishReason = stopReason;
+  if (message.usage !== undefined)
+    mergeAnthropicUsage(state, message.usage);
+}
+function applyAnthropic(state, data) {
+  switch (data.type) {
+    case "message":
+      applyAnthropicMessage(state, data);
+      break;
+    case "message_start": {
+      const message = objectOf(data.message);
+      if (message !== null)
+        applyAnthropicMessage(state, message);
+      break;
+    }
+    case "message_delta": {
+      const stopReason = str(objectOf(data.delta)?.stop_reason);
+      if (stopReason !== null)
+        state.finishReason = stopReason;
+      if (data.usage !== undefined)
+        mergeAnthropicUsage(state, data.usage);
+      break;
+    }
+    case "error": {
+      const message = str(objectOf(data.error)?.message);
+      state.error = message ?? "upstream error event";
+      break;
+    }
+    case "message_stop":
+    case "content_block_start":
+    case "content_block_delta":
+    case "content_block_stop":
+    case "ping":
+      break;
+    default:
+      return false;
+  }
+  const provider = str(data.provider);
+  if (provider !== null)
+    state.provider = provider;
+  return true;
+}
 function applyChunk(state, chunk) {
   if (chunk === null || typeof chunk !== "object")
     return;
   const data = chunk;
+  if (typeof data.type === "string" && applyAnthropic(state, data))
+    return;
   const generation = str(data.id);
   if (generation !== null)
     state.generation = generation;

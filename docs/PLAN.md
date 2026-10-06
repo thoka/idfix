@@ -194,6 +194,14 @@ Task from the supervisor, 2026-10-06. `mise run pre-push-scan` in meta lists idf
 
 User decision 2026-10-06 (meta plan, step 26). Each worker gets a stable name: its project folder, plus its step if a project runs more than one worker, for example `idfix-25g`. idfix starts every Claude worker with `-n <name>`. `idfx watch` (the watch slice of step 25g) reports a session without a name as an event. The user renamed the idfix main session to `idfix` on 2026-10-06, and each restart of it uses `-n idfix`.
 
+### 19. Step 37: align the watch conditions with MCP tasks and A2A before protocol v0 settles
+
+Input from the supervisor, 2026-10-06 (meta step 4e, `~/dv/meta/docs/research/deep-research-eval/comparison-tool-protocol.md`; meta folds it into `tool-protocol.md`). No change is required now. Do it when meta settles protocol v0.
+
+1. MCP 2025-11-25 tasks use the status `input_required` and the notification `notifications/tasks/status`. A2A has `TASK_STATE_INPUT_REQUIRED` and `TASK_STATE_AUTH_REQUIRED`. Our conditions `SessionWaitsForUser` and `ApiError` (`src/watch/conditions.ts`) map to these. Use the same words, or document the mapping in `docs/design/idfx-watch.md` and `docs/GUIDE.md`.
+2. The OTel GenAI conventions (own repository since 2026-05, status Development, prefix `gen_ai`) serve only as a mapping for now.
+3. The OTel filelog receiver keeps offsets only with a storage extension, and it identifies a file by its first 1000 bytes. If `events.jsonl` is ever rotated or read by a collector, keep its first line stable and unique, or use the storage extension.
+
 ### Later
 
 - Flaky test: `test/watch-guards.test.ts` ("watch with a guard finding") times out after 20 seconds in some runs, with or without the temp folder fix of 2026-10-05. It was seen at a load average of about 10. The fake server likely pushes events before `watch` subscribes.

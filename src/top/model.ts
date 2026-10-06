@@ -35,7 +35,18 @@ import {
  * session whose last step used more reasoning tokens than the limit of the
  * guard (`REASONING_LIMIT` of `src/detect.ts`, or `reasoningLimit`).
  */
-export type SessionRowState = "waiting" | "looping" | "stalled" | "reasoning" | "retry" | "busy" | "idle";
+export type SessionRowState = "waiting" | "looping" | "stalled" | "reasoning" | "retry" | "busy" | "idle" | "ended";
+
+/** The agent program behind a row: an opencode session or a Claude Code session. */
+export type SessionDriver = "opencode" | "claude";
+
+/**
+ * What the cost of a row means. `real`: the money that the provider charged
+ * (opencode). `apiEquivalent`: the API price of the same tokens, not a real
+ * charge (a Claude session on a plan). `none`: no price is known for the
+ * model, so the cost cell stays empty and `cost` is 0.
+ */
+export type CostKind = "real" | "apiEquivalent" | "none";
 
 /** One line of the session table: the session and all of its descendants. */
 export type SessionRow = {
@@ -62,6 +73,14 @@ export type SessionRow = {
   reasoningShare: number;
   /** Reasoning tokens of the last step of the session itself. */
   lastStepReasoning: number;
+  /** The agent program of the session. */
+  driver: SessionDriver;
+  /** The model id of the last step, when known. */
+  model?: string;
+  /** The context window of the model in tokens, when known. */
+  contextWindow?: number;
+  /** What `cost` means. */
+  costKind: CostKind;
 };
 
 /** One session with its log, its pending requests, and its child sessions. */
@@ -287,6 +306,8 @@ export function createTopModel(options: TopModelOptions = {}): TopModel {
       reasoningTokens: reasoning,
       reasoningShare: output + reasoning > 0 ? reasoning / (output + reasoning) : 0,
       lastStepReasoning: record.lastStepReasoning,
+      driver: "opencode",
+      costKind: "real",
     };
   };
 

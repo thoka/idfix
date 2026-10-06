@@ -20,6 +20,7 @@ export const STATE_COLORS: Record<SessionRowState, string> = {
   retry: "yellow",
   busy: "green",
   idle: "gray",
+  ended: "gray",
 };
 
 /** The selected row: its session ID, and its index for when the session disappears. */

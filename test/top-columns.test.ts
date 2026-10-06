@@ -33,6 +33,8 @@ function row(overrides: Partial<SessionRow> & { sessionId: string }): SessionRow
     reasoningTokens: 7,
     reasoningShare: 7 / 72,
     lastStepReasoning: 7,
+    driver: "opencode",
+    costKind: "real",
     ...overrides,
   };
 }

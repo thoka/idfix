@@ -27,6 +27,8 @@ function row(overrides: Partial<TopTableRow> & { sessionId: string }): TopTableR
     reasoningTokens: 7,
     reasoningShare: 7 / 72,
     lastStepReasoning: 7,
+    driver: "opencode",
+    costKind: "real",
     pending: [],
     ...overrides,
   };

@@ -1,9 +1,10 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   cloneDirectories,
+  defaultClaudeRows,
   displayFolder,
   formatStatusLine,
   parseWorktreeList,
@@ -16,6 +17,9 @@ import {
   type StatusDeps,
 } from "../src/status";
 import type { Runner } from "../src/sandbox";
+import { parsePriceFile } from "../src/claude/prices";
+import { createClaudeSource, loadClaudeRows } from "../src/claude/rows";
+import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, NOW, S1, S2, S5, S7 } from "./claude-fixture";
 
 const DIR = "/repo";
 
@@ -709,7 +713,7 @@ describe("status", () => {
 });
 
 describe("status --json", () => {
-  test("prints one JSON array with id, state, title, and folder as the whole stdout", async () => {
+  test("prints one JSON array with id, state, title, folder, and driver as the whole stdout", async () => {
     const server = startFakeServer({
       sessions: [
         { id: "ses_root", directory: DIR, title: "Root run" },
@@ -730,8 +734,8 @@ describe("status --json", () => {
       // The whole stdout is one JSON document, so the test parses all of it.
       const rows = parseJsonStdout(lines) as Array<Record<string, string>>;
       expect(rows).toEqual([
-        { id: "ses_root", state: "idle", title: "Root run", folder: DIR },
-        { id: "ses_wt", state: "busy", title: "WT run", folder: `${DIR}/.worktrees/x` },
+        { id: "ses_root", state: "idle", title: "Root run", folder: DIR, driver: "opencode" },
+        { id: "ses_wt", state: "busy", title: "WT run", folder: `${DIR}/.worktrees/x`, driver: "opencode" },
       ]);
     } finally {
       server.stop();
@@ -756,7 +760,7 @@ describe("status --json", () => {
       expect(code).toBe(0);
       const rows = parseJsonStdout(lines) as Array<Record<string, string>>;
       expect(rows).toEqual([
-        { id: "ses_proj", state: "busy", title: "Proj run", folder: "/proj", project: "proj", server: server.url },
+        { id: "ses_proj", state: "busy", title: "Proj run", folder: "/proj", project: "proj", server: server.url, driver: "opencode" },
       ]);
     } finally {
       server.stop();
@@ -797,6 +801,7 @@ describe("status --json", () => {
           folder: "/sbxproj",
           project: "sbx",
           server: server.url,
+          driver: "opencode",
         },
       ]);
     } finally {
@@ -906,5 +911,92 @@ describe("host worktree of a project", () => {
     });
     expect(dirs).toEqual(["/repo/.claude/worktrees/x"]);
     expect(calls).toEqual(["/repo/.claude/worktrees/x"]);
+  });
+});
+
+describe("Claude sessions in status", () => {
+  const claudeLoader = (nowMs = NOW) => async () =>
+    loadClaudeRows({
+      source: createClaudeSource(FIXTURE_ROOT, fixtureFs()),
+      nowMs,
+      loadPrices: async () => parsePriceFile(readFileSync(path.join(FIXTURE_DIR, "litellm-prices.json"), "utf8")),
+    });
+  const claudeDeps: StatusDeps = { ...testDeps, commonDirOf: () => null, worktreesOf: (directory) => [directory] };
+
+  /** Run status with the Claude fixture. Without `down`, an opencode server without sessions answers. */
+  async function run(args: { dir?: string; all: boolean; json?: boolean; down?: boolean }, loader = claudeLoader()) {
+    const server = args.down === true ? undefined : startFakeServer({});
+    const captured = captureLog();
+    const stateHome = mkdtempSync(path.join(tmpdir(), "oc-sub-status-claude-"));
+    try {
+      const url = server?.url ?? "http://127.0.0.1:9";
+      const code = await status({ url, dir: args.dir, all: args.all, json: args.json }, { XDG_STATE_HOME: stateHome, OC_SUB_URL: url }, claudeDeps, loader);
+      return { code, lines: captured.lines, errors: captured.errors };
+    } finally {
+      captured.restore();
+      server?.stop();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  }
+
+  test("without --all, only the sessions inside the project folder show, also without an opencode server", async () => {
+    const { code, lines } = await run({ dir: "/home/u/dv/proj", all: false, down: true });
+    expect(code).toBe(0);
+    expect(lines).toEqual([
+      "no server on http://127.0.0.1:9",
+      `${S1} waiting fixture-title`,
+      `${S2} busy bg-worker (.worktrees/w2)`,
+      `${S7} ended proj`,
+    ]);
+  });
+
+  test("--all shows every session with its absolute folder", async () => {
+    const { lines } = await run({ all: true });
+    expect(lines).toEqual([
+      `${S1} waiting fixture-title (/home/u/dv/proj)`,
+      `${S5} waiting blocked-job (/home/u/dv/other)`,
+      `${S2} busy bg-worker (/home/u/dv/proj/.worktrees/w2)`,
+      `${S7} ended proj (/home/u/dv/proj)`,
+    ]);
+  });
+
+  test("--all --json gives the Claude fields of each entry", async () => {
+    const { lines, errors } = await run({ all: true, json: true });
+    expect(errors).toEqual([]);
+    const rows = parseJsonStdout(lines) as Array<Record<string, unknown>>;
+    expect(rows.map((row) => row.id)).toEqual([S1, S5, S2, S7]);
+    expect(rows[0]).toEqual({
+      id: S1,
+      state: "waiting",
+      title: "fixture-title",
+      folder: "/home/u/dv/proj",
+      project: "proj",
+      driver: "claude",
+      name: "proj",
+      kind: "interactive",
+      waitingFor: "Bash permission",
+      model: "claude-opus-5-5",
+      contextTokens: 1205,
+      contextWindow: 1000000,
+      contextShare: 0.0012,
+      lastActivity: new Date(1791284100000).toISOString(),
+      apiEquivalentUsd: 0.0112,
+    });
+    expect(rows[3]).toMatchObject({ id: S7, state: "ended", model: "z-ai/glm-5.3-flash", contextWindow: null, contextShare: null, apiEquivalentUsd: null });
+  });
+
+  test("a failing Claude reader costs only the Claude rows", async () => {
+    const { code, lines, errors } = await run({ all: true }, async () => {
+      throw new Error("boom");
+    });
+    expect(code).toBe(0);
+    expect(lines).toEqual(["no running sessions"]);
+    expect(errors).toEqual(["warning: claude sessions: boom"]);
+  });
+
+  test("the default reader of the tests sees no real Claude session", async () => {
+    // test/setup.ts points CLAUDE_CONFIG_DIR at an empty folder.
+    const rows = await defaultClaudeRows(Date.now());
+    expect(rows).toEqual([]);
   });
 });

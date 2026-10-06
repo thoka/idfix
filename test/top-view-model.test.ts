@@ -34,6 +34,8 @@ function row(sessionId: string, overrides: Partial<SessionRow> = {}): SessionRow
     reasoningTokens: 0,
     reasoningShare: 0,
     lastStepReasoning: 0,
+    driver: "opencode",
+    costKind: "real",
     ...overrides,
   };
 }

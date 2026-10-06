@@ -9,6 +9,9 @@ import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "./c
 import { listPendingRequests } from "./requests";
 import { listServers } from "./servers";
 import { readDirs, serveDirsPath } from "./state";
+import { claudeRoot } from "./claude/files";
+import { loadPrices } from "./claude/prices";
+import { createClaudeSource, inScope, loadClaudeRows, type ClaudeRow } from "./claude/rows";
 
 /**
  * One status line: `<id> <state> <title>`, plus ` (<folder>)` for a session
@@ -201,13 +204,77 @@ export type StatusRow = {
   id: string;
   state: string;
   title: string;
-  /** The absolute directory whose listing produced the session. */
+  /** The absolute directory whose listing produced the session (the `cwd` of a Claude session). */
   folder: string;
   /** The project of the session, only in the listing of `--all`. */
   project?: string;
-  /** The server URL that listed the session, only in the listing of `--all`. */
+  /** The server URL that listed the session, only for an opencode session in the listing of `--all`. */
   server?: string;
+  /** The agent program of the session. */
+  driver: "opencode" | "claude";
+  /** The fields below exist only for a Claude session. */
+  name?: string | null;
+  kind?: "interactive" | "background";
+  waitingFor?: string | null;
+  model?: string | null;
+  contextTokens?: number;
+  contextWindow?: number | null;
+  /** The context tokens divided by the context window, or null without a window. */
+  contextShare?: number | null;
+  /** The ISO time of the last activity, or null when unknown. */
+  lastActivity?: string | null;
+  /** The API price of the tokens in USD, not a real charge, or null without a price. */
+  apiEquivalentUsd?: number | null;
 };
+
+/** Loads the Claude rows that show at `nowMs`. The tests replace it. */
+export type ClaudeRowsLoader = (nowMs: number) => Promise<ClaudeRow[]>;
+
+/**
+ * The default loader: the files under `$CLAUDE_CONFIG_DIR` (else
+ * `~/.claude`) and the LiteLLM prices under `$XDG_CACHE_HOME/idfix/`, both
+ * from the environment of the process.
+ */
+export const defaultClaudeRows: ClaudeRowsLoader = (nowMs) =>
+  loadClaudeRows({
+    source: createClaudeSource(claudeRoot(process.env)),
+    nowMs,
+    loadPrices: () => loadPrices(process.env),
+  });
+
+const round = (value: number, digits: number): number => Number(value.toFixed(digits));
+
+/** The status row of a Claude session. */
+export function claudeStatusRow(row: ClaudeRow, project?: string): StatusRow {
+  const window = row.contextWindow;
+  return {
+    id: row.sessionId,
+    state: row.state,
+    title: row.title,
+    folder: row.directory,
+    ...(project === undefined ? {} : { project }),
+    driver: "claude",
+    name: row.name ?? null,
+    kind: row.kind,
+    waitingFor: row.waitingFor ?? null,
+    model: row.model ?? null,
+    contextTokens: row.contextTokens,
+    contextWindow: window ?? null,
+    contextShare: window === undefined || window <= 0 ? null : round(row.contextTokens / window, 4),
+    lastActivity: row.lastActivityMs === undefined ? null : new Date(row.lastActivityMs).toISOString(),
+    apiEquivalentUsd: row.apiEquivalentUsd === undefined ? null : round(row.apiEquivalentUsd, 4),
+  };
+}
+
+/** The Claude rows of status. A failure costs only the Claude rows, with a warning on stderr. */
+async function claudeRowsSafe(loader: ClaudeRowsLoader): Promise<ClaudeRow[]> {
+  try {
+    return await loader(Date.now());
+  } catch (error) {
+    console.error(`warning: claude sessions: ${error instanceof Error ? error.message : errorMessage(error)}`);
+    return [];
+  }
+}
 
 /**
  * The running sessions of one server, one row each, from the directories of
@@ -240,6 +307,7 @@ async function allServerRows(
         // of a host server name their own project.
         project: sandbox?.project ?? projectNameOfRun(directory),
         server: baseUrl,
+        driver: "opencode",
       });
     }
   }
@@ -249,14 +317,21 @@ async function allServerRows(
 /**
  * `oc-sub status [--dir DIR | --all] [--json]`: one line per session
  * (`ID state title`), or with `--json` one JSON array of objects with `id`,
- * `state`, `title`, and `folder` (plus `project` and `server` with `--all`)
- * as the whole stdout. In JSON mode, messages such as `no server on ...` go
- * to stderr, and the array is then empty.
+ * `state`, `title`, `folder`, and `driver` (plus `project`, and `server`
+ * for opencode, with `--all`) as the whole stdout. In JSON mode, messages
+ * such as `no server on ...` go to stderr.
+ *
+ * The Claude Code sessions follow the opencode sessions (design
+ * docs/design/claude-sessions-top.md, sections 6 and 8): live and waiting
+ * sessions, and ended sessions for 60 minutes. Without `--all`, only the
+ * sessions whose folder is inside the directories of the project show.
+ * They show also when no opencode server runs.
  */
 export async function status(
   args: { url?: string; dir?: string; all: boolean; json?: boolean },
   env: Env = process.env,
   deps: StatusDeps = defaultDeps,
+  claudeRows: ClaudeRowsLoader = defaultClaudeRows,
 ): Promise<number> {
   const json = args.json === true;
   // Nothing but the JSON document may go to stdout in JSON mode, so the
@@ -293,8 +368,11 @@ export async function status(
         console.error(`warning: ${server.url}: ${message}`);
       }
     }
+    for (const row of await claudeRowsSafe(claudeRows)) {
+      rows.push(claudeStatusRow(row, projectNameOfRun(row.directory, deps.exists, deps.commonDirOf)));
+    }
     if (!answered) {
-      // No server means no sessions. That is a normal state, not an error.
+      // No server means no opencode sessions. That is a normal state, not an error.
       say(`no server on ${hostUrl}`);
     } else if (rows.length === 0) {
       say("no running sessions");
@@ -308,23 +386,31 @@ export async function status(
   }
 
   const baseUrl = resolveCommandUrl(args.url, env, args.dir);
-  // No server means no sessions. That is a normal state, not an error.
-  const server = await probeServer(baseUrl, env, 2000);
-  if (server.state === "down") {
-    say(`no server on ${baseUrl}`);
-    if (json) console.log(JSON.stringify([], null, 2));
-    return 0;
-  }
-  assertUsable(server, baseUrl, env);
-  const client = makeClient(baseUrl, env);
-
   const directory = path.resolve(args.dir ?? process.cwd());
   const rows: StatusRow[] = [];
-  for (const dir of projectDirectories(directory, env, deps)) {
-    for (const session of await listSessionsSafe(client, baseUrl, dir, env)) {
-      // Child sessions are internal subagent runs, not first-class sessions.
-      if (session.child) continue;
-      rows.push({ id: session.id, state: session.state, title: session.title, folder: dir });
+  // No server means no opencode sessions. That is a normal state, not an error.
+  const server = await probeServer(baseUrl, env, 2000);
+  let directories: string[] | undefined;
+  if (server.state === "down") {
+    say(`no server on ${baseUrl}`);
+  } else {
+    assertUsable(server, baseUrl, env);
+    const client = makeClient(baseUrl, env);
+    directories = projectDirectories(directory, env, deps);
+    for (const dir of directories) {
+      for (const session of await listSessionsSafe(client, baseUrl, dir, env)) {
+        // Child sessions are internal subagent runs, not first-class sessions.
+        if (session.child) continue;
+        rows.push({ id: session.id, state: session.state, title: session.title, folder: dir, driver: "opencode" });
+      }
+    }
+  }
+  const claude = await claudeRowsSafe(claudeRows);
+  if (claude.length > 0) {
+    // The folder rule: the project and its worktrees.
+    const scope = directories ?? projectDirectories(directory, env, deps);
+    for (const row of claude) {
+      if (inScope(row.directory, scope)) rows.push(claudeStatusRow(row));
     }
   }
   if (json) {

@@ -12,6 +12,10 @@
  * folder. A code path that falls back to `process.env` then never writes into
  * the real `~/.local/share/oc-sub` or `~/.local/state/oc-sub`. Tests that pass
  * their own env still set their own folders.
+ *
+ * The Claude Code root and the XDG cache folder point into the run folder
+ * too, so `status` never lists the real Claude sessions of the machine and
+ * never downloads or reads the real price cache.
  */
 import { afterAll } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
@@ -41,5 +45,9 @@ afterAll(() => rmSync(runDir, { recursive: true, force: true }));
 
 process.env.XDG_DATA_HOME = path.join(runDir, "xdg-data");
 process.env.XDG_STATE_HOME = path.join(runDir, "xdg-state");
+process.env.XDG_CACHE_HOME = path.join(runDir, "xdg-cache");
+process.env.CLAUDE_CONFIG_DIR = path.join(runDir, "claude");
 mkdirSync(process.env.XDG_DATA_HOME);
 mkdirSync(process.env.XDG_STATE_HOME);
+mkdirSync(process.env.XDG_CACHE_HOME);
+mkdirSync(process.env.CLAUDE_CONFIG_DIR);

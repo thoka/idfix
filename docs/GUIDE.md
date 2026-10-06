@@ -197,9 +197,32 @@ With `--json`, the command prints one JSON array as the whole stdout, one object
 
 - `id`, `state`, and `title` are the fields of the text line.
 - `folder` is the absolute directory whose listing produced the session (the project root, a worktree, or a run folder).
-- With `--all`, each object also has `project` (the project name) and `server` (the URL of the server that listed the session).
+- `driver` is `opencode` or `claude`.
+- With `--all`, each object also has `project` (the project name). An opencode session also has `server` (the URL of the server that listed the session).
 
-In JSON mode, nothing else goes to stdout: messages such as `no server on ...` go to stderr, and the array is then empty (`[]`). Parse the whole stdout as one JSON document. The command works from the project root, from a host git worktree of the project (for example `<root>/.claude/worktrees/x`, which resolves to the project root through the git common dir), and with `--dir`.
+In JSON mode, nothing else goes to stdout: messages such as `no server on ...` go to stderr. Parse the whole stdout as one JSON document. The command works from the project root, from a host git worktree of the project (for example `<root>/.claude/worktrees/x`, which resolves to the project root through the git common dir), and with `--dir`.
+
+### Claude Code sessions in `status`
+
+`status` also lists the Claude Code sessions of the machine, after the opencode sessions. It reads the files of Claude Code under `~/.claude` (or `$CLAUDE_CONFIG_DIR`) and changes nothing there. It needs no opencode server for this.
+
+- A live session always shows. Its state is `waiting` when Claude Code waits for the user (a permission dialog or a question), `busy` while it works, and `idle` else.
+- A background session that is blocked shows as `waiting`, also when its process has stopped.
+- A session that ended shows as `ended` for 60 minutes after its last activity.
+- Without `--all`, only the sessions whose folder is inside the project or one of its worktrees show. With `--all`, every session shows.
+
+The ID of a Claude session is its session ID. The title is the custom title of the session, else its AI title, else its name, else its folder name. idfix never shows a prompt.
+
+With `--json`, a Claude entry also has these fields:
+
+- `name` and `kind` (`interactive` or `background`).
+- `waitingFor`: what the session waits for, or `null`.
+- `model`: the model of the last request.
+- `contextTokens`, `contextWindow`, and `contextShare`: the size of the context of the last request, the window of the model, and the share of the window.
+- `lastActivity`: the time of the last activity (ISO format).
+- `apiEquivalentUsd`: the API price of the tokens of the session and its subagents. On a plan, this is not a real charge. It is `null` when idfix knows no price for a model, for example `z-ai/glm-5.3-flash` of a `claude-glm` session.
+
+The prices and the model windows come from the LiteLLM file `model_prices_and_context_window.json`. idfix downloads it at most once per 24 hours into `$XDG_CACHE_HOME/idfix/litellm-prices.json` (default `~/.cache/idfix/`). Without network, it uses the cached copy. Without a copy, the prices stay empty. The design is `docs/design/claude-sessions-top.md`.
 
 ## Follow up, abort, and read the cost
 

@@ -3,13 +3,13 @@
 This file holds the plan as it stood on 2026-10-01, with every finished step and its details. Steps finished after that date are in the section "Steps after 2026-10-01", newest first. [PLAN.md](PLAN.md) holds the open work. Research reports refer to steps by number, and the numbers here stay the same.
 
 
+## Steps after 2026-10-01
+
 ## Step 30 follow-up: the integration tests leak cost-proxy loops
 
 Step 30 is done (see HISTORY). Its dry run on 2026-10-04 found 3 `sh -c "while :; do bun .../cost-proxy.js ...; done"` loops in deleted `/tmp/oc-sub-it-*` folders, with their parent `/init`. The teardown of `test/integration.test.ts` stops the server, but not the restart loop of the cost proxy. Find the start of the loop, stop its process group in the teardown, and add a test that no process of the test outlives it.
 
 Done on 2026-10-06. Root cause: `up` starts the proxy restart loop detached (`spawnDetached` with `detached: true`, so `setsid`), so the loop leads its own process group, and the teardown of `test/integration.test.ts` killed only the server PID. The fix: `down` checks the proxy command line and stops its group, also for a dead server. `up` stops the proxy group when the server start fails. The teardown calls `stopStartedGroups`, and the last integration test fails if a recorded group outlives its teardown. The test reproduced the leak with the old teardown. The 4 orphan loops of 2026-10-04 and 2026-10-05 were stopped by hand.
-
-## Steps after 2026-10-01
 
 ## Step 33: every research brief ends with the critical-research footer
 

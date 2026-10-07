@@ -12,3 +12,7 @@ pre-push:
   jobs:
     - name: idfix tests
       run: mise run test
+    # The doctor output must keep the doctor format of the shared tool
+    # protocol. Without doctor-lint on the PATH, the job passes.
+    - name: doctor format
+      run: if command -v doctor-lint >/dev/null 2>&1; then doctor-lint --run; else echo "doctor-lint not found, skipped"; fi

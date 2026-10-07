@@ -22,3 +22,7 @@ run = [
 [tasks.hooks-install]
 description = "Install the git hooks of lefthook.yml (pre-commit: public-check, pre-push: mise run test)"
 run = "lefthook install"
+
+[tasks.doctor]
+description = "Run idfx doctor of this checkout with the given arguments (mise run -q doctor -- --json)"
+run = "bun run src/cli.ts doctor"

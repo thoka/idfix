@@ -1936,12 +1936,12 @@ export type DoctorReport = {
 };
 
 /**
- * The top-level status: `fail` when a check fails, else `warn` when a check
- * warns or did not run (`error`), else `pass`.
+ * The top-level status: `fail` when a check fails or did not run (`error`),
+ * else `warn` when a check warns, else `pass`.
  */
 export function overallStatus(results: readonly CheckResult[]): DoctorReport["status"] {
-  if (results.some((check) => check.status === "fail")) return "fail";
-  if (results.some((check) => check.status === "warn" || check.status === "error")) return "warn";
+  if (results.some((check) => check.status === "fail" || check.status === "error")) return "fail";
+  if (results.some((check) => check.status === "warn")) return "warn";
   return "pass";
 }
 
@@ -1954,7 +1954,7 @@ export function doctorReport(results: readonly CheckResult[], version: string, f
       status,
       type: checkType(name),
       message,
-      ...(fix === undefined ? {} : { fix }),
+      fix: fix ?? "",
       ...(error === undefined ? {} : { error }),
     };
   });
@@ -2100,9 +2100,9 @@ export async function runFixes(
  * stdout holds exactly one object of the tool protocol (`doctorReport`):
  * `{tool, version, status, checks, fixes?}`; all other lines go to stderr.
  *
- * Exit codes: 0 when all checks pass or some warn; 1 when a check fails or
- * a fix failed; 2 when the doctor itself cannot run (Nagios "unknown"). A
- * usage error also gives 2, in `src/cli.ts`.
+ * Exit codes: 0 when the doctor ran, also when a check fails or a fix
+ * failed (the JSON `status` and `fixes` say so); 2 when the doctor itself
+ * cannot run (Nagios "unknown"). A usage error also gives 2, in `src/cli.ts`.
  */
 export async function doctor(
   args: { dir?: string; json?: boolean; fix?: boolean; force?: boolean; fixAsRoot?: boolean; renovate?: boolean },
@@ -2147,14 +2147,12 @@ async function runDoctor(
     } else {
       printResults(rerun);
     }
-    const anyFail = rerun.some((check) => check.status === "fail");
-    const fixFailed = fixes.some((fix) => !fix.ok);
-    return anyFail || fixFailed ? 1 : 0;
+    return 0;
   }
   if (args.json === true) {
     console.log(JSON.stringify(doctorReport(results, deps.toolVersion()), null, 2));
   } else {
     printResults(results);
   }
-  return results.some((check) => check.status === "fail") ? 1 : 0;
+  return 0;
 }

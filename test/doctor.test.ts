@@ -989,7 +989,7 @@ describe("doctor --fix", () => {
     expect(deps.readlink(codexMd)).toBe(sharedFile);
   });
 
-  test("returns 1 when a fix fails", async () => {
+  test("returns 0 when a fix fails, and the fixes say so", async () => {
     const deps = fixDeps({ [codexMd]: { content: "# my own rules" } });
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     let code: number;
@@ -998,10 +998,10 @@ describe("doctor --fix", () => {
     } finally {
       logSpy.mockRestore();
     }
-    expect(code).toBe(1);
+    expect(code).toBe(0);
   });
 
-  test("returns 1 when the re-run still has a fail", async () => {
+  test("returns 0 when the re-run still has a fail", async () => {
     // The claude fix fails, so plugin-fresh stays a warn (not a fail), but a
     // differing copy keeps global-rules failed in the re-run too.
     const deps = fixDeps({ [codexMd]: { content: "# my own rules" } });
@@ -1012,7 +1012,7 @@ describe("doctor --fix", () => {
     } finally {
       logSpy.mockRestore();
     }
-    expect(code).toBe(1);
+    expect(code).toBe(0);
   });
 
   test("prints one object {tool, version, status, checks, fixes} with --fix --json", async () => {
@@ -1092,7 +1092,7 @@ describe("doctor --json in the tool protocol", () => {
     const ok = validate(parsed);
     expect(validate.errors ?? []).toEqual([]);
     expect(ok).toBe(true);
-    expect(code).toBe((parsed as DoctorReport).status === "fail" ? 1 : 0);
+    expect(code).toBe(0);
   });
 
   test("a check that throws gets the status error, and the doctor goes on", async () => {
@@ -1108,12 +1108,41 @@ describe("doctor --json in the tool protocol", () => {
       status: "error",
       type: "urn:dv:idfx:doctor:watch-running",
       message: "the check did not run: boom",
+      fix: "",
       error: "boom",
     });
     // The checks after it still ran.
     expect(parsed.checks).toHaveLength(ALL_CHECKS.length);
     expect(doctorValidator()(parsed)).toBe(true);
-    expect(code).toBe(parsed.status === "fail" ? 1 : 0);
+    expect(parsed.status).toBe("fail");
+    expect(code).toBe(0);
+  });
+
+  test("every check has a fix string, and fixes are {name, ok, note} with a string note", async () => {
+    const { lines } = await runJson({ json: true, fix: true }, {});
+    const parsed = JSON.parse(lines.join("\n")) as DoctorReport;
+    for (const check of parsed.checks) expect(typeof check.fix).toBe("string");
+    expect(Array.isArray(parsed.fixes)).toBe(true);
+    for (const fix of parsed.fixes ?? []) {
+      expect(typeof fix.name).toBe("string");
+      expect(typeof fix.ok).toBe("boolean");
+      expect(typeof fix.note).toBe("string");
+    }
+  });
+
+  test("doctorReport keeps the fix hint of a check", () => {
+    const report = doctorReport([{ name: "a", status: "warn", message: "m", fix: "run x" }], "v");
+    expect(report.checks[0]?.fix).toBe("run x");
+  });
+
+  test("a usage error of the doctor command exits with code 2", () => {
+    const result = Bun.spawnSync(["bun", "run", path.join(import.meta.dir, "..", "src", "cli.ts"), "doctor", "--force"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout.toString()).toBe("");
+    expect(result.stderr.toString()).toContain("usage error");
   });
 
   test("a doctor that cannot run exits with code 2 and leaves stdout empty", async () => {
@@ -1127,15 +1156,16 @@ describe("doctor --json in the tool protocol", () => {
     expect(errors).toEqual(["doctor cannot run: no version"]);
   });
 
-  test("the top-level status: fail before warn, error counts as warn, else pass", () => {
+  test("the top-level status: fail before warn, error counts as fail, else pass", () => {
     const r = (status: CheckResult["status"]): CheckResult => ({ name: "x", status, message: "" });
     expect(overallStatus([r("pass"), r("skip")])).toBe("pass");
     expect(overallStatus([r("pass"), r("warn")])).toBe("warn");
-    expect(overallStatus([r("error"), r("pass")])).toBe("warn");
+    expect(overallStatus([r("error"), r("pass")])).toBe("fail");
+    expect(overallStatus([r("error"), r("warn")])).toBe("fail");
     expect(overallStatus([r("warn"), r("fail"), r("error")])).toBe("fail");
   });
 
-  test("the exit code is 1 when a check fails, and the object says fail", async () => {
+  test("the exit code is 0 when a check fails, and the object says fail", async () => {
     // A CLAUDE.md file in the project fails the claude-md check.
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((line) => lines.push(String(line)));
@@ -1146,19 +1176,19 @@ describe("doctor --json in the tool protocol", () => {
       logSpy.mockRestore();
     }
     const parsed = JSON.parse(lines.join("\n")) as DoctorReport;
-    expect(code).toBe(1);
+    expect(code).toBe(0);
     expect(parsed.status).toBe("fail");
     expect(parsed.checks.find((check) => check.name === "claude-md")?.status).toBe("fail");
     expect(parsed.checks.map((check) => check.type)).toEqual(ALL_CHECKS.map((check) => checkType(check.name)));
   });
 
-  test("doctorReport keeps fix and error only when they are set", () => {
+  test("doctorReport gives each check a fix string, and error only when it is set", () => {
     const report = doctorReport([{ name: "a", status: "pass", message: "ok", fix: undefined }], "abc1234");
     expect(report).toEqual({
       tool: "idfx",
       version: "abc1234",
       status: "pass",
-      checks: [{ name: "a", status: "pass", type: "urn:dv:idfx:doctor:a", message: "ok" }],
+      checks: [{ name: "a", status: "pass", type: "urn:dv:idfx:doctor:a", message: "ok", fix: "" }],
     });
   });
 
@@ -1281,7 +1311,7 @@ describe("the kvm-access root fix", () => {
     expect(calls).toEqual([]);
     expect(lines).toContain("needs --fix-as-root (kvm-access): this fix runs sudo; run idfx doctor --fix-as-root");
     expect(lines.some((line) => line.startsWith("FAIL  kvm-access"))).toBe(true);
-    expect(code).toBe(1);
+    expect(code).toBe(0);
   });
 
   test("--fix-as-root runs sudo chmod 0666 /dev/kvm, and the re-run decides the exit code", async () => {
@@ -1295,7 +1325,7 @@ describe("the kvm-access root fix", () => {
     expect(code).toBe(0);
   });
 
-  test("--fix-as-root returns 1 when the re-run still fails", async () => {
+  test("--fix-as-root returns 0 when the re-run still fails", async () => {
     // sudo exits 0, but the device stays unusable (for example a wrong device).
     const calls: string[][] = [];
     const deps = makeDeps(
@@ -1311,7 +1341,7 @@ describe("the kvm-access root fix", () => {
     const { code, lines } = await runDoctor({ fixAsRoot: true }, deps);
     expect(calls).toHaveLength(1);
     expect(lines.some((line) => line.startsWith("FAIL  kvm-access"))).toBe(true);
-    expect(code).toBe(1);
+    expect(code).toBe(0);
   });
 
   test("without a terminal, the root fix runs sudo -n and a failure says to use a terminal", async () => {
@@ -1320,7 +1350,7 @@ describe("the kvm-access root fix", () => {
     expect(calls).toEqual([["sudo", "-n", "chmod", "0666", "/dev/kvm"]]);
     const failed = lines.find((line) => line.startsWith("fix failed (kvm-access):"));
     expect(failed).toContain("run in a terminal: sudo chmod 0666 /dev/kvm");
-    expect(code).toBe(1);
+    expect(code).toBe(0);
   });
 
   test("the root fix reports a failed sudo in a terminal with its exit code", async () => {
@@ -1891,8 +1921,8 @@ describe("the sandbox-mounts fix", () => {
     expect(lines).toContain("fixing sandbox-mounts: Recreate it with: idfx doctor --fix --force. It recreates the sandbox in clone mode with all required mounts. To do it by hand: sbx rm --force oc-sub-repo, then idfx up.");
     expect(lines).toContain("fixed sandbox-mounts: recreated");
     // The re-run of the checks still fails: the fake runner does not change
-    // the sandbox, so the exit code is 1.
-    expect(code).toBe(1);
+    // the sandbox, so a check still fails, and the exit code is still 0.
+    expect(code).toBe(0);
   });
 
   test("doctor --fix without --force fails the fix and names --force", async () => {
@@ -1906,7 +1936,7 @@ describe("the sandbox-mounts fix", () => {
     } finally {
       logSpy.mockRestore();
     }
-    expect(code).toBe(1);
+    expect(code).toBe(0);
     const failed = lines.find((line) => line.startsWith("fix failed (sandbox-mounts):"));
     expect(failed).toContain("idfx doctor --fix --force");
   });
@@ -2354,7 +2384,7 @@ describe("the agent-copies fix", () => {
     } finally {
       logSpy.mockRestore();
     }
-    expect(code).toBe(1);
+    expect(code).toBe(0);
     const failed = lines.find((line) => line.startsWith("fix failed (agent-copies):"));
     expect(failed).toContain("--force or idfx doctor --renovate");
     expect(deps.readText("/repo/.opencode/agents/coder.md")).toBe(FULL_AGENT);
@@ -2623,7 +2653,7 @@ describe("doctor --renovate keeps the guards", () => {
     const failed = lines.find((line) => line.startsWith("fix failed (sandbox-mounts):"));
     expect(failed).toContain("busy ses_1 /repo");
     expect(failed).toContain("idfx abort or idfx down");
-    expect(code).toBe(1);
+    expect(code).toBe(0);
   });
 });
 

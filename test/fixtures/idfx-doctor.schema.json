@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://dv.invalid/idfx/idfx-doctor.schema.json",
-  "description": "The output of idfx doctor --json: one object of the tool protocol version 0 (meta docs/research/tool-protocol.md, section 6). fixes exists only with --fix.",
+  "description": "The output of idfx doctor --json: one object of the doctor format of the shared tool protocol, version 0. fixes exists only with --fix.",
   "type": "object",
   "required": ["tool", "version", "status", "checks"],
   "additionalProperties": false,
@@ -14,7 +14,7 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["name", "status", "type", "message"],
+        "required": ["name", "status", "type", "message", "fix"],
         "additionalProperties": false,
         "properties": {
           "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },

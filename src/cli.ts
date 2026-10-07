@@ -128,8 +128,10 @@ JSON output (tool protocol version 0):
                   HandoverFailed), and items (the sessions).
   doctor --json   prints one object: tool, version, status (pass, warn, or
                   fail), checks (each with type urn:dv:idfx:doctor:<name>),
-                  and fixes with --fix. Exit code 0 pass or warn, 1 fail or
-                  a failed fix, 2 usage error or a doctor that cannot run.
+                  and fixes with --fix. Each check has a fix string (empty
+                  when it has no hint). Exit code 0 when the doctor ran, also
+                  with a failed check or fix, 2 usage error or a doctor that
+                  cannot run.
   In JSON mode, stdout holds only the object; all other text goes to stderr.
 
 Host cost proxy:

@@ -14,7 +14,7 @@ import {
   type ClaudeSession,
 } from "../src/claude/rows";
 import { summarizeTranscript } from "../src/claude/transcript";
-import { claudeStatusRow } from "../src/status";
+import { claudeStatusRow, statusConditions } from "../src/status";
 import { transcriptOf, turnLines as L } from "./claude-turn-lines";
 import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, MINUTE, NOW, S1, S2, S5, S6, S7, S8 } from "./claude-fixture";
 
@@ -298,5 +298,22 @@ describe("the turn end while a background task runs", () => {
     expect(row).toMatchObject({ turn: "ended", backgroundTasks: 1 });
     expect(claudeStatusRow(row)).toMatchObject({ turn: "ended", backgroundTasks: 1 });
     expect(claudeStatusRow(claudeRow(session({ summary: noTask }), undefined, NOW))).toMatchObject({ turn: null, backgroundTasks: 0 });
+  });
+
+  test("status --json lists the True condition SessionBackground", () => {
+    const row = claudeRow(session({ name: "proj", cwd: "/nonexistent-idfix-test/proj" }), undefined, NOW);
+    const log = { lastSequence: 0, lastTimeMs: undefined, lastHeartbeatMs: undefined, records: [] };
+    const conditions = statusConditions([row], log, NOW).filter((condition) => condition.type === "SessionBackground");
+    expect(conditions).toEqual([
+      {
+        type: "SessionBackground",
+        status: "True",
+        reason: "TurnEndedTaskRuns",
+        message: "turn ended, 1 background task runs",
+        lastTransitionTime: new Date(NOW).toISOString(),
+        subject: "proj",
+        session: "s",
+      },
+    ]);
   });
 });

@@ -25,7 +25,7 @@
 import { noSessionNames, type SessionNamesReader } from "../folder-config";
 import type { SessionRowState } from "../top/model";
 
-/** The seven condition types. */
+/** The eight condition types. */
 export type ConditionType =
   | "SessionWaitsForUser"
   | "SessionStalled"
@@ -33,7 +33,8 @@ export type ConditionType =
   | "HandoverFailed"
   | "ApiError"
   | "SessionUnnamed"
-  | "SessionHandedOff";
+  | "SessionHandedOff"
+  | "SessionBackground";
 
 export const CONDITION_TYPES: readonly ConditionType[] = [
   "SessionWaitsForUser",
@@ -43,6 +44,7 @@ export const CONDITION_TYPES: readonly ConditionType[] = [
   "ApiError",
   "SessionUnnamed",
   "SessionHandedOff",
+  "SessionBackground",
 ];
 
 /**
@@ -72,6 +74,7 @@ export const TRUE_SEVERITY: Record<ConditionType, Severity> = {
   ApiError: ERROR,
   SessionUnnamed: INFO,
   SessionHandedOff: INFO,
+  SessionBackground: INFO,
 };
 
 /** A waiting session gives an event after this time. */
@@ -93,6 +96,8 @@ export const REASON_HANDED_OFF = "HandoverCheckPassed";
 export const REASON_NO_NAME = "NoName";
 /** The reason of `SessionUnnamed` for a live session whose name breaks the naming rule. */
 export const REASON_NAME_OFF_RULE = "NameOffRule";
+/** The reason of `SessionBackground`: the turn ended, and a background task runs. */
+export const REASON_TURN_ENDED = "TurnEndedTaskRuns";
 /** The name that is valid in every folder. */
 export const SUPERVISOR_NAME = "supervisor";
 
@@ -119,6 +124,10 @@ export type WatchRow = {
   apiErrors: number;
   lastApiErrorText: string | undefined;
   lastApiErrorMs: number | undefined;
+  /** `ended` when the turn ended while a background task runs (`turnOf` of `src/claude/rows.ts`). */
+  turn?: "ended" | undefined;
+  /** The count of background tasks without a final report. */
+  backgroundTasks?: number;
 };
 
 /** The last known value of one condition of one session. */
@@ -317,6 +326,19 @@ function apiError(row: WatchRow, seen: SeenSession | undefined, watermarkMs: num
 }
 
 /**
+ * `SessionBackground`: True while the last turn of a live interactive
+ * session ended and a background task runs (`turn` is `ended`). False when
+ * the next turn starts or the last task reports. The session then takes a
+ * prompt, and Claude Code queues it until the task reports.
+ */
+function background(row: WatchRow): Wanted {
+  if (row.turn !== "ended") return FALSE;
+  const count = Math.max(1, row.backgroundTasks ?? 1);
+  const tasks = count === 1 ? "1 background task runs" : `${count} background tasks run`;
+  return { status: "True", reason: REASON_TURN_ENDED, message: `turn ended, ${tasks}` };
+}
+
+/**
  * The naming rule: a session name is its
  * project, or `<project>-<step>` with a non-empty step. The name
  * `supervisor` is valid in every folder. A name in `extraNames` (the key
@@ -496,6 +518,7 @@ export function evaluate(
     apply(row, "ApiError", apiError(row, seen, old.watermarkMs));
     apply(row, "SessionUnnamed", unnamed(row, sessionNames));
     apply(row, "SessionHandedOff", handedOff(row, seen, oldHandedOff, old.watermarkMs, checkOnce, planCommit));
+    apply(row, "SessionBackground", background(row));
     sessions.set(row.sessionId, { state: row.state, apiErrors: row.apiErrors });
   }
 

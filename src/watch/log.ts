@@ -76,6 +76,7 @@ export const EVENT_TYPES: Record<ConditionType, string> = {
   ApiError: "dv.idfx.session.api-error",
   SessionUnnamed: "dv.idfx.session.unnamed",
   SessionHandedOff: "dv.idfx.session.handed-off",
+  SessionBackground: "dv.idfx.session.background",
 };
 
 /** The `data` of a condition event. */

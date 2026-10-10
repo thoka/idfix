@@ -598,6 +598,61 @@ describe("SessionHandedOff", () => {
   });
 });
 
+describe("SessionBackground", () => {
+  const background = row({ state: "busy", turn: "ended", backgroundTasks: 1 });
+
+  test("True when the turn ended while a task runs, no event while it stays, False when the next turn starts", () => {
+    const { edges } = polls([
+      { atMs: T0, rows: [row({ state: "busy" })] },
+      { atMs: T0 + MIN, rows: [background] },
+      { atMs: T0 + 2 * MIN, rows: [row({ state: "busy", turn: "ended", backgroundTasks: 2 })] },
+      { atMs: T0 + 3 * MIN, rows: [row({ state: "busy", backgroundTasks: 1 })] },
+    ]);
+    expect(only(edges[0] ?? [], "SessionBackground")).toEqual([]);
+    expect(summary(only(edges[1] ?? [], "SessionBackground"))).toEqual([["SessionBackground", "True", "TurnEndedTaskRuns"]]);
+    expect(only(edges[1] ?? [], "SessionBackground")[0]).toMatchObject({
+      severity: { text: "INFO", number: 9 },
+      message: "turn ended, 1 background task runs",
+      session: ID,
+      subject: "meta",
+      cwd: "/home/user/src/meta",
+      kind: "interactive",
+      lastTransitionMs: T0 + MIN,
+    });
+    expect(only(edges[2] ?? [], "SessionBackground")).toEqual([]);
+    expect(summary(only(edges[3] ?? [], "SessionBackground"))).toEqual([["SessionBackground", "False", "Cleared"]]);
+    expect(only(edges[3] ?? [], "SessionBackground")[0]).toMatchObject({ severity: { text: "INFO", number: 9 }, lastTransitionMs: T0 + 3 * MIN });
+  });
+
+  test("False when the task reports and the session rests at its prompt", () => {
+    const { edges } = polls([
+      { atMs: T0, rows: [background] },
+      { atMs: T0 + MIN, rows: [row({ state: "idle", backgroundTasks: 0 })] },
+    ], { check: () => ({ code: 1, firstLine: "not done" }) });
+    expect(summary(only(edges[1] ?? [], "SessionBackground"))).toEqual([["SessionBackground", "False", "Cleared"]]);
+  });
+
+  test("the message counts several tasks", () => {
+    const { edges } = polls([{ atMs: T0, rows: [row({ state: "idle", turn: "ended", backgroundTasks: 3 })] }]);
+    expect(only(edges[0] ?? [], "SessionBackground")[0]?.message).toBe("turn ended, 3 background tasks run");
+  });
+
+  test("a row without the turn field gives no event", () => {
+    const { edges } = polls([{ atMs: T0, rows: [row({ state: "busy", backgroundTasks: 1 })] }]);
+    expect(only(edges[0] ?? [], "SessionBackground")).toEqual([]);
+  });
+
+  test("the condition is open while True and goes away with its session", () => {
+    const { edges, state } = polls([
+      { atMs: T0, rows: [background] },
+      { atMs: T0 + MIN, rows: [] },
+    ]);
+    expect(summary(only(edges[1] ?? [], "SessionBackground"))).toEqual([["SessionBackground", "False", "SessionGone"]]);
+    expect(openCount(state)).toBe(0);
+    expect(openCount(polls([{ atMs: T0, rows: [background] }]).state)).toBe(1);
+  });
+});
+
 describe("restart and disappearance", () => {
   test("a restored True condition that is still true gives no second event", () => {
     const state = restoreState(

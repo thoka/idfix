@@ -112,6 +112,8 @@ export function toWatchRow(
     apiErrors: row.apiErrors,
     lastApiErrorText: row.lastApiErrorText,
     lastApiErrorMs: row.lastApiErrorMs,
+    turn: row.turn,
+    backgroundTasks: row.backgroundTasks,
   };
 }
 

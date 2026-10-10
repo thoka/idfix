@@ -410,6 +410,11 @@ describe("toWatchRow", () => {
     expect(watchRow).toMatchObject({ project: "idfix", projectRoot: "/home/user/src/idfix", name: "idfix-36", live: true });
   });
 
+  test("it passes the turn and the count of background tasks", () => {
+    const row = claudeRowOf(S1, { pid: 1, turn: "ended", backgroundTasks: 2 });
+    expect(toWatchRow(row, () => ({ root: "/r", name: "r" }))).toMatchObject({ turn: "ended", backgroundTasks: 2 });
+  });
+
   test("the default project is the folder name when the folder does not exist", () => {
     const row = claudeRowOf(S1, { directory: "/nonexistent-idfix-test/dv/proj" });
     expect(toWatchRow(row)).toMatchObject({ project: "proj", projectRoot: "/nonexistent-idfix-test/dv/proj" });

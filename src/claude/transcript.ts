@@ -5,10 +5,25 @@
  * the tests need no files. An incomplete last line waits for the next feed.
  *
  * The reader parses only the line types that it needs: `assistant`,
- * `system`, `custom-title`, `ai-title`, and `agent-name`. It never parses a
- * `user` line or a `last-prompt` line, so prompts stay out of its state.
- * Of an `api_error` line it keeps only the error text, cut to
+ * `system`, `custom-title`, `ai-title`, `agent-name`, and `queue-operation`.
+ * It parses a `user` line only when a quick text test finds the start of a
+ * background task or the start of a turn in it, and then it keeps only IDs
+ * and the time. It never parses a `last-prompt` line, so prompts stay out
+ * of its state. Of an `api_error` line it keeps only the error text, cut to
  * `API_ERROR_TEXT_LENGTH` characters, and the time.
+ *
+ * The turn and the background tasks (Claude Code 2.1.x):
+ * - A turn ends with a `system` line with subtype `turn_duration`.
+ * - A new turn starts with a `user` line whose `origin.kind` is `human` (a
+ *   prompt) or `task-notification` (a delivered task report), or with a real
+ *   `assistant` line.
+ * - A background task starts with a `user` tool result line whose
+ *   `toolUseResult` has a `backgroundTaskId` (Bash), the status
+ *   `async_launched` (Agent), or a `taskId` and `persistent` (Monitor).
+ * - A background task ends with a `<task-notification>` text that has a
+ *   `<status>` tag, in a `queue-operation` enqueue line or a `user` line.
+ *   The text names the task by `<tool-use-id>` and `<task-id>`. A Monitor
+ *   event has no `<status>` tag and does not end its task.
  */
 
 /** The longest error text that the reader keeps of an `api_error` line. */
@@ -56,6 +71,12 @@ export type TranscriptSummary = {
   lastApiErrorText: string | undefined;
   /** The `timestamp` of the last `api_error` line, in ms. */
   lastApiErrorMs: number | undefined;
+  /** Whether the last turn ended (a `turn_duration` line) and no new turn started after it. */
+  turnEnded: boolean;
+  /** The `timestamp` of the last `turn_duration` line, in ms. */
+  turnEndedMs: number | undefined;
+  /** The count of background tasks that started and have no final `task-notification` yet. */
+  backgroundTasks: number;
 };
 
 export type TranscriptReader = {
@@ -68,9 +89,16 @@ export type TranscriptReader = {
 };
 
 /** The line types that the reader parses. A quick text test skips every other line before JSON.parse. */
-const WANTED = /"type":"(assistant|system|custom-title|ai-title|agent-name)"/;
+const WANTED = /"type":"(assistant|system|custom-title|ai-title|agent-name|queue-operation)"/;
 
-const WANTED_TYPES = new Set(["assistant", "system", "custom-title", "ai-title", "agent-name"]);
+const WANTED_TYPES = new Set(["assistant", "system", "custom-title", "ai-title", "agent-name", "queue-operation", "user"]);
+
+/** A `user` line is parsed only when this text test finds a task start, a task report, or a turn start in it. */
+const USER_WANTED = /"type":"user"/;
+const USER_MARKERS = /"backgroundTaskId"|"async_launched"|"persistent"|"kind":"(human|task-notification)"/;
+
+/** The start of a task report text. */
+const NOTIFICATION = "<task-notification>";
 
 /** The model id of the lines that Claude Code writes itself, for example for an API error. */
 const SYNTHETIC_MODEL = "<synthetic>";
@@ -93,11 +121,15 @@ type Line = {
   aiTitle?: string;
   agentName?: string;
   error?: unknown;
+  operation?: string;
+  content?: unknown;
+  origin?: { kind?: unknown } | null;
+  toolUseResult?: unknown;
   message?: {
     id?: string;
     model?: string;
     usage?: Usage;
-    content?: Array<{ type?: string; id?: string }> | string;
+    content?: Array<{ type?: string; id?: string; tool_use_id?: string }> | string;
   };
 };
 
@@ -162,6 +194,48 @@ export function apiErrorText(error: unknown): string | undefined {
   return trimmed.length === 0 ? undefined : trimmed.slice(0, API_ERROR_TEXT_LENGTH);
 }
 
+/** The IDs of a background task: the ID of its tool call and its task ID. */
+export type TaskIds = { toolUseId: string | undefined; taskId: string | undefined };
+
+/**
+ * The IDs of the background task that a `user` tool result line starts, or
+ * undefined when the line starts none. Bash gives `backgroundTaskId`, Agent
+ * gives the status `async_launched` with an `agentId`, and Monitor gives a
+ * `taskId` with `persistent`.
+ */
+export function taskStartOf(line: Pick<Line, "toolUseResult" | "message">): TaskIds | undefined {
+  const result = line.toolUseResult;
+  if (result === null || typeof result !== "object") return undefined;
+  const r = result as { backgroundTaskId?: unknown; status?: unknown; agentId?: unknown; taskId?: unknown; persistent?: unknown };
+  let taskId: string | undefined;
+  if (typeof r.backgroundTaskId === "string") taskId = r.backgroundTaskId;
+  else if (r.status === "async_launched" && typeof r.agentId === "string") taskId = r.agentId;
+  else if (typeof r.taskId === "string" && typeof r.persistent === "boolean") taskId = r.taskId;
+  else return undefined;
+  const content = line.message?.content;
+  const block = Array.isArray(content) ? content.find((b) => b?.type === "tool_result") : undefined;
+  const toolUseId = typeof block?.tool_use_id === "string" ? block.tool_use_id : undefined;
+  return { toolUseId, taskId };
+}
+
+const tag = (text: string, name: string): string | undefined => {
+  const match = new RegExp(`<${name}>([^<]*)</${name}>`).exec(text);
+  const value = match?.[1]?.trim();
+  return value === undefined || value.length === 0 ? undefined : value;
+};
+
+/**
+ * The IDs of the task that a `<task-notification>` text ends, or undefined
+ * when the text ends no task: it is no report, or it has no `<status>` tag
+ * (a Monitor event).
+ */
+export function taskEndOf(text: string): TaskIds | undefined {
+  if (!text.includes(NOTIFICATION)) return undefined;
+  if (tag(text, "status") === undefined) return undefined;
+  const ids = { toolUseId: tag(text, "tool-use-id"), taskId: tag(text, "task-id") };
+  return ids.toolUseId === undefined && ids.taskId === undefined ? undefined : ids;
+}
+
 export function createTranscriptReader(): TranscriptReader {
   const decoder = new TextDecoder();
   let rest = "";
@@ -171,6 +245,22 @@ export function createTranscriptReader(): TranscriptReader {
   const messages = new Map<string, { model: string; tokens: TokenCounts }>();
   const toolUseIds = new Set<string>();
   let anonymousToolUses = 0;
+  // The running background tasks, and the IDs of the tasks that ended. An
+  // ID that ended before its start line (never seen so far) does not start.
+  const running: TaskIds[] = [];
+  const ended = new Set<string>();
+  const sameTask = (a: TaskIds, b: TaskIds): boolean =>
+    (a.toolUseId !== undefined && a.toolUseId === b.toolUseId) || (a.taskId !== undefined && a.taskId === b.taskId);
+  const startTask = (ids: TaskIds): void => {
+    if ((ids.toolUseId !== undefined && ended.has(ids.toolUseId)) || (ids.taskId !== undefined && ended.has(ids.taskId))) return;
+    if (running.some((task) => sameTask(task, ids))) return;
+    running.push(ids);
+  };
+  const endTask = (ids: TaskIds): void => {
+    if (ids.toolUseId !== undefined) ended.add(ids.toolUseId);
+    if (ids.taskId !== undefined) ended.add(ids.taskId);
+    for (let i = running.length - 1; i >= 0; i--) if (sameTask(running[i] as TaskIds, ids)) running.splice(i, 1);
+  };
   const state = {
     model: undefined as string | undefined,
     contextTokens: 0,
@@ -184,20 +274,25 @@ export function createTranscriptReader(): TranscriptReader {
     apiErrors: 0,
     lastApiErrorText: undefined as string | undefined,
     lastApiErrorMs: undefined as number | undefined,
+    turnEnded: false,
+    turnEndedMs: undefined as number | undefined,
   };
 
   const handle = (line: Line): void => {
     // The text test can match a nested object of another line type, so the
     // top-level type decides.
     if (line.type === undefined || !WANTED_TYPES.has(line.type)) return;
-    if (typeof line.timestamp === "string") {
+    // Only the old line types give the activity times and the folder, so the
+    // turn and task lines below change no other field.
+    const activity = line.type !== "user" && line.type !== "queue-operation";
+    if (activity && typeof line.timestamp === "string") {
       const ms = Date.parse(line.timestamp);
       if (Number.isFinite(ms)) {
         state.firstActivityMs ??= ms;
         state.lastActivityMs = ms;
       }
     }
-    if (typeof line.cwd === "string") state.cwd = line.cwd;
+    if (activity && typeof line.cwd === "string") state.cwd = line.cwd;
     switch (line.type) {
       case "custom-title":
         if (typeof line.customTitle === "string") state.customTitle = line.customTitle;
@@ -208,7 +303,30 @@ export function createTranscriptReader(): TranscriptReader {
       case "agent-name":
         if (typeof line.agentName === "string") state.agentName = line.agentName;
         return;
+      case "queue-operation":
+        if (line.operation === "enqueue" && typeof line.content === "string") {
+          const ids = taskEndOf(line.content);
+          if (ids !== undefined) endTask(ids);
+        }
+        return;
+      case "user": {
+        const kind = line.origin?.kind;
+        if (kind === "human" || kind === "task-notification") state.turnEnded = false;
+        const content = line.message?.content;
+        if (kind === "task-notification" && typeof content === "string") {
+          const ids = taskEndOf(content);
+          if (ids !== undefined) endTask(ids);
+        }
+        const start = taskStartOf(line);
+        if (start !== undefined) startTask(start);
+        return;
+      }
       case "system":
+        if (line.subtype === "turn_duration") {
+          state.turnEnded = true;
+          const ms = typeof line.timestamp === "string" ? Date.parse(line.timestamp) : Number.NaN;
+          state.turnEndedMs = Number.isFinite(ms) ? ms : state.lastActivityMs;
+        }
         if (line.subtype === "api_error") {
           state.apiErrors += 1;
           state.lastApiErrorText = apiErrorText(line.error);
@@ -222,6 +340,7 @@ export function createTranscriptReader(): TranscriptReader {
         const model = message.model;
         if (model === undefined || model === SYNTHETIC_MODEL) return;
         state.model = model;
+        state.turnEnded = false;
         if (Array.isArray(message.content)) {
           for (const block of message.content) {
             if (block?.type !== "tool_use") continue;
@@ -243,7 +362,7 @@ export function createTranscriptReader(): TranscriptReader {
   };
 
   const parseLine = (text: string): void => {
-    if (!WANTED.test(text)) return;
+    if (!WANTED.test(text) && !(USER_WANTED.test(text) && USER_MARKERS.test(text))) return;
     let line: Line;
     try {
       line = JSON.parse(text) as Line;
@@ -274,6 +393,7 @@ export function createTranscriptReader(): TranscriptReader {
         usageByModel,
         steps: messages.size,
         toolCalls: toolUseIds.size + anonymousToolUses,
+        backgroundTasks: running.length,
       };
     },
     offset: () => bytes,

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { API_ERROR_TEXT_LENGTH, apiErrorText, createTranscriptReader, summarizeTranscript, tokensOf } from "../src/claude/transcript";
 import { FIXTURE_ROOT, S1 } from "./claude-fixture";
+import { transcriptOf, turnLines, turnTime } from "./claude-turn-lines";
 
 const encoder = new TextEncoder();
 const main = readFileSync(path.join(FIXTURE_ROOT, "projects", "-home-user-src-proj", `${S1}.jsonl`));
@@ -123,5 +124,64 @@ describe("apiErrorText", () => {
     expect(summary.apiErrors).toBe(2);
     expect(summary.lastApiErrorText).toBe("second");
     expect(summary.lastApiErrorMs).toBe(Date.parse("2026-10-06T10:05:00.000Z"));
+  });
+});
+
+describe("the turn and the background tasks", () => {
+  const L = turnLines;
+  const read = (lines: string[]) => summarizeTranscript(transcriptOf(lines));
+
+  test("a turn without a background task ends with the turn_duration line", () => {
+    const summary = read([L.prompt(0), L.assistant(1), L.turnEnd(2)]);
+    expect(summary.turnEnded).toBe(true);
+    expect(summary.turnEndedMs).toBe(turnTime(2));
+    expect(summary.backgroundTasks).toBe(0);
+  });
+
+  test("a Bash task that started in the turn still runs after the turn end", () => {
+    const summary = read([L.prompt(0), L.assistant(1), L.bashStart(2, "toolu_a", "bash1"), L.assistant(3), L.turnEnd(4)]);
+    expect(summary.turnEnded).toBe(true);
+    expect(summary.backgroundTasks).toBe(1);
+  });
+
+  test("the report of the task ends it, matched by the tool use ID or by the task ID", () => {
+    const lines = [L.prompt(0), L.bashStart(1, "toolu_a", "bash1"), L.agentStart(2, "toolu_b", "agent1"), L.turnEnd(3)];
+    expect(read([...lines, L.enqueue(5, "toolu_a", "other")]).backgroundTasks).toBe(1);
+    expect(read([...lines, L.enqueue(5, "other", "agent1")]).backgroundTasks).toBe(1);
+    expect(read([...lines, L.enqueue(5, "toolu_a", "bash1"), L.enqueue(6, "toolu_b", "agent1", "failed")]).backgroundTasks).toBe(0);
+  });
+
+  test("the delivered report starts a new turn", () => {
+    const summary = read([L.prompt(0), L.bashStart(1, "toolu_a", "bash1"), L.turnEnd(2), L.enqueue(5, "toolu_a", "bash1"), L.delivered(6, "toolu_a", "bash1")]);
+    expect(summary.turnEnded).toBe(false);
+    expect(summary.backgroundTasks).toBe(0);
+  });
+
+  test("a prompt or an assistant line after the turn end starts a new turn", () => {
+    const start = [L.prompt(0), L.bashStart(1, "toolu_a", "bash1"), L.turnEnd(2)];
+    expect(read([...start, L.prompt(3)]).turnEnded).toBe(false);
+    expect(read([...start, L.assistant(3)]).turnEnded).toBe(false);
+    expect(read([...start, L.prompt(3), L.assistant(4), L.turnEnd(5)]).turnEnded).toBe(true);
+  });
+
+  test("a Monitor event does not end the Monitor task, its final report does", () => {
+    const start = [L.prompt(0), L.monitorStart(1, "toolu_m", "mon1"), L.turnEnd(2)];
+    expect(read([...start, L.enqueue(3, "toolu_m", "mon1", null)]).backgroundTasks).toBe(1);
+    expect(read([...start, L.enqueue(3, "toolu_m", "mon1", "killed")]).backgroundTasks).toBe(0);
+  });
+
+  test("a report before its start line keeps the task from counting", () => {
+    expect(read([L.enqueue(0, "toolu_a", "bash1"), L.bashStart(1, "toolu_a", "bash1"), L.turnEnd(2)]).backgroundTasks).toBe(0);
+  });
+
+  test("the turn and task lines keep no prompt text and change no activity time", () => {
+    const summary = read([L.assistant(1), L.turnEnd(2), L.prompt(3), L.bashStart(4, "toolu_a", "bash1"), L.enqueue(5, "toolu_b", "x")]);
+    expect(summary.lastActivityMs).toBe(turnTime(2));
+    const text = JSON.stringify({ ...summary, usageByModel: [...summary.usageByModel] });
+    expect(text).not.toContain("FAKE");
+  });
+
+  test("a transcript without turn lines has no turn end and no task", () => {
+    expect(read([L.assistant(1)])).toMatchObject({ turnEnded: false, turnEndedMs: undefined, backgroundTasks: 0 });
   });
 });

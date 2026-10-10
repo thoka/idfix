@@ -10,7 +10,12 @@ import {
   inScope,
   loadClaudeRows,
   sessionTitle,
+  turnOf,
+  type ClaudeSession,
 } from "../src/claude/rows";
+import { summarizeTranscript } from "../src/claude/transcript";
+import { claudeStatusRow } from "../src/status";
+import { transcriptOf, turnLines as L } from "./claude-turn-lines";
 import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, MINUTE, NOW, S1, S2, S5, S6, S7, S8 } from "./claude-fixture";
 
 const prices = parsePriceFile(readFileSync(path.join(FIXTURE_DIR, "litellm-prices.json"), "utf8"));
@@ -244,5 +249,54 @@ describe("helpers", () => {
     );
     expect(row).toMatchObject({ steps: 0, contextTokens: 0, costKind: "apiEquivalent", cost: 0, elapsedMs: 500, model: undefined });
     expect(row.active).toBe(true);
+  });
+});
+
+describe("the turn end while a background task runs", () => {
+  const running = summarizeTranscript(transcriptOf([L.prompt(0), L.bashStart(1, "toolu_a", "bash1"), L.assistant(2), L.turnEnd(3)]));
+  const reported = summarizeTranscript(
+    transcriptOf([L.prompt(0), L.bashStart(1, "toolu_a", "bash1"), L.turnEnd(3), L.enqueue(4, "toolu_a", "bash1")]),
+  );
+  const noTask = summarizeTranscript(transcriptOf([L.prompt(0), L.assistant(1), L.turnEnd(2)]));
+  const session = (overrides: Partial<ClaudeSession> = {}): ClaudeSession => ({
+    sessionId: "s",
+    kind: "interactive",
+    name: "n",
+    cwd: "/w",
+    live: true,
+    state: "busy",
+    waitingFor: undefined,
+    waitingSource: undefined,
+    pid: 1,
+    tmux: undefined,
+    jobId: undefined,
+    startTimeMs: NOW - 1000,
+    lastActivityMs: NOW - 500,
+    stateSinceMs: undefined,
+    transcriptGrowthMs: undefined,
+    summary: running,
+    subagents: [],
+    ...overrides,
+  });
+
+  test("a live interactive session that is busy or idle after its turn end with a running task gives ended", () => {
+    expect(turnOf(session())).toBe("ended");
+    expect(turnOf(session({ state: "idle" }))).toBe("ended");
+  });
+
+  test("no turn end, no running task, a wait, no process, or a background job give undefined", () => {
+    expect(turnOf(session({ summary: reported }))).toBeUndefined();
+    expect(turnOf(session({ summary: noTask }))).toBeUndefined();
+    expect(turnOf(session({ summary: undefined }))).toBeUndefined();
+    expect(turnOf(session({ state: "waiting" }))).toBeUndefined();
+    expect(turnOf(session({ live: false, state: "ended" }))).toBeUndefined();
+    expect(turnOf(session({ kind: "background" }))).toBeUndefined();
+  });
+
+  test("the row and the status row carry the turn and the task count", () => {
+    const row = claudeRow(session(), undefined, NOW);
+    expect(row).toMatchObject({ turn: "ended", backgroundTasks: 1 });
+    expect(claudeStatusRow(row)).toMatchObject({ turn: "ended", backgroundTasks: 1 });
+    expect(claudeStatusRow(claudeRow(session({ summary: noTask }), undefined, NOW))).toMatchObject({ turn: null, backgroundTasks: 0 });
   });
 });

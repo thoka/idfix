@@ -993,6 +993,8 @@ describe("Claude sessions in status", () => {
       contextShare: 0.0012,
       lastActivity: new Date(1791284100000).toISOString(),
       apiEquivalentUsd: 0.0112,
+      turn: null,
+      backgroundTasks: 0,
     });
     expect(rows[3]).toMatchObject({ id: S7, state: "ended", model: "z-ai/glm-5.3-flash", contextWindow: null, contextShare: null, apiEquivalentUsd: null });
   });

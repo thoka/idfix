@@ -238,6 +238,14 @@ export type StatusRow = {
   lastActivity?: string | null;
   /** The API price of the tokens in USD, not a real charge, or null without a price. */
   apiEquivalentUsd?: number | null;
+  /**
+   * `ended` when the last turn ended while a background task runs, else
+   * null. The session then takes a prompt and queues it until the task
+   * reports, also when `state` is `busy`.
+   */
+  turn?: "ended" | null;
+  /** The count of background tasks that have no final report yet. */
+  backgroundTasks?: number;
 };
 
 export type { ClaudeRowsLoader };
@@ -270,6 +278,8 @@ export function claudeStatusRow(row: ClaudeRow, project?: string): StatusRow {
     contextShare: window === undefined || window <= 0 ? null : round(row.contextTokens / window, 4),
     lastActivity: row.lastActivityMs === undefined ? null : new Date(row.lastActivityMs).toISOString(),
     apiEquivalentUsd: row.apiEquivalentUsd === undefined ? null : round(row.apiEquivalentUsd, 4),
+    turn: row.turn ?? null,
+    backgroundTasks: row.backgroundTasks,
   };
 }
 

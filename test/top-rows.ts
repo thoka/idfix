@@ -56,6 +56,8 @@ export function claudeRowOf(sessionId: string, overrides: Partial<ClaudeRow> = {
     apiErrors: 0,
     lastApiErrorText: undefined,
     lastApiErrorMs: undefined,
+    turn: undefined,
+    backgroundTasks: 0,
     children: [],
     ...overrides,
   };

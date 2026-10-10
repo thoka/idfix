@@ -102,6 +102,10 @@ export type ClaudeRow = SessionRow & {
   /** The cut text and the time of the last API error line of the session itself. */
   lastApiErrorText: string | undefined;
   lastApiErrorMs: number | undefined;
+  /** `ended` when the turn ended while a background task runs (`turnOf`), else undefined. */
+  turn: "ended" | undefined;
+  /** The count of background tasks of the session that have no final report yet. */
+  backgroundTasks: number;
   /** One row per subagent. */
   children: ClaudeRow[];
 };
@@ -119,6 +123,22 @@ export function liveState(session: SessionFile, job: JobState | undefined): Sess
   if (session.status === "waiting" || job?.state === "blocked") return "waiting";
   if (session.status === "busy" || session.status === "shell") return "busy";
   return "idle";
+}
+
+/**
+ * `ended` for a live interactive session whose last turn ended while a
+ * background task runs: the transcript has the turn end and a started task
+ * without a final `task-notification`. Claude Code then may show the session
+ * as busy, but it takes a prompt and queues it until the task reports. A
+ * session that waits for the user, a session without a process, and a
+ * background job give undefined.
+ */
+export function turnOf(session: Pick<ClaudeSession, "kind" | "live" | "state" | "summary">): "ended" | undefined {
+  if (session.kind !== "interactive" || !session.live) return undefined;
+  if (session.state === "waiting" || session.state === "ended") return undefined;
+  const summary = session.summary;
+  if (summary === undefined || !summary.turnEnded || summary.backgroundTasks <= 0) return undefined;
+  return "ended";
 }
 
 /** The state of a job without a live process. */
@@ -396,6 +416,8 @@ export function claudeRow(session: ClaudeSession, prices: PriceTable | undefined
       apiErrors: agent.summary.apiErrors,
       lastApiErrorText: agent.summary.lastApiErrorText,
       lastApiErrorMs: agent.summary.lastApiErrorMs,
+      turn: undefined,
+      backgroundTasks: 0,
       children: [],
     };
   });
@@ -431,6 +453,8 @@ export function claudeRow(session: ClaudeSession, prices: PriceTable | undefined
     apiErrors: session.summary?.apiErrors ?? 0,
     lastApiErrorText: session.summary?.lastApiErrorText,
     lastApiErrorMs: session.summary?.lastApiErrorMs,
+    turn: turnOf(session),
+    backgroundTasks: session.summary?.backgroundTasks ?? 0,
     children,
   };
 }

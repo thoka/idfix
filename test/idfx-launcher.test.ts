@@ -118,4 +118,30 @@ describe("the dependency install of bin/idfx", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("skips the install and prints nothing to stderr while the lockfile is unchanged", () => {
+    const dir = fakeProject();
+    try {
+      const env = { ...process.env, PATH: `${path.dirname(process.execPath)}:${process.env.PATH ?? ""}` };
+      const first = Bun.spawnSync([path.join(dir, "bin", "idfx")], { env });
+      expect(first.exitCode).toBe(0);
+      expect(existsSync(path.join(dir, "node_modules", ".idfx-install-stamp"))).toBe(true);
+      // With a matching stamp, a missing package proves that no install ran.
+      rmSync(path.join(dir, "node_modules", "dep"), { recursive: true, force: true });
+      const second = Bun.spawnSync([path.join(dir, "bin", "idfx")], { env });
+      expect(second.exitCode).toBe(0);
+      expect(second.stderr.toString()).toBe("");
+      expect(existsSync(path.join(dir, "node_modules", "dep"))).toBe(false);
+      // A changed package.json changes the checksum and installs again.
+      writeFileSync(
+        path.join(dir, "package.json"),
+        '{ "name": "fake", "private": true, "dependencies": { "dep": "file:./dep" }, "x": 1 }\n',
+      );
+      const third = Bun.spawnSync([path.join(dir, "bin", "idfx")], { env });
+      expect(third.exitCode).toBe(0);
+      expect(existsSync(path.join(dir, "node_modules", "dep", "package.json"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

@@ -17,13 +17,19 @@ else
   exit 1
 fi
 
-# Install the locked runtime dependencies on each start. A plugin that Claude
-# Code copied into its cache has no node_modules yet, and an update can add a
-# package to bun.lock. A check for one folder misses the new package, so let
-# bun compare node_modules with the lockfile: with no change, this takes a few
-# milliseconds. Its output goes to stderr, so that stdout stays clean for the
-# commands that print JSON.
-(cd "$root" && "${bun_cmd[@]}" install --frozen-lockfile --production >&2)
+# Install the locked runtime dependencies only when the lockfile changed. A
+# plugin that Claude Code copied into its cache has no node_modules yet, and an
+# update can add a package to bun.lock. The stamp holds a checksum of bun.lock
+# and package.json and lives inside node_modules, so a missing folder also
+# triggers the install. With a matching stamp, the launcher starts at once and
+# prints nothing. The install output goes to stderr, so that stdout stays
+# clean for the commands that print JSON.
+stamp="$root/node_modules/.idfx-install-stamp"
+want="$(cat "$root/bun.lock" "$root/package.json" 2>/dev/null | cksum)"
+if [ "$(cat "$stamp" 2>/dev/null || true)" != "$want" ]; then
+  (cd "$root" && "${bun_cmd[@]}" install --frozen-lockfile --production >&2)
+  printf '%s\n' "$want" >"$stamp"
+fi
 
 # Pass the name the user called, so that the help shows it. Take the base
 # name of $0, which keeps the name of a symlink such as ~/.local/bin/idfix.

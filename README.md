@@ -33,7 +33,7 @@ To update at every start instead, open `/plugin`, select the marketplace, and en
 - `skills/idfx/SKILL.md` — the skill: when to delegate, the workflow, and the rules
 - `skills/idfx/reference.md` — the full command reference and the details
 - `opencode/agents/` — the agents of the plugin: `coder`, `researcher`, and its hidden subagent `reader`. `idfx up` serves them through `OPENCODE_CONFIG_DIR`.
-- `bin/idfx` — the launcher of `idfx`. The link `~/.local/bin/idfix` also calls it. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), runs `bun install --frozen-lockfile --production` on each call (a few milliseconds when nothing changed), and runs `src/cli.ts`.
+- `bin/idfx` — the launcher of `idfx`. The link `~/.local/bin/idfix` also calls it. Claude Code puts `bin/` on the PATH of its Bash tool while the plugin is enabled. The launcher finds bun (or gets it through mise), runs `bun install --frozen-lockfile --production` only when `bun.lock` or `package.json` changed (a stamp in `node_modules` holds their checksum), and runs `src/cli.ts`. A call with no change prints nothing to stderr.
 
 Check the plugin with `claude plugin validate .` and `claude --plugin-dir . plugin details idfix`.
 

@@ -294,6 +294,15 @@ With `--json`, a Claude entry of `items` also has these fields:
 - `contextTokens`, `contextWindow`, and `contextShare`: the size of the context of the last request, the window of the model, and the share of the window.
 - `lastActivity`: the time of the last activity (ISO format).
 - `apiEquivalentUsd`: the API price of the tokens of the session and its subagents. On a plan, this is not a real charge. It is `null` when idfix knows no price for a model, for example `z-ai/glm-5.3-flash` of a `claude-glm` session.
+- `turn`: `ended` when the last turn of a live interactive session ended while a background task of the session runs, else `null`. Claude Code can show such a session as `busy` until the task reports. But the session takes a prompt: Claude Code queues it and delivers it when the task reports. So a supervisor can send a notice to the session, the same as to an `idle` session. A session that waits for the user, a session without a process, and a background job always have `null`.
+- `backgroundTasks`: the count of background tasks of the session that have not reported yet.
+
+How idfix finds the turn and the tasks in the transcript:
+
+- A turn ends with a `system` line with the subtype `turn_duration`. The next turn starts with a prompt, a delivered task report, or a new answer of the model.
+- A background task starts with the result of a Bash call with `run_in_background`, an Agent call that runs in the background, or a Monitor call.
+- A task ends with its task report (`<task-notification>` with a `<status>`). The report names the task by its tool call ID and its task ID. An event of a Monitor has no status, so it does not end the Monitor.
+- Known gap: when Claude Code writes no report for a task (for example when the task dies with its process, or for a kind of task that idfix does not know), the task counts as running until the session ends or starts a new turn. A persistent Monitor runs until it stops, so `turn` stays `ended` for that time.
 
 The prices and the model windows come from the LiteLLM file `model_prices_and_context_window.json`. idfix downloads it at most once per 24 hours into `$XDG_CACHE_HOME/idfix/litellm-prices.json` (default `~/.cache/idfix/`). Without network, it uses the cached copy. Without a copy, the prices stay empty. The design is `.plan/design/claude-sessions-top.md`.
 
@@ -349,6 +358,11 @@ type: SessionHandedOff
 true: the session ended a turn, `handover check <folder>` exits with code 0, and the plan (`PLAN.md` in the plan folder, `handover show --json`) has a new commit since the last event of this session
 sev: INFO
 reason: HandoverCheckPassed
+--
+type: SessionBackground
+true: the last turn of a live interactive session ended while a background task runs (`turn` is `ended` in `status --json`)
+sev: INFO
+reason: TurnEndedTaskRuns
 ```
 
 - An event reports a change, not each poll. A condition that stays True gives no second event. A condition that turns False gives an INFO event. Its reason is `Cleared`. If the session left the list, the reason is `SessionGone`.
@@ -365,6 +379,7 @@ reason: HandoverCheckPassed
 - At the end of a session, `handover check` runs one time. Exit code 2 (for example a folder outside git) gives no event.
 - `SessionHandedOff` tells that a session ended a step with a clean hand-off. When a session goes from `busy` or `waiting` to `idle` or `ended`, `handover check` runs one time. If it exits with 0, the watcher reads the last commit of the plan (`PLAN.md` in the plan folder, `handover show --json`): it runs `handover show --json <folder>` and takes the field `planCommit`. The plan folder is `plan_dir` of `.handover.toml` (default `docs`), and it can be a companion repository, for example a git-ignored clone `.plan/`. The `handover` tool resolves both, so a project with a companion repository also gets the event. A missing tool, a timeout, an exit code other than 0 and 1, or an output without a hex hash in `planCommit` gives no event. If that commit differs from `data.planCommit` of the last `SessionHandedOff` event of this session, the watcher writes a True event with the new `data.planCommit`. A session goes `idle` after each turn, also after a question, so the same plan commit never gives a second event, also not after a restart of the watcher. Exit code 1 at an `idle` edge gives no event: a session in the middle of a step is not a failure. `HandoverFailed` still comes only at the end of a session.
 - `SessionHandedOff` is a one-shot event: it has no False event, also not when the session leaves the list. It does not count as an open condition, and `status --json` does not show it.
+- `SessionBackground` tells that a session takes a prompt, although Claude Code can show it as `busy`: its turn ended, and a background task (Bash, Agent, or Monitor) runs. Claude Code queues a prompt to such a session until the task reports. The `message` gives the count, for example `turn ended, 1 background task runs`. The condition turns False when the next turn starts (a prompt, or the delivered task report) or when the last task reports. The event type is `dv.idfx.session.background`. The known gap of `turn` (see [Claude Code sessions in `status`](#claude-code-sessions-in-status)) applies: without a task report, the condition can stay True too long, so a notice can arrive while a new turn runs. Claude Code then queues it, so the notice is late, not lost.
 - An API error turns False at the next poll without a new error line, so each new error gives one True event.
 - `message` holds only the waiting text, the error text (at most 200 characters), the first line of `handover check`, a commit hash, or numbers. It never holds a prompt.
 

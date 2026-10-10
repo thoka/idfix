@@ -271,8 +271,8 @@ describe("refusal of Anthropic models (step 25h)", () => {
         expect(p.seen).toHaveLength(0);
         const refused = p.lines.filter((l) => l.event === "refused");
         expect(refused).toHaveLength(1);
-        expect(refused[0].model).toBe(model);
-        expect(refused[0].status).toBe(403);
+        expect(refused[0]!.model).toBe(model);
+        expect(refused[0]!.status).toBe(403);
       });
     }
     test(`${path} forwards z-ai/glm-5.3-flash`, async () => {
@@ -280,7 +280,7 @@ describe("refusal of Anthropic models (step 25h)", () => {
       const res = await post(p.url, path, "z-ai/glm-5.3-flash");
       expect(res.status).toBe(200);
       expect(p.seen).toHaveLength(1);
-      expect(p.seen[0].body).toContain("z-ai/glm-5.3-flash");
+      expect(p.seen[0]!.body).toContain("z-ai/glm-5.3-flash");
       expect(p.lines.some((l) => l.event === "refused")).toBe(false);
     });
   }

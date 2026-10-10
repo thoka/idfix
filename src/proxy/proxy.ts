@@ -18,6 +18,11 @@
  * in memory and logs only its `session_id`, never `device_id` or
  * `account_uuid`.
  *
+ * The proxy refuses a model of Anthropic. If the `model` of a `POST` body
+ * starts with `anthropic/` or `~anthropic/`, or holds `claude`, the proxy
+ * answers 403 with a JSON error, logs `event: "refused"`, and forwards
+ * nothing. The `start` line is the last line before it.
+ *
  * `HEAD /api/hello` is the reachability probe of Claude Code. The proxy
  * answers it with 200 itself, with no upstream call and no log line.
  */
@@ -133,6 +138,28 @@ export function bodySessionId(body: string): string | null {
   }
 }
 
+/**
+ * The `model` of a JSON request body, else null. Never throws. Pure.
+ */
+export function bodyModel(body: string): string | null {
+  try {
+    const model = (JSON.parse(body) as { model?: unknown } | null)?.model;
+    return typeof model === "string" && model !== "" ? model : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a model id names an Anthropic model: the prefix `anthropic/` or
+ * `~anthropic/`, or `claude` anywhere in the id. The proxy refuses these,
+ * because an Anthropic model must not run through the OpenRouter key. Pure.
+ */
+export function isAnthropicModel(model: string): boolean {
+  const id = model.toLowerCase();
+  return id.startsWith("anthropic/") || id.startsWith("~anthropic/") || id.includes("claude");
+}
+
 /** The value of a header, null when it is absent or empty. */
 function headerOf(headers: Headers, name: string): string | null {
   const value = headers.get(name);
@@ -208,9 +235,13 @@ export function startProxy({
       // read only in that last case, and the same bytes go upstream.
       let session = headerOf(req.headers, "X-Session-Id") ?? headerOf(req.headers, "x-claude-code-session-id");
       let body: ReadableStream<Uint8Array> | ArrayBuffer | null = req.body;
-      if (session === null && req.body !== null && mayCarryBodySession(req.method, url.pathname)) {
+      // The model of each POST body is read too, to refuse Anthropic models.
+      let model: string | null = null;
+      if (req.body !== null && req.method === "POST") {
         const bytes = await req.arrayBuffer();
-        session = bodySessionId(new TextDecoder().decode(bytes));
+        const text = new TextDecoder().decode(bytes);
+        model = bodyModel(text);
+        if (session === null && mayCarryBodySession(req.method, url.pathname)) session = bodySessionId(text);
         body = bytes;
       }
       const state: RequestState = {
@@ -239,6 +270,26 @@ export function startProxy({
         method: state.method,
         path: state.path,
       });
+
+      if (model !== null && isAnthropicModel(model)) {
+        const message = `idfx cost proxy refuses the Anthropic model ${model}`;
+        log({
+          source: LOG_SOURCE,
+          event: "refused",
+          time: new Date().toISOString(),
+          request: state.request,
+          upstream: state.upstream,
+          session: state.session,
+          idfxRun: state.idfxRun,
+          idfxProject: state.idfxProject,
+          method: state.method,
+          path: state.path,
+          status: 403,
+          model,
+          error: message,
+        });
+        return Response.json({ error: { type: "forbidden", message } }, { status: 403 });
+      }
 
       const headers = new Headers(req.headers);
       headers.delete("host");

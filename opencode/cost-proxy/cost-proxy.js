@@ -557,6 +557,18 @@ function bodySessionId(body) {
     return null;
   }
 }
+function bodyModel(body) {
+  try {
+    const model = JSON.parse(body)?.model;
+    return typeof model === "string" && model !== "" ? model : null;
+  } catch {
+    return null;
+  }
+}
+function isAnthropicModel(model) {
+  const id = model.toLowerCase();
+  return id.startsWith("anthropic/") || id.startsWith("~anthropic/") || id.includes("claude");
+}
 function headerOf(headers, name) {
   const value = headers.get(name);
   return value === null || value === "" ? null : value;
@@ -613,9 +625,13 @@ function startProxy({
       const route = routeRequest(url.pathname, url.search, upstream, deepinfraUpstream);
       let session = headerOf(req.headers, "X-Session-Id") ?? headerOf(req.headers, "x-claude-code-session-id");
       let body = req.body;
-      if (session === null && req.body !== null && mayCarryBodySession(req.method, url.pathname)) {
+      let model = null;
+      if (req.body !== null && req.method === "POST") {
         const bytes = await req.arrayBuffer();
-        session = bodySessionId(new TextDecoder().decode(bytes));
+        const text = new TextDecoder().decode(bytes);
+        model = bodyModel(text);
+        if (session === null && mayCarryBodySession(req.method, url.pathname))
+          session = bodySessionId(text);
         body = bytes;
       }
       const state = {
@@ -644,6 +660,25 @@ function startProxy({
         method: state.method,
         path: state.path
       });
+      if (model !== null && isAnthropicModel(model)) {
+        const message = `idfx cost proxy refuses the Anthropic model ${model}`;
+        log({
+          source: LOG_SOURCE,
+          event: "refused",
+          time: new Date().toISOString(),
+          request: state.request,
+          upstream: state.upstream,
+          session: state.session,
+          idfxRun: state.idfxRun,
+          idfxProject: state.idfxProject,
+          method: state.method,
+          path: state.path,
+          status: 403,
+          model,
+          error: message
+        });
+        return Response.json({ error: { type: "forbidden", message } }, { status: 403 });
+      }
       const headers = new Headers(req.headers);
       headers.delete("host");
       headers.delete("accept-encoding");

@@ -252,3 +252,36 @@ describe("pure helpers", () => {
     expect(mayCarryBodySession("GET", "/v1/messages")).toBe(false);
   });
 });
+
+describe("refusal of Anthropic models (step 25h)", () => {
+  const post = (url: string, path: string, model: string) =>
+    fetch(url + path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model, messages: [] }),
+    });
+
+  for (const path of ["/v1/chat/completions", "/v1/messages"]) {
+    for (const model of ["anthropic/claude-opus-5-5", "~anthropic/opus", "z-ai/claude-like"]) {
+      test(`${path} refuses ${model}`, async () => {
+        const p = proxy();
+        const res = await post(p.url, path, model);
+        expect(res.status).toBe(403);
+        expect(((await res.json()) as any).error.message).toContain(model);
+        expect(p.seen).toHaveLength(0);
+        const refused = p.lines.filter((l) => l.event === "refused");
+        expect(refused).toHaveLength(1);
+        expect(refused[0].model).toBe(model);
+        expect(refused[0].status).toBe(403);
+      });
+    }
+    test(`${path} forwards z-ai/glm-5.3-flash`, async () => {
+      const p = proxy();
+      const res = await post(p.url, path, "z-ai/glm-5.3-flash");
+      expect(res.status).toBe(200);
+      expect(p.seen).toHaveLength(1);
+      expect(p.seen[0].body).toContain("z-ai/glm-5.3-flash");
+      expect(p.lines.some((l) => l.event === "refused")).toBe(false);
+    });
+  }
+});

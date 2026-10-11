@@ -11,7 +11,7 @@ pre-commit:
 pre-push:
   jobs:
     - name: idfix tests
-      run: mise run test
+      run: ${TEST_RUNNER:-mise run test}
     # The doctor output must keep the doctor format of the shared tool
     # protocol. Without doctor-lint on the PATH, the job passes.
     - name: doctor format

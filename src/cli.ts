@@ -104,6 +104,15 @@ Claude Code runs:
   --model MODEL   a Claude Code model name or alias, for example sonnet.
   --sandbox NAME  use this existing sandbox instead of claude-<project>.
                   It must mount the state folder of that name.
+  For a Claude run, the session commands read its run record:
+  say SESSION TEXT  one more turn with claude -p --resume, in the same
+                  sandbox and folder; it blocks until the turn ends.
+  abort SESSION   stops the claude process of the session in the sandbox
+                  and marks the record aborted.
+  log SESSION     the last answer, the tokens, the status, and the cost,
+                  from the transcript in the state folder.
+  status          lists the run while it runs and for 60 minutes after.
+  watch does not work for Claude runs yet.
 
 Environment:
   IDFX_URL                   default server URL

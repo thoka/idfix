@@ -598,7 +598,22 @@ idfx run --driver claude --dir <folder in the clone> --brief brief.md --model so
 - The run blocks until Claude Code ends. Then the command prints the session ID, the cost, the transcript path, the run record paths, and the answer.
 - The cost is an API-equivalent estimate (`total_cost_usd`). On a Max plan, the run costs nothing extra.
 - A failed run (an exit code other than 0, `is_error: true`, or a usage limit message) ends with exit code 1, a clear error line, and a run record with the error.
-- `watch`, `log`, `say`, and `abort` do not work for Claude runs yet.
+- The run writes its record with `status: "running"` before it blocks. It passes its own session ID with `--session-id`, so `status` and `abort` from another terminal find the run.
+
+Follow up, stop, and read a Claude run:
+
+```
+idfx say <session> "now add the tests"   # one more turn with --resume; blocks until it ends
+idfx abort <session>                     # pkill of the claude process of the session in the sandbox
+idfx log <session>                       # last answer, tokens, status, cost
+idfx status                              # the run shows as busy, idle, failed, or aborted
+```
+
+- `say` resumes the session in the same sandbox, state folder, and folder. The cost, the turns, the duration, and the usage in the record add up over the turns. A session that still runs a turn is refused: wait, or abort it.
+- `abort` stops the `claude` process of the session inside the sandbox and marks the record `aborted`. The blocking `run` or `say` then ends with exit code 1. If no process is left but the record still says `running` (for example the host command was killed), `abort` fixes the record.
+- `log` reads the transcript in the state folder on the host. It treats the folder as untrusted: it follows no link and reads at most the last 32 MiB.
+- `status` shows a run while it runs and for 60 minutes after its end, with the folder of the run in the clone.
+- `watch` does not work for Claude runs yet. Use `status` or `log` instead.
 
 Known gaps:
 
@@ -607,6 +622,9 @@ Known gaps:
 - Two plugins with the same name from different marketplaces: only the first one by key order comes over.
 - A sync during a running Claude run of the same sandbox replaces its skills and plugins under it.
 - A full copy on each sync, not only the changes. With about 11 MB of configuration this is fast enough for now.
+- `abort` matches the process by its command line (`[c]laude .*<session>`). A process of another program whose command line holds the same session ID would be stopped too.
+- When Claude Code answers a `--resume` with a new session ID, the record keeps its ID and stores the new one as `resumeId`. `log` then reads only the transcript of the new ID.
+- `log` shows the last answer and the totals, not the whole conversation.
 
 ## Cost proxy
 

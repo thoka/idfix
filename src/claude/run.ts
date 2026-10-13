@@ -4,10 +4,11 @@
  *
  * The run finds or creates the sandbox `claude-<project>` in clone mode with
  * the state folder as a writable mount, checks the clone after a create,
- * syncs the host configuration into the state folder, and then runs
- * `claude -p <brief> --output-format json` in the run folder through
- * `sbx exec`. The run blocks until Claude Code ends. Then it writes a run
- * record with the result of the run (`ClaudeRunInfo`).
+ * syncs the host configuration into the state folder, writes a `running`
+ * run record, and then runs `claude -p <brief> --output-format json
+ * --session-id <id>` in the run folder through `sbx exec`. The run blocks
+ * until Claude Code ends. Then it writes the record with the result of the
+ * run (`ClaudeRunInfo`), unless `idfx abort` marked it aborted meanwhile.
  *
  * All `sbx` calls go through a runner, so the tests replace it with a fake
  * and never call the real `sbx`.

@@ -33,7 +33,9 @@ Run every command in the host checkout of the project. The sandbox is `claude-<p
 4. Read the result with `idfx log <session>`: the last answer, the tokens, the status, and the cost.
 5. Follow up with `idfx say <session> "<message>"`. For a Claude run, `say` resumes the session and blocks until the turn ends. A session with a running turn is refused.
 6. Stop a run with `idfx abort <session>`. The blocking `run` or `say` then ends with exit code 1.
-7. Bring the work to the host: run `git fetch sandbox-claude-<project>` in the host checkout, then review `git diff alpha...sandbox-claude-<project>/<branch>` and run the tests yourself. sbx adds this remote in clone mode, but this flow has no live test for a Claude sandbox yet. `idfx fetch` covers only the opencode sandbox so far. Uncommitted work stays in the clone.
+7. Bring the work to the host. The remote `sandbox-claude-<project>` exists only while the sandbox runs, because `sbx stop` removes it. So start a stopped sandbox first with `sbx exec claude-<project> true`. Then run `git fetch sandbox-claude-<project>` in the host checkout, review `git diff alpha...sandbox-claude-<project>/<branch>`, and run the tests yourself. `idfx fetch` covers only the opencode sandbox so far. Uncommitted work stays in the clone.
+
+The clone does not follow the host: it keeps the commit of its creation, so a run can start on a stale base. idfix does not update the clone of a Claude sandbox. Before a run, create the work branch from a fresh host commit: `sbx exec claude-<project> git -C <checkout path> fetch /run/sandbox/source alpha`, then `sbx exec claude-<project> git -C <checkout path> worktree add -b feature/<step> <folder> FETCH_HEAD` (no live test yet). `/run/sandbox/source` is the read-only host repository of a clone-mode sandbox; `idfx worktree` uses it for the opencode sandbox. If the fetch fails, remove the sandbox with `sbx rm claude-<project>`, and the next run creates it again from the current host.
 
 ### Max plan and usage limits
 
@@ -45,6 +47,7 @@ Run every command in the host checkout of the project. The sandbox is `claude-<p
 
 - `idfx watch` does not work for Claude runs. Use `status`, `top`, and `log`.
 - `log` shows only the last answer and the totals, not the whole conversation.
+- The clone does not follow the host. Create the work branch from a fresh host commit (step 7).
 - The stall guard also marks a run that waits more than 3 minutes for a long command or a subagent.
 - In a headless turn, Claude Code can move a long command into the background and end the turn before the command ends. Check the answer with `log`, and send a `say` to finish the work.
 

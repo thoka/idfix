@@ -604,7 +604,13 @@ idfx run --driver claude --dir <folder in the clone> --brief brief.md --model so
 Bring the work of a Claude run to the host:
 
 - The work stays in the clone of the sandbox. Claude cannot push, because the sandbox has no SSH access. So the brief must tell Claude to commit on a branch. Uncommitted work stays in the clone.
-- sbx adds the remote `sandbox-claude-<project>` to the host repository, as for every clone-mode sandbox. On the host, run `git fetch sandbox-claude-<project>`, then review `git diff alpha...sandbox-claude-<project>/<branch>` and run the tests. This flow has no live test for a Claude sandbox yet.
+- sbx adds the remote `sandbox-claude-<project>` to the host repository, as for every clone-mode sandbox. The remote exists only while the sandbox runs: `sbx stop` removes it, and the next start adds it again. So start a stopped sandbox first with `sbx exec claude-<project> true`. Then, on the host, run `git fetch sandbox-claude-<project>`, review `git diff alpha...sandbox-claude-<project>/<branch>`, and run the tests.
+
+Start a Claude run on a fresh base:
+
+- The clone does not follow the host. It keeps the commit of its creation, so a run in the root of the clone can start several commits behind the host. idfix does not update the clone of a Claude sandbox; only `idfx worktree` of the opencode sandbox fetches new host commits.
+- Workaround: create the work branch from a fresh host commit. The read-only host repository lies at `/run/sandbox/source` in a clone-mode sandbox. Run `sbx exec claude-<project> git -C <checkout path> fetch /run/sandbox/source alpha`, then `sbx exec claude-<project> git -C <checkout path> worktree add -b feature/<step> <folder> FETCH_HEAD`, and pass `--dir <folder>` to the run. This workaround has no live test yet.
+- If the fetch fails, remove the sandbox with `sbx rm claude-<project>`. The next run creates it again from the current host checkout. The removal deletes all work in the clone that you did not fetch.
 - `idfx fetch` knows only the opencode sandbox so far, so it does not list the branches of a Claude sandbox.
 
 Follow up, stop, and read a Claude run:
@@ -644,6 +650,7 @@ Known gaps:
 - The stall guard of `top` watches only the main transcript. A run that waits for a subagent, or for a long command such as a test run of more than 3 minutes, shows `stalled` too.
 - In a headless turn, Claude Code can move a long command into the background and end the turn before the command ends. The run then ends `ok` without the result of that command. Read the answer with `log`, and send a `say` to finish the work.
 - `idfx fetch` and `idfx worktree` work only for the opencode sandbox.
+- The clone of a Claude sandbox does not follow the host (see "Start a Claude run on a fresh base" above).
 
 ## Cost proxy
 

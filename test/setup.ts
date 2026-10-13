@@ -17,6 +17,21 @@
  * too, so `status` never lists the real Claude sessions of the machine and
  * never downloads or reads the real price cache.
  *
+ * A test that passes its own env without `XDG_STATE_HOME`, for example `{}`,
+ * makes the code fall back to `homedir()`. Bun reads the home folder once at
+ * the start of the process, so a change of `process.env.HOME` does not reach
+ * `homedir()`. So the preload replaces `homedir` of `node:os` with
+ * `<run folder>/home` (`TEST_HOME`). No test then reads or writes
+ * `~/.local/state/idfx` or another folder in the real home. A child process
+ * still gets the real `HOME`, so git keeps the identity of the user.
+ *
+ * The preload also changes the current folder of the process to
+ * `<run folder>/cwd` (`TEST_CWD`). Code that falls back to
+ * `process.cwd()`, for example the run records in `.opencode/runs/` that
+ * `status` loads, then never sees the folders of the repository. A spawn
+ * without a `cwd` option still starts in the repository root (`REPO_ROOT`),
+ * so `bun run src/cli.ts` and other relative commands keep working.
+ *
  * The preload also removes the repository-local git variables (GIT_DIR,
  * GIT_INDEX_FILE, and the others of `git rev-parse --local-env-vars`). A git
  * hook sets them, for example the pre-push hook of lefthook.yml. Every git
@@ -58,8 +73,9 @@
  * `process.env`. This also makes TMPDIR and the XDG folders below reach the
  * children. `node:child_process` already reads `process.env`.
  */
-import { afterAll } from "bun:test";
+import { afterAll, mock } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import * as os from "node:os";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { defaultUnitDeps, listUnits, stopUnit, type LoadedUnit } from "../src/units";
@@ -105,16 +121,30 @@ export function clearLocalGitEnv(env: Record<string, string | undefined> = proce
 
 type SpawnOptions = { env?: Record<string, string | undefined> } & Record<string, unknown>;
 
-/** Wrap a Bun spawn function so that a call without `env` passes `process.env`. */
+/** The repository root: the current folder of the process before the preload changes it. */
+export const REPO_ROOT = process.cwd();
+
+/**
+ * Wrap a Bun spawn function so that a call without `env` passes
+ * `process.env`, and a call without `cwd` starts in `REPO_ROOT`.
+ */
 function withCurrentEnv<F extends (...args: never[]) => unknown>(spawn: F): F {
   const wrapped = (first: unknown, second?: SpawnOptions) => {
     // The form spawn({ cmd, ...options }).
     if (!Array.isArray(first) && typeof first === "object" && first !== null) {
       const options = first as SpawnOptions;
-      return (spawn as unknown as (o: unknown) => unknown)({ ...options, env: options.env ?? process.env });
+      return (spawn as unknown as (o: unknown) => unknown)({
+        ...options,
+        env: options.env ?? process.env,
+        cwd: options.cwd ?? REPO_ROOT,
+      });
     }
     // The form spawn(cmd, options).
-    return (spawn as unknown as (c: unknown, o: unknown) => unknown)(first, { ...second, env: second?.env ?? process.env });
+    return (spawn as unknown as (c: unknown, o: unknown) => unknown)(first, {
+      ...second,
+      env: second?.env ?? process.env,
+      cwd: second?.cwd ?? REPO_ROOT,
+    });
   };
   return wrapped as unknown as F;
 }
@@ -176,8 +206,10 @@ export function unitOfCall(cmd: readonly string[]): string | null {
 /** The owner that the integration tests give their units (`IDFX_OWNER`). */
 export const TEST_OWNER = "test";
 
-/** The test run folder (`<tmp>/oc-sub-test-run-*`) that holds `dir`, or null. Pure. */
+/** The test run folder (`<tmp>/oc-sub-test-run-*`) that holds the absolute path `dir`, or null. Pure. */
 export function runFolderOf(dir: string, systemTmp: string): string | null {
+  // A relative path, also "", would resolve against the current folder.
+  if (!path.isAbsolute(dir)) return null;
   const rel = path.relative(systemTmp, dir);
   if (rel.length === 0 || rel.startsWith("..") || path.isAbsolute(rel)) return null;
   const first = rel.split(path.sep)[0] ?? "";
@@ -279,3 +311,17 @@ mkdirSync(process.env.XDG_DATA_HOME);
 mkdirSync(process.env.XDG_STATE_HOME);
 mkdirSync(process.env.XDG_CACHE_HOME);
 mkdirSync(process.env.CLAUDE_CONFIG_DIR);
+
+/** The home folder that `homedir()` gives in a test. */
+export const TEST_HOME = path.join(runDir, "home");
+/** The current folder of the process in a test. */
+export const TEST_CWD = path.join(runDir, "cwd");
+mkdirSync(TEST_HOME);
+mkdirSync(TEST_CWD);
+const realOs = { ...os };
+mock.module("node:os", () => ({
+  ...realOs,
+  homedir: () => TEST_HOME,
+  default: { ...realOs, homedir: () => TEST_HOME },
+}));
+process.chdir(TEST_CWD);

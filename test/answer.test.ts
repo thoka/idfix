@@ -222,7 +222,8 @@ describe("answer", () => {
     const server = startFakeServer({ listStatus: 500 });
     try {
       const { error } = await runAnswer(server, ["que_1", "--reject"]);
-      expect(error?.message).toContain("list questions: HTTP 500: nope");
+      // Both lists load in parallel, so either failure can come first.
+      expect(error?.message).toMatch(/list (questions|permissions): HTTP 500: nope/);
     } finally {
       server.stop();
     }

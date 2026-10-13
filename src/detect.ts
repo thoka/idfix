@@ -109,6 +109,28 @@ export function detectLoop(
   return false;
 }
 
+/**
+ * The row of identical calls (same tool, same input) at the end of the
+ * calls, when it has at least `loopLimit` calls, else undefined. The key is
+ * the one of `detectLoop` and the live guard. A live view that sees all
+ * calls of a session at each poll uses it: the loop shows while it lasts.
+ */
+export function trailingLoop<T extends { tool: string; input: unknown }>(
+  calls: readonly T[],
+  loopLimit: number = LOOP_LIMIT,
+): { call: T; count: number } | undefined {
+  const last = calls[calls.length - 1];
+  if (last === undefined) return undefined;
+  const key = `${last.tool}\n${stableStringify(last.input)}`;
+  let count = 0;
+  for (let i = calls.length - 1; i >= 0; i--) {
+    const call = calls[i] as T;
+    if (`${call.tool}\n${stableStringify(call.input)}` !== key) break;
+    count += 1;
+  }
+  return count >= loopLimit ? { call: last, count } : undefined;
+}
+
 export function createGuard(options: GuardOptions = {}): Guard {
   const loopLimit = options.loopLimit ?? LOOP_LIMIT;
   const stallMs = options.stallMs ?? STALL_MS;

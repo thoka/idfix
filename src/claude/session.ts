@@ -245,7 +245,12 @@ export async function claudeAbort(
 export const TRANSCRIPT_LIMIT = 32 * 1024 * 1024;
 
 /** The bytes of a file read with `readStateFile`, and whether the start was cut. */
-export type TranscriptRead = { bytes: Uint8Array; cut: boolean };
+export type TranscriptRead = {
+  bytes: Uint8Array;
+  cut: boolean;
+  /** The modification time of the file at the read, in ms. Fakes may leave it out. */
+  mtimeMs?: number;
+};
 
 /**
  * Reads `file` inside `stateDir` as untrusted data: the file must be a
@@ -273,10 +278,11 @@ export function readStateFile(stateDir: string, file: string, limit: number = TR
       if (n === 0) break;
       read += n;
     }
-    if (size <= limit) return { bytes: bytes.subarray(0, read), cut: false };
+    const mtimeMs = stat.mtimeMs;
+    if (size <= limit) return { bytes: bytes.subarray(0, read), cut: false, mtimeMs };
     // Drop the first, partial line.
     const newline = bytes.indexOf(10);
-    return { bytes: newline < 0 ? new Uint8Array() : bytes.subarray(newline + 1, read), cut: true };
+    return { bytes: newline < 0 ? new Uint8Array() : bytes.subarray(newline + 1, read), cut: true, mtimeMs };
   } finally {
     closeSync(fd);
   }

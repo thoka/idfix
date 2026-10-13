@@ -400,6 +400,42 @@ export function createTranscriptReader(): TranscriptReader {
   };
 }
 
+/** One tool call of a transcript: a `tool_use` block of an assistant line. */
+export type TranscriptToolCall = { id: string | undefined; tool: string; input: unknown };
+
+/**
+ * The tool calls of a transcript in their order, each `tool_use` ID once.
+ * The loop guard of a Claude sandbox run compares them (`trailingLoop` of
+ * `src/detect.ts`). Pure.
+ */
+export function transcriptToolCalls(bytes: Uint8Array): TranscriptToolCall[] {
+  const calls: TranscriptToolCall[] = [];
+  const seen = new Set<string>();
+  for (const text of new TextDecoder().decode(bytes).split("\n")) {
+    if (!text.includes('"tool_use"') || !text.includes('"type":"assistant"')) continue;
+    let line: { type?: unknown; message?: { model?: unknown; content?: unknown } } | null;
+    try {
+      line = JSON.parse(text) as typeof line;
+    } catch {
+      continue;
+    }
+    if (line === null || typeof line !== "object" || line.type !== "assistant") continue;
+    if (line.message?.model === SYNTHETIC_MODEL || !Array.isArray(line.message?.content)) continue;
+    for (const block of line.message.content as unknown[]) {
+      if (block === null || typeof block !== "object") continue;
+      const b = block as { type?: unknown; id?: unknown; name?: unknown; input?: unknown };
+      if (b.type !== "tool_use" || typeof b.name !== "string") continue;
+      const id = typeof b.id === "string" ? b.id : undefined;
+      if (id !== undefined) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+      }
+      calls.push({ id, tool: b.name, input: b.input ?? null });
+    }
+  }
+  return calls;
+}
+
 /** Read a whole transcript from one buffer. */
 export function summarizeTranscript(bytes: Uint8Array): TranscriptSummary {
   const reader = createTranscriptReader();

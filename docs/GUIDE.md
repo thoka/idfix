@@ -609,7 +609,7 @@ Bring the work of a Claude run to the host:
 Start a Claude run on a fresh base:
 
 - The clone does not follow the host. It keeps the commit of its creation, so a run in the root of the clone can start several commits behind the host. idfix does not update the clone of a Claude sandbox; only `idfx worktree` of the opencode sandbox fetches new host commits.
-- Workaround: create the work branch from a fresh host commit. The read-only host repository lies at `/run/sandbox/source` in a clone-mode sandbox. Run `sbx exec claude-<project> git -C <checkout path> fetch /run/sandbox/source alpha`, then `sbx exec claude-<project> git -C <checkout path> worktree add -b feature/<step> <folder> FETCH_HEAD`, and pass `--dir <folder>` to the run. This workaround has no live test yet.
+- Workaround: create the work branch from a fresh host commit. The read-only host repository lies at `/run/sandbox/source` in a clone-mode sandbox. Run `sbx exec claude-<project> git -C <checkout path> fetch /run/sandbox/source alpha`, then `sbx exec claude-<project> git -C <checkout path> worktree add -b feature/<step> <folder> FETCH_HEAD`, and pass `--dir <folder>` to the run. A live test on 2026-10-13 passed.
 - If the fetch fails, remove the sandbox with `sbx rm claude-<project>`. The next run creates it again from the current host checkout. The removal deletes all work in the clone that you did not fetch.
 - `idfx fetch` knows only the opencode sandbox so far, so it does not list the branches of a Claude sandbox.
 

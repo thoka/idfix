@@ -1,15 +1,56 @@
 ---
 name: idfx
-description: Delegate research or a small coding step to a cheap opencode subagent with the idfx tool (formerly oc-sub). Watch the run and review the result.
-when_to_use: The user asks to delegate work to opencode, GLM, or a cheap subagent. The user asks about an idfx run (start, watch, follow up, abort, cost). A plan has a research question or a small coding step with a precise brief.
+description: Route a step to the right subagent and drive it with the idfx tool (formerly oc-sub). Run Claude Code in a Docker Sandbox, or a cheap opencode subagent with GLM when the routing rules allow it. Watch the run and review the result.
+when_to_use: A plan step goes to a subagent, and you must pick Claude Code or opencode with GLM. The user asks to delegate work to Claude Code in the sandbox, to opencode, GLM, or a cheap subagent. The user asks about an idfx run (start, watch, follow up, abort, cost, usage limit).
 allowed-tools: Bash(idfx *)
 ---
 
-# Delegate work to an opencode subagent
+# Delegate a step with idfx
 
-`idfx` drives an `opencode serve` server on 127.0.0.1. You write a brief, start a run, give the user a command to watch it live, and review the result yourself. The full command reference and the details are in [reference.md](reference.md). The plugin serves the `coder`, `researcher`, and `reader` agents itself; the project needs no agent file (see [Agent files](reference.md#agent-files)).
+`idfx` starts and drives two kinds of subagent runs: Claude Code in a Docker Sandbox (`idfx run --driver claude`), and opencode subagents on an `opencode serve` server on 127.0.0.1. You write a brief, start a run, follow it, and review the result yourself. The full command reference is in [reference.md](reference.md). The details of the Claude runs are in the guide, section [Run Claude Code in the sandbox](../../docs/GUIDE.md#run-claude-code-in-the-sandbox-idfx-run---driver-claude).
 
-## When to delegate
+## Route the step
+
+The routing rules of your user decide. idfix adds no policy of its own. The rules that this skill was written for:
+
+- Every subagent runs on Claude, with the Opus model that the rules name. That is the default for each step.
+- A step goes to opencode with GLM only when the user agrees, or when the Claude plan hit its usage limit. Then use only the model `z-ai/glm-5.3-flash`.
+- On a usage limit or an auth error, stop and report. Do not switch to another paid service. The only exception is GLM on a Claude plan limit.
+
+So:
+
+- A Claude step runs as a Claude Code subagent on the host in a worktree, or in the sandbox with `idfx run --driver claude --model opus`. Both use the same plan and the same model. The sandbox keeps the step away from the host checkout.
+- An opencode step (GLM) follows [When to delegate to opencode](#when-to-delegate-to-opencode) and the [Workflow of an opencode run](#workflow-of-an-opencode-run) below. Without the agreement of the user or a plan limit, do not start it.
+- If your rules say otherwise, follow your rules.
+
+## Claude Code in the sandbox
+
+Run every command in the host checkout of the project. The sandbox is `claude-<project>`, in clone mode: the run changes only the clone in the sandbox, never the host checkout.
+
+1. Write the brief into a file outside the checkout. Tell Claude to commit its work on a branch. It cannot push, because the sandbox has no SSH access.
+2. Start the run: `idfx run --driver claude --dir <host path of the checkout> --brief <scratch>/brief.md --model opus --title "<short title>"`. Inside the sandbox, the clone lies at the same path as the host checkout, so `--dir` names the host path. The command blocks until Claude Code ends, so start it as a background command. It prints the session ID, the cost, the transcript path, and the answer. For a worktree, create it in the clone first: `sbx exec claude-<project> git -C <checkout path> worktree add <folder>`. `idfx worktree` works only for the opencode sandbox so far.
+3. Follow the run with `idfx status` (`busy`, `idle`, `failed`, `aborted`) and `idfx top` (live view). In `top`, the guards `looping` and `stalled` only mark the row red. They never stop the run.
+4. Read the result with `idfx log <session>`: the last answer, the tokens, the status, and the cost.
+5. Follow up with `idfx say <session> "<message>"`. For a Claude run, `say` resumes the session and blocks until the turn ends. A session with a running turn is refused.
+6. Stop a run with `idfx abort <session>`. The blocking `run` or `say` then ends with exit code 1.
+7. Bring the work to the host: run `git fetch sandbox-claude-<project>` in the host checkout, then review `git diff alpha...sandbox-claude-<project>/<branch>` and run the tests yourself. sbx adds this remote in clone mode, but this flow has no live test for a Claude sandbox yet. `idfx fetch` covers only the opencode sandbox so far. Uncommitted work stays in the clone.
+
+### Max plan and usage limits
+
+- The cost of a Claude run is an API-equivalent estimate. On a Max plan it costs nothing extra. Report it as an estimate.
+- All Claude Code activity of the account shares one usage pool: your own session, host subagents, and sandbox runs. No API tells the remaining quota. Keep runs few, and keep the number of parallel runs small.
+- On a usage limit, the run fails with exit code 1 and a limit message. Stop and report it. Switch to GLM only by the rules above.
+
+### Known gaps
+
+- `idfx watch` does not work for Claude runs. Use `status`, `top`, and `log`.
+- `log` shows only the last answer and the totals, not the whole conversation.
+- The stall guard also marks a run that waits more than 3 minutes for a long command or a subagent.
+- In a headless turn, Claude Code can move a long command into the background and end the turn before the command ends. Check the answer with `log`, and send a `say` to finish the work.
+
+## When to delegate to opencode
+
+Use this section only when the routing above allows opencode with GLM.
 
 Delegate:
 
@@ -21,7 +62,7 @@ Do not delegate:
 - A large step across many files (more than about ten). Big steps get slow and incomplete. Split them into several briefs.
 - Design of prompts for production, or a step that needs judgment across the whole project. Do these yourself or with a Claude subagent.
 
-## Workflow
+## Workflow of an opencode run
 
 1. The plugin serves the `coder`, `researcher`, and `reader` agents itself through `OPENCODE_CONFIG_DIR`. No project agent file is needed. If the project has an old copy of `.opencode/agents/coder.md` or `researcher.md`, delete it, so that the plugin stays the one source. If the project needs its own bash rules, it keeps a `.opencode/agents/coder.md` with only a `permission` block (see [Agent files](reference.md#agent-files)).
 2. Create a git worktree with its own branch, for example `git worktree add -b feature/x ../proj-x main`. The agent works only there. In sandbox mode, use `idfx worktree STEP` instead: it creates the worktree with `feature/STEP` inside the sandbox clone.
@@ -41,7 +82,7 @@ Do not delegate:
 
 Tell the user the cost of each run. `watch` and `log` print two cost lines in USD. The first line is the estimate of opencode: it multiplies the tokens by the prices in its model catalog from models.dev. The second line is the real cost. `watch` and `log` first sum the `cost` of the cost-proxy log over the session and all of its subagent sessions; when the proxy log has none of them, they fall back to the growth of the OpenRouter key usage during the run. Both lines cover the session and all of its subagent sessions. With subagents, the first line reads `cost $0.0816 (subagents $0.0665 in 4 sessions)`. The proxy line reads `real cost $0.0115 from the cost proxy (20 requests, deepinfra $0.0115)`, and failed requests add a part like `2 requests without cost`. The fallback reads `real cost $0.0512 at OpenRouter (key usage since the start of the run)` and names other runs with the same key that overlap in time. To compare runs, compare their tokens.
 
-## Follow up and abort
+## Follow up and abort an opencode run
 
 To send a correction or a question, write into the same session with `idfx say`. The command returns at once. It does not wait for the reply to end. Without `--agent`, it uses the agent of the last user message of the session:
 

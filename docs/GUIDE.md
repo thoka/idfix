@@ -575,6 +575,25 @@ In clone mode, the worktree of a run lives only inside the sandbox clone, at `<r
 - `idfx worktree rm STEP` removes the worktree and deletes the branch `feature/STEP` inside the clone. It first disposes the opencode instance of the folder (so that the background package install of opencode stops writing into it), retries a failing `git worktree remove` once, falls back to `rm -rf` plus `git worktree prune`, and exits 1 with a message when a folder or a branch is left behind. `rm` deletes work that was not fetched. Run `idfx fetch` before you remove a worktree whose work you want to keep.
 - `idfx status` and `idfx top` also see the run worktrees in clone mode: for a sandbox server, and for a `--dir` project with a sandbox state file, they list the project root plus the worktrees that `git worktree list` shows inside the clone, so the sessions of clone-mode runs appear there.
 
+### The Claude Code state folder of a sandbox (in progress)
+
+This part is not wired into a command yet. A later step adds `idfx run --agent claude`. The code is in `src/claude/sandbox-state.ts`.
+
+A Claude Code sandbox does not read your Claude configuration from the host. So idfix gives each Claude sandbox one writable host folder, the state folder: `$XDG_STATE_HOME/idfx/sbx/<sandbox>/claude/`, default `~/.local/state/idfx/sbx/<sandbox>/claude/`, mode 700. The folder must not lie in `/tmp/claude-<uid>`: a mount there makes sbx create that folder as root inside the sandbox, and then Claude Code refuses to start. idfix refuses such a path.
+
+- Create: `sbx create --clone --skills=off --name <sandbox> claude <repo> <state folder>`. The state folder is mounted at its host path. `--skills=off` keeps the sbx skills store out, because the state folder holds the skills.
+- Sync before each run, on the host, with links followed. Stale files go away. The sync copies `CLAUDE.md` of your Claude config folder (`$CLAUDE_CONFIG_DIR`, else `~/.claude`), the `skills/` folder without dot folders such as `.trash`, and one folder `plugins-src/<name>/` for each enabled plugin (from its `installPath` in `plugins/installed_plugins.json`, user scope). It writes its own `settings.json`: `permissions.defaultMode: bypassPermissions`, `skipDangerousModePermissionPrompt: true`, and your `model` and `env`. Your hooks and your `statusLine` stay out, because their programs do not exist in the sandbox. Everything else in the folder belongs to Claude Code in the sandbox, for example `projects/` with the transcripts, and the sync leaves it alone.
+- Run: `sbx exec -e CLAUDE_CONFIG_DIR=<state folder> <sandbox> bash -lc '...'`. The command first copies the credentials file of the sbx claude kit into the state folder, once. That file holds only a static placeholder pair; sbx injects the real login outside the sandbox. idfix never reads your own `.credentials.json`. Then it runs `claude` in the worktree with one `--plugin-dir` per plugin folder.
+- Read: the transcripts appear live on the host under `<state folder>/projects/`. `CLAUDE_CONFIG_DIR=<state folder> ccusage` reads the cost of one sandbox.
+
+Known gaps:
+
+- The agent in the sandbox can write the state folder. Treat its content as untrusted data. The host never runs Claude Code with it.
+- `env` of your settings comes over as it is. A value with a host path does not work in the sandbox.
+- Two plugins with the same name from different marketplaces: only the first one by key order comes over.
+- A sync during a running Claude run of the same sandbox replaces its skills and plugins under it.
+- A full copy on each sync, not only the changes. With about 11 MB of configuration this is fast enough for now.
+
 ## Cost proxy
 
 The module `src/proxy/` holds a small pass-through HTTP proxy between a coding agent and its model providers (research in `.plan/research/cost-proxy.md`). opencode calls the OpenAI shape (`/v1/chat/completions`). Claude Code calls the Anthropic shape (`/v1/messages`). The proxy appends the request path to the upstream URL (default `https://openrouter.ai/api`), so `/v1/chat/completions` goes to `https://openrouter.ai/api/v1/chat/completions`, and `/v1/messages` goes to `https://openrouter.ai/api/v1/messages`. A path that starts with `/deepinfra/` goes to DeepInfra instead (see [DeepInfra as a direct provider](#deepinfra-as-a-direct-provider)). It streams the response back without buffering, and writes one JSON log line per request to stdout:

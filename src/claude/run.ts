@@ -15,7 +15,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Env } from "../config";
-import { projectNameOf, projectRootOfRun } from "../keys";
+import { gitCommonDir } from "../keys";
 import { makeRunRecord, writeRunRecord, writeStateRunRecord, type ClaudeRunInfo } from "../runs";
 import {
   cloneStatus,
@@ -68,8 +68,10 @@ export type ClaudeRunDeps = {
   findTranscript: (stateDir: string, sessionId: string) => string | null;
   /** Reads the brief file. */
   readBrief: (file: string) => Promise<string>;
-  /** The folder of the run record copy `.opencode/runs/`. */
+  /** The working folder: its host repository is the project, and it holds `.opencode/runs/`. */
   cwd: string;
+  /** The root of the main checkout of the host repository of a folder, or null without git. */
+  hostRoot: (directory: string) => string | null;
   now: () => Date;
 };
 
@@ -103,6 +105,16 @@ async function readBriefFile(file: string): Promise<string> {
   }
 }
 
+/**
+ * The root of the main checkout of the host repository of `directory`, or
+ * null without git. From a host worktree, it is the main checkout, like the
+ * project of the opencode path.
+ */
+export function hostRepoRoot(directory: string): string | null {
+  const commonDir = gitCommonDir(directory);
+  return commonDir === null ? null : path.dirname(commonDir);
+}
+
 export const defaultClaudeRunDeps: ClaudeRunDeps = {
   runner: defaultRunner,
   sync: (hostDir, stateDir) => syncClaudeState(hostDir, stateDir),
@@ -110,6 +122,7 @@ export const defaultClaudeRunDeps: ClaudeRunDeps = {
   findTranscript: findClaudeTranscript,
   readBrief: readBriefFile,
   cwd: process.cwd(),
+  hostRoot: hostRepoRoot,
   now: () => new Date(),
 };
 
@@ -213,14 +226,15 @@ function fail(message: string): number {
 
 /**
  * Makes sure that the sandbox exists with the state folder mounted. A
- * missing sandbox is created and its clone checked. Returns an error
- * message, or null when the sandbox is ready.
+ * missing sandbox is created from the host repository `root`, and the clone
+ * is checked at `directory`, the run folder inside the sandbox. Returns an
+ * error message, or null when the sandbox is ready.
  */
 export function ensureClaudeSandbox(
-  input: { bin: string; name: string; root: string; stateDir: string },
+  input: { bin: string; name: string; root: string; directory: string; stateDir: string },
   deps: Pick<ClaudeRunDeps, "runner" | "ensureStateDir">,
 ): string | null {
-  const { bin, name, root, stateDir } = input;
+  const { bin, name, root, directory, stateDir } = input;
   const ls = deps.runner([bin, "ls"]);
   if (ls.exitCode !== 0) return `sbx ls failed with code ${ls.exitCode}: ${(ls.stderr ?? "").trim()}`;
   if (listsName(ls.stdout, name)) {
@@ -240,8 +254,8 @@ export function ensureClaudeSandbox(
     printStderr(created);
     return `sbx create of the sandbox ${name} failed with code ${created.exitCode}`;
   }
-  const clone = cloneStatus(deps.runner, bin, name, root);
-  if (clone.state === "missing") return missingCloneMessage(name, root);
+  const clone = cloneStatus(deps.runner, bin, name, directory);
+  if (clone.state === "missing") return missingCloneMessage(name, directory);
   if (clone.state === "exec-failed") return execFailedMessage(name, clone.exitCode, clone.stderr);
   return null;
 }
@@ -252,9 +266,18 @@ export async function claudeRun(
   env: Env = process.env,
   deps: ClaudeRunDeps = defaultClaudeRunDeps,
 ): Promise<number> {
-  const directory = path.resolve(args.dir);
-  const root = projectRootOfRun(directory);
-  const name = args.sandbox ?? claudeSandboxName(projectNameOf(root));
+  // `--dir` is a path inside the sandbox, for example its workspace, and
+  // usually does not exist on the host. So the project and the host
+  // repository of the create come from the working folder, never from it.
+  const directory = path.posix.resolve(args.dir);
+  const root = deps.hostRoot(deps.cwd);
+  if (root === null) {
+    return fail(
+      `${deps.cwd} is not in a git repository. Run idfx run --driver claude from the host checkout of the project; ` +
+        "--dir names the folder inside the sandbox.",
+    );
+  }
+  const name = args.sandbox ?? claudeSandboxName(path.basename(root));
   const stateDir = claudeStateDir(env, name);
   const bin = sbxBin(env);
   const startedAt = deps.now();
@@ -262,14 +285,14 @@ export async function claudeRun(
   const brief = args.briefFile !== undefined ? await deps.readBrief(args.briefFile) : (args.text ?? "");
   if (brief.trim().length === 0) return fail("the brief is empty");
 
-  const notReady = ensureClaudeSandbox({ bin, name, root, stateDir }, deps);
+  const notReady = ensureClaudeSandbox({ bin, name, root, directory, stateDir }, deps);
   if (notReady !== null) return fail(notReady);
 
   const folder = deps.runner([bin, "exec", name, "test", "-d", directory]);
   if (folder.exitCode !== 0) {
     return fail(
       `${directory} does not exist in the sandbox ${name}. The sandbox has its own clone of the repository; ` +
-        `create the folder inside it, for example with: sbx exec ${name} git -C ${root} worktree add ${directory}`,
+        `create the folder inside it, for example with: sbx exec ${name} git -C <workspace in the sandbox> worktree add ${directory}`,
     );
   }
 

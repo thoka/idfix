@@ -15,7 +15,7 @@ import {
 } from "../src/claude/run";
 import { claudeStateDir } from "../src/claude/sandbox-state";
 import { runRecordPath, stateRunRecordPath, type RunRecord } from "../src/runs";
-import type { Runner } from "../src/sandbox";
+import { SANDBOX_HOME, type Runner } from "../src/sandbox";
 
 const SESSION = "0b6f6c1e-1111-4222-8333-944455556666";
 
@@ -146,6 +146,7 @@ function fixture(answer: (cmd: readonly string[]) => { stdout?: string; exitCode
     findTranscript: (state, id) => path.join(state, "projects", "-proj", `${id}.jsonl`),
     readBrief: async () => "do the thing",
     cwd: base,
+    hostRoot: () => root,
     now: () => new Date("2026-10-13T10:00:00Z"),
   };
   return { root, env, stateDir, name, calls, deps, synced, ensured };
@@ -160,6 +161,22 @@ function readRecord(file: string): RunRecord {
 }
 
 describe("claudeRun", () => {
+  test("refuses a cwd outside a git repository before any sbx call", async () => {
+    const f = fixture(() => ({}));
+    const errors: string[] = [];
+    const spy = spyOn(console, "error").mockImplementation((line: unknown) => {
+      errors.push(String(line));
+    });
+    try {
+      expect(await claudeRun({ dir: f.root, text: "x" }, f.env, { ...f.deps, hostRoot: () => null })).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors.join("\n")).toMatch(/is not in a git repository/);
+    expect(f.calls).toEqual([]);
+  });
+
+
   let out: string[];
   let err: string[];
   let logSpy: ReturnType<typeof spyOn>;
@@ -355,10 +372,15 @@ describe("claudeRun", () => {
 });
 
 describe("claudeRun with a fake sbx on disk", () => {
-  test("runs the real runner, sync, and transcript scan against a script", async () => {
+  test("takes the project from the host repository of the cwd, not from the --dir in the sandbox", async () => {
     const base = mkdtempSync(path.join(tmpdir(), "idfx-claude-e2e-"));
     const root = path.join(base, "proj");
     mkdirSync(root);
+    expect(Bun.spawnSync(["git", "init", "-q", root]).exitCode).toBe(0);
+    const cwd = path.join(root, "sub");
+    mkdirSync(cwd);
+    // The workspace of the claude kit inside the sandbox; it does not exist on the host.
+    const dir = `${SANDBOX_HOME}/workspace`;
     const host = path.join(base, "host-claude");
     mkdirSync(host);
     writeFileSync(path.join(host, "CLAUDE.md"), "# rules\n");
@@ -389,7 +411,7 @@ esac
     const errSpy = spyOn(console, "error").mockImplementation(() => {});
     let code: number;
     try {
-      code = await claudeRun({ dir: root, text: "x" }, env, { ...defaultClaudeRunDeps, cwd: base });
+      code = await claudeRun({ dir, text: "x" }, env, { ...defaultClaudeRunDeps, cwd });
     } finally {
       logSpy.mockRestore();
       errSpy.mockRestore();
@@ -400,5 +422,9 @@ esac
     expect(record.claude?.transcript).toBe(path.join(state, "projects", "-proj", `${SESSION}.jsonl`));
     const lines = readFileSync(log, "utf8").trim().split("\n");
     expect(lines.map((line) => line.split(" ")[0])).toEqual(["ls", "create", "exec", "exec", "exec"]);
+    expect(lines[1]).toBe(`create --clone --skills=off --name claude-proj claude ${root} ${state}`);
+    expect(lines[2]).toBe(`exec claude-proj git -C ${dir} rev-parse --git-dir`);
+    expect(lines[3]).toBe(`exec claude-proj test -d ${dir}`);
+    expect(record.directory).toBe(dir);
   });
 });

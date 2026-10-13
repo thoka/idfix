@@ -189,7 +189,10 @@ export async function main(argv: readonly string[]): Promise<number> {
   const args = parseArgs(argv);
   // The fast health checks run once before the dispatch of the commands that
   // change state or start a paid run. A fail stops the command here.
-  if ((args.command === "up" || args.command === "restart" || args.command === "run") && !gateForCommand(args)) {
+  // A Claude run takes its project from the working folder: its --dir is a
+  // path inside the sandbox.
+  const gateArgs = args.command === "run" && args.driver === "claude" ? {} : args;
+  if ((args.command === "up" || args.command === "restart" || args.command === "run") && !gateForCommand(gateArgs)) {
     return 1;
   }
   switch (args.command) {

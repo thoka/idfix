@@ -213,9 +213,11 @@ bun run src/cli.ts run --driver claude --dir DIR (--brief FILE | TEXT) [--title 
 
 Runs Claude Code headless (`claude -p BRIEF --output-format json`) in the Docker Sandbox `claude-<project>`, in the folder DIR of its clone. The command blocks until the run ends; there is no background mode yet. `--driver` picks the agent CLI, because `--agent` names an opencode agent (and Claude Code has an `--agent` flag of its own). So `--driver claude` takes no `--agent` and no `--url`, and `--agent claude` without `--driver` gives a usage error that names `--driver claude`. `--model` takes a Claude Code model name or alias such as `sonnet`. `--sandbox NAME` uses an existing sandbox instead of `claude-<project>`.
 
+Start the command in the host checkout of the project (or a host worktree of it). The project and the repository of `sbx create` are the main checkout of the git repository of the current folder, never DIR: DIR is a path inside the sandbox, for example `/home/agent/workspace`, and usually does not exist on the host. Outside a git repository, the command stops before any `sbx` call. The doctor gate also checks the current folder. The clone check after a create runs `git -C DIR rev-parse --git-dir` inside the sandbox.
+
 The steps:
 
-1. When `sbx ls` does not list the sandbox, `run` creates it in clone mode with the state folder of the sandbox as a writable mount. Then it checks with `git -C <root> rev-parse --git-dir` inside the sandbox that the clone exists. An existing sandbox must mount its state folder; else `run` stops and tells you to remove the sandbox, so that the next run creates it with the mount.
+1. When `sbx ls` does not list the sandbox, `run` creates it in clone mode from the host repository of the current folder, with the state folder of the sandbox as a writable mount. Then it checks with `git -C DIR rev-parse --git-dir` inside the sandbox that the clone exists. An existing sandbox must mount its state folder; else `run` stops and tells you to remove the sandbox, so that the next run creates it with the mount.
 2. It checks with `sbx exec NAME test -d DIR` that DIR exists in the clone.
 3. It syncs your Claude configuration into the state folder (see the guide, section "The Claude Code state folder of a sandbox").
 4. It runs Claude Code with `CLAUDE_CONFIG_DIR` set to the state folder.

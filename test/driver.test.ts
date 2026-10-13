@@ -76,27 +76,18 @@ describe("driver registry", () => {
     expect(lookupDriver(DRIVERS, "claude-glm")).toBeUndefined();
   });
 
-  test("the claude driver refuses the session commands of later steps", async () => {
+  test("the claude driver refuses watch, a command of a later step", async () => {
     const errors: string[] = [];
     const spy = spyOn(console, "error").mockImplementation((line: unknown) => {
       errors.push(String(line));
     });
     try {
-      const args = { session: "s" } as never;
-      expect(await claudeDriver.log(args)).toBe(1);
-      expect(await claudeDriver.watch(args)).toBe(1);
-      expect(await claudeDriver.abort(args)).toBe(1);
-      expect(await claudeDriver.say(args)).toBe(1);
+      expect(await claudeDriver.watch({ session: "s" } as never)).toBe(1);
     } finally {
       spy.mockRestore();
     }
-    expect(errors).toEqual([
-      unsupportedLine("claude", "log"),
-      unsupportedLine("claude", "watch"),
-      unsupportedLine("claude", "abort"),
-      unsupportedLine("claude", "say to"),
-    ]);
-    expect(errors[0]).toBe("idfx cannot log claude sessions yet");
+    expect(errors).toEqual([unsupportedLine("claude", "watch")]);
+    expect(errors[0]).toBe("idfx cannot watch claude sessions yet");
   });
 
   test("ignores inherited object keys", () => {

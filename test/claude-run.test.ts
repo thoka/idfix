@@ -148,6 +148,7 @@ function fixture(answer: (cmd: readonly string[]) => { stdout?: string; exitCode
     cwd: base,
     hostRoot: () => root,
     now: () => new Date("2026-10-13T10:00:00Z"),
+    newSessionId: () => SESSION,
   };
   return { root, env, stateDir, name, calls, deps, synced, ensured };
 }
@@ -211,7 +212,7 @@ describe("claudeRun", () => {
     expect(f.calls[1]).toEqual(["sbx", "exec", f.name, "test", "-d", f.root]);
     const run = f.calls[2]!;
     expect(run.slice(0, 5)).toEqual(["sbx", "exec", "-e", `CLAUDE_CONFIG_DIR=${f.stateDir}`, f.name]);
-    expect(run[7]).toContain("'claude' '-p' 'do the thing' '--output-format' 'json' '--model' 'sonnet' '--plugin-dir'");
+    expect(run[7]).toContain(`'claude' '-p' 'do the thing' '--output-format' 'json' '--session-id' '${SESSION}' '--model' 'sonnet' '--plugin-dir'`);
     expect(run[7]).toContain(`cd '${f.root}'`);
     expect(f.synced).toEqual([`${f.env.CLAUDE_CONFIG_DIR} -> ${f.stateDir}`]);
     expect(f.ensured).toEqual([]);
@@ -245,6 +246,52 @@ describe("claudeRun", () => {
     expect(out[0]).toBe(SESSION);
     expect(out[1]).toMatch(/API-equivalent estimate/);
     expect(out.at(-1)).toBe("\ndone");
+  });
+
+  test("writes a running record before the run blocks, with --session-id", async () => {
+    let f!: Fixture;
+    let during: RunRecord | undefined;
+    f = fixture((cmd) => {
+      if (cmd[1] === "ls") return { stdout: lsLine(f.name, `${f.root}, ${f.stateDir}`) };
+      if (cmd.includes("bash")) {
+        during = readRecord(stateRunRecordPath(f.env, SESSION));
+        return { stdout: resultJson() };
+      }
+      return {};
+    });
+    expect(await claudeRun({ dir: f.root, text: "x" }, f.env, f.deps)).toBe(0);
+    expect(during?.claude).toMatchObject({ status: "running", exitCode: null, endedAt: null, sandbox: f.name });
+    expect(readRecord(runRecordPath(f.deps.cwd, SESSION)).claude?.status).toBe("ok");
+  });
+
+  test("an abort during the run keeps the record aborted", async () => {
+    let f!: Fixture;
+    f = fixture((cmd) => {
+      if (cmd[1] === "ls") return { stdout: lsLine(f.name, `${f.root}, ${f.stateDir}`) };
+      if (cmd.includes("bash")) {
+        // What `idfx abort` writes from another terminal while the run blocks.
+        const file = stateRunRecordPath(f.env, SESSION);
+        const record = readRecord(file);
+        writeFileSync(file, JSON.stringify({ ...record, claude: { ...record.claude, status: "aborted", error: "aborted with idfx abort" } }));
+        return { exitCode: 143 };
+      }
+      return {};
+    });
+    expect(await claudeRun({ dir: f.root, text: "x" }, f.env, f.deps)).toBe(1);
+    const record = readRecord(stateRunRecordPath(f.env, SESSION));
+    expect(record.claude).toMatchObject({ status: "aborted", error: "aborted with idfx abort", exitCode: 143 });
+    expect(err.join("\n")).toMatch(/the Claude run aborted/);
+  });
+
+  test("a new session ID in the answer becomes the resume ID", async () => {
+    let f!: Fixture;
+    f = fixture((cmd) => {
+      if (cmd[1] === "ls") return { stdout: lsLine(f.name, `${f.root}, ${f.stateDir}`) };
+      if (cmd.includes("bash")) return { stdout: resultJson({ session_id: "other-id" }) };
+      return {};
+    });
+    expect(await claudeRun({ dir: f.root, text: "x" }, f.env, f.deps)).toBe(0);
+    expect(readRecord(stateRunRecordPath(f.env, SESSION)).claude?.resumeId).toBe("other-id");
   });
 
   test("the model falls back to modelUsage", async () => {
@@ -359,13 +406,13 @@ describe("claudeRun", () => {
     expect(readRecord(runRecordPath(f.deps.cwd, SESSION)).claude?.error).toMatch(/usage limit/);
   });
 
-  test("a run without result JSON gets a generated ID in its record", async () => {
+  test("a run without result JSON keeps the session ID of the start in its record", async () => {
     const { code, f } = await failedRun({ exitCode: 1, stderr: "claude: command not found" });
     expect(code).toBe(1);
     const recordLine = err.find((line) => line.startsWith("run record: "))!;
     const record = readRecord(recordLine.slice("run record: ".length));
-    expect(record.sessionId).toMatch(/^claude-failed-/);
-    expect(record.claude).toMatchObject({ status: "failed", transcript: null, costUsd: null, exitCode: 1 });
+    expect(record.sessionId).toBe(SESSION);
+    expect(record.claude).toMatchObject({ status: "failed", costUsd: null, exitCode: 1 });
     expect(record.claude?.error).toMatch(/command not found/);
     expect(existsSync(f.stateDir)).toBe(false);
   });
@@ -411,7 +458,7 @@ esac
     const errSpy = spyOn(console, "error").mockImplementation(() => {});
     let code: number;
     try {
-      code = await claudeRun({ dir, text: "x" }, env, { ...defaultClaudeRunDeps, cwd });
+      code = await claudeRun({ dir, text: "x" }, env, { ...defaultClaudeRunDeps, cwd, newSessionId: () => SESSION });
     } finally {
       logSpy.mockRestore();
       errSpy.mockRestore();

@@ -16,7 +16,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Env } from "../config";
 import { gitCommonDir } from "../keys";
-import { makeRunRecord, writeRunRecord, writeStateRunRecord, type ClaudeRunInfo } from "../runs";
+import { loadRunRecord, makeRunRecord, writeRunRecord, writeStateRunRecord, type ClaudeRunInfo } from "../runs";
 import {
   cloneStatus,
   defaultRunner,
@@ -73,10 +73,12 @@ export type ClaudeRunDeps = {
   /** The root of the main checkout of the host repository of a folder, or null without git. */
   hostRoot: (directory: string) => string | null;
   now: () => Date;
+  /** The session ID of a new run, passed as `--session-id`. */
+  newSessionId: () => string;
 };
 
-/** A session ID that is safe in a glob and a file name. */
-const SAFE_SESSION = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+/** A session ID that is safe in a glob, a file name, and a `pkill` pattern. */
+export const SAFE_SESSION = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 /**
  * The transcript `<stateDir>/projects/<folder>/<sessionId>.jsonl`, or null.
@@ -124,6 +126,7 @@ export const defaultClaudeRunDeps: ClaudeRunDeps = {
   cwd: process.cwd(),
   hostRoot: hostRepoRoot,
   now: () => new Date(),
+  newSessionId: () => randomUUID(),
 };
 
 /** The fields of the result JSON of `claude -p --output-format json` that idfx keeps. */
@@ -260,6 +263,31 @@ export function ensureClaudeSandbox(
   return null;
 }
 
+/** The outcome of a turn, also `aborted`. */
+export type ClaudeTurnOutcome = { status: "ok" } | { status: "failed" | "aborted"; error: string };
+
+/**
+ * The outcome of a turn after its end. When `idfx abort` marked the record
+ * `aborted` while the turn ran, the turn counts as aborted, whatever the
+ * exit code says.
+ */
+export async function finalOutcome(
+  sessionId: string,
+  cwd: string,
+  env: Env,
+  outcome: ReturnType<typeof claudeOutcome>,
+): Promise<ClaudeTurnOutcome> {
+  const now = await loadRunRecord(sessionId, cwd, env).catch(() => null);
+  if (now?.claude?.status === "aborted") return { status: "aborted", error: now.claude.error ?? "aborted with idfx abort" };
+  return outcome;
+}
+
+/** `{ resumeId }` when Claude Code answered with another session ID than `sessionId`, else nothing. Pure. */
+export function resumeIdOf(sessionId: string, result: ClaudeResult | null): { resumeId?: string } {
+  const answered = result?.sessionId;
+  return answered == null || answered === sessionId || !SAFE_SESSION.test(answered) ? {} : { resumeId: answered };
+}
+
 /** `idfx run --driver claude`. Returns the exit code. */
 export async function claudeRun(
   args: ClaudeRunArgs,
@@ -301,45 +329,67 @@ export async function claudeRun(
     console.error(`warning: enabled plugins without an install folder on the host: ${synced.missingPlugins.join(", ")}`);
   }
 
-  const claudeArgs = ["-p", brief, "--output-format", "json", ...(args.model === undefined ? [] : ["--model", args.model])];
-  console.error(`running Claude Code in the sandbox ${name}, folder ${directory} (this blocks until the run ends)`);
-  const res = deps.runner(claudeExecArgs(bin, name, stateDir, directory, synced.pluginDirs, claudeArgs));
-  const result = parseClaudeResult(res.stdout);
-  const outcome = claudeOutcome(res.exitCode, result, res.stderr ?? "");
-  const sessionId = result?.sessionId ?? `claude-failed-${randomUUID()}`;
-
-  const info: ClaudeRunInfo = {
+  // The session ID is fixed before the start, so the record exists while the
+  // run blocks, and `idfx abort` from another terminal finds the session.
+  const sessionId = deps.newSessionId();
+  const claudeArgs = [
+    "-p",
+    brief,
+    "--output-format",
+    "json",
+    "--session-id",
+    sessionId,
+    ...(args.model === undefined ? [] : ["--model", args.model]),
+  ];
+  const running: ClaudeRunInfo = {
     sandbox: name,
     stateDir,
+    model: args.model ?? null,
+    status: "running",
+    error: null,
+    exitCode: null,
+    isError: null,
+    subtype: null,
+    numTurns: null,
+    durationMs: null,
+    costUsd: null,
+    costKind: "api-equivalent-estimate",
+    usage: null,
+    transcript: null,
+    endedAt: null,
+  };
+  const base = { sessionId, directory, agent: "claude", title: args.title, startedAt, driver: "claude" as const };
+  await writeRunRecord(deps.cwd, makeRunRecord({ ...base, claude: running }));
+  await writeStateRunRecord(env, makeRunRecord({ ...base, claude: running }));
+
+  console.error(`running Claude Code in the sandbox ${name}, folder ${directory}, session ${sessionId} (this blocks until the run ends)`);
+  const res = deps.runner(claudeExecArgs(bin, name, stateDir, directory, synced.pluginDirs, claudeArgs));
+  const result = parseClaudeResult(res.stdout);
+  const outcome = await finalOutcome(sessionId, deps.cwd, env, claudeOutcome(res.exitCode, result, res.stderr ?? ""));
+
+  const info: ClaudeRunInfo = {
+    ...running,
     model: args.model ?? result?.model ?? null,
     status: outcome.status,
-    error: outcome.status === "failed" ? outcome.error : null,
+    error: outcome.status === "ok" ? null : outcome.error,
     exitCode: res.exitCode,
     isError: result?.isError ?? null,
     subtype: result?.subtype ?? null,
     numTurns: result?.numTurns ?? null,
     durationMs: result?.durationMs ?? null,
     costUsd: result?.costUsd ?? null,
-    costKind: "api-equivalent-estimate",
     usage: result?.usage ?? null,
-    transcript: result?.sessionId == null ? null : deps.findTranscript(stateDir, result.sessionId),
+    transcript: deps.findTranscript(stateDir, result?.sessionId ?? sessionId),
     endedAt: deps.now().toISOString(),
+    ...resumeIdOf(sessionId, result),
   };
-  const record = makeRunRecord({
-    sessionId,
-    directory,
-    agent: "claude",
-    title: args.title,
-    startedAt,
-    driver: "claude",
-    claude: info,
-  });
+  const record = makeRunRecord({ ...base, claude: info });
   const recordPath = await writeRunRecord(deps.cwd, record);
   const stateRecordPath = await writeStateRunRecord(env, record);
 
-  if (outcome.status === "failed") {
+  if (outcome.status !== "ok") {
     printStderr(res);
-    console.error(`error: the Claude run failed: ${outcome.error}`);
+    console.error(`error: the Claude run ${outcome.status}: ${outcome.error}`);
     console.error(`run record: ${recordPath}`);
     return 1;
   }

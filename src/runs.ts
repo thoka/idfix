@@ -36,28 +36,43 @@ export type ClaudeRunInfo = {
   stateDir: string;
   /** The model: the `--model` value, else the first model of `modelUsage`. */
   model: string | null;
-  /** `ok`, or `failed` with the reason in `error`. */
-  status: "ok" | "failed";
+  /**
+   * `running` while a turn runs (`run` or `say`), then `ok`, or `failed`
+   * with the reason in `error`. `aborted` after `idfx abort`.
+   */
+  status: ClaudeRunStatus;
   error: string | null;
-  /** The exit code of `sbx exec`. */
-  exitCode: number;
-  /** `is_error`, `subtype`, `num_turns`, and `duration_ms` of the result JSON. */
+  /** The exit code of `sbx exec` of the last turn, or null while it runs. */
+  exitCode: number | null;
+  /**
+   * `is_error` and `subtype` of the last result JSON. `num_turns` and
+   * `duration_ms` add up over the turns of `run` and `say`.
+   */
   isError: boolean | null;
   subtype: string | null;
   numTurns: number | null;
   durationMs: number | null;
   /**
-   * `total_cost_usd` of the result JSON. It is the API price of the tokens,
-   * an estimate: on a Max plan, the run costs nothing extra.
+   * The sum of `total_cost_usd` of the result JSONs. It is the API price of
+   * the tokens, an estimate: on a Max plan, the run costs nothing extra.
    */
   costUsd: number | null;
   costKind: "api-equivalent-estimate";
-  /** `usage` of the result JSON, as Claude Code reports it. */
+  /** `usage` of the result JSONs, as Claude Code reports it; numbers add up over the turns. */
   usage: Record<string, unknown> | null;
   /** The transcript on the host: `<stateDir>/projects/<folder>/<sessionId>.jsonl`. */
   transcript: string | null;
-  endedAt: string;
+  /** The end of the last turn, or null while it runs. */
+  endedAt: string | null;
+  /**
+   * The session ID for the next `--resume`, when Claude Code answered a
+   * resume with a new ID. Missing when it is the record session ID.
+   */
+  resumeId?: string;
 };
+
+/** The states of a run of the `claude` driver. */
+export type ClaudeRunStatus = "running" | "ok" | "failed" | "aborted";
 
 /**
  * The driver name of a record. A record without a `driver` string is an

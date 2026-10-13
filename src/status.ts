@@ -9,7 +9,8 @@ import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "./c
 import { listPendingRequests } from "./requests";
 import { listServers } from "./servers";
 import { readDirs, serveDirsPath } from "./state";
-import { claudeRowsLoader, ENDED_VISIBLE_MS, inScope, type ClaudeRow, type ClaudeRowsLoader } from "./claude/rows";
+import { claudeRunVisible } from "./claude/sandbox-rows";
+import { claudeRowsLoader, inScope, type ClaudeRow, type ClaudeRowsLoader } from "./claude/rows";
 import { loadAllRunRecords, recordDriver, type RunRecord } from "./runs";
 import { hostname } from "node:os";
 import { CONDITION_TYPES, conditionKey, evaluate, noPlanCommit, restoreState, type ConditionType } from "./watch/conditions";
@@ -278,10 +279,7 @@ export function claudeRunRows(records: readonly RunRecord[], nowMs: number): Sta
   for (const record of records) {
     const info = record.claude;
     if (recordDriver(record) !== "claude" || info === undefined) continue;
-    if (info.status !== "running") {
-      const ended = Date.parse(info.endedAt ?? "");
-      if (Number.isNaN(ended) || nowMs - ended > ENDED_VISIBLE_MS) continue;
-    }
+    if (!claudeRunVisible(info, nowMs)) continue;
     rows.push({
       id: record.sessionId,
       state: claudeRunState(info.status),

@@ -33,8 +33,9 @@
  * a new sandbox appears; when it answers, it is seeded and its stream
  * opens.
  *
- * Claude Code sessions. One Claude loader (`claudeRowsLoader`
- * of `src/claude/rows.ts`) lives as long as the live view. It reads the
+ * Claude Code sessions. One Claude loader (`claudeTopLoader`
+ * of `src/claude/sandbox-rows.ts`: the host sessions and the Claude sandbox
+ * runs with their guards) lives as long as the live view. It reads the
  * Claude files once at the start and again on every tick. It keeps a byte
  * offset per transcript, so a tick reads only the new lines, and it loads
  * the prices once. A tick starts no second poll while one still runs. A
@@ -111,7 +112,7 @@ export async function startLive(
   env: Env = process.env,
   deps: StatusDeps = defaultDeps,
   live: LiveDeps = realDeps,
-  claude: ClaudeRowsLoader = defaultClaudeLoader(),
+  claude: ClaudeRowsLoader = defaultClaudeLoader(args.dir),
 ): Promise<LiveHandle> {
   const opencode = createTopModel();
   let claudeRows: ClaudeRow[] = [];

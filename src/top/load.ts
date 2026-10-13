@@ -10,7 +10,8 @@
  * that is down is skipped. A server that rejects the password or fails
  * prints `warning: <url>: <message>` to stderr and is skipped.
  *
- * The Claude Code sessions come from `src/claude/rows.ts` and
+ * The Claude Code sessions come from `src/claude/rows.ts`, and the Claude
+ * sandbox runs from `src/claude/sandbox-rows.ts`. They
  * join the opencode rows through `withClaudeRows` of `src/top/claude.ts`.
  * The same folder rule and `--all` apply. They show also when no opencode
  * server answers.
@@ -26,7 +27,8 @@ import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "../
 import type { Env } from "../config";
 import { listPendingRequests, type PendingRequest } from "../requests";
 import { listServers } from "../servers";
-import { claudeRowsLoader, type ClaudeRowsLoader } from "../claude/rows";
+import type { ClaudeRowsLoader } from "../claude/rows";
+import { claudeTopLoader } from "../claude/sandbox-rows";
 import {
   claudeRowsSafe,
   defaultDeps as defaultStatusDeps,
@@ -81,12 +83,15 @@ export function claudeScope(args: { dir?: string; all: boolean }, env: Env, deps
 }
 
 /**
- * The default Claude loader of `top`. It reads the environment of the
- * process, like `status`, so a test that passes its own `env` never reads
- * the real `~/.claude`.
+ * The default Claude loader of `top`: the Claude Code sessions on the host
+ * and the Claude sandbox runs from the run records of `dir` (default: the
+ * current folder) and of the state folder (`claudeTopLoader` of
+ * `src/claude/sandbox-rows.ts`). It reads the environment of the process,
+ * like `status`, so a test that passes its own `env` never reads the real
+ * `~/.claude`.
  */
-export function defaultClaudeLoader(): ClaudeRowsLoader {
-  return claudeRowsLoader(process.env);
+export function defaultClaudeLoader(dir?: string): ClaudeRowsLoader {
+  return claudeTopLoader(process.env, path.resolve(dir ?? process.cwd()));
 }
 
 /** List the sessions, the status map, and the pending requests of one directory. */
@@ -198,7 +203,7 @@ export async function loadTopAll(
   args: { url?: string; dir?: string; all: boolean },
   env: Env,
   deps: StatusDeps = defaultDeps,
-  claude: ClaudeRowsLoader = defaultClaudeLoader(),
+  claude: ClaudeRowsLoader = defaultClaudeLoader(args.dir),
 ): Promise<TopResult> {
   const model = createTopModel();
   const servers = listServers(env, args.url);
@@ -234,7 +239,7 @@ export async function loadTop(
   args: { url?: string; dir?: string; all: boolean },
   env: Env = process.env,
   deps: StatusDeps = defaultDeps,
-  claude: ClaudeRowsLoader = defaultClaudeLoader(),
+  claude: ClaudeRowsLoader = defaultClaudeLoader(args.dir),
 ): Promise<TopModel> {
   return (await loadTopAll(args, env, deps, claude)).model;
 }
@@ -288,7 +293,7 @@ export async function top(
   env: Env = process.env,
   deps: StatusDeps = defaultDeps,
   ui: TopUi = defaultUi,
-  claude: ClaudeRowsLoader = defaultClaudeLoader(),
+  claude: ClaudeRowsLoader = defaultClaudeLoader(args.dir),
 ): Promise<number> {
   if (!args.once) {
     if (ui.interactive()) return ui.runView(args, env, deps);

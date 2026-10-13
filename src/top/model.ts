@@ -98,6 +98,13 @@ export type SessionRow = {
   waitingFor?: string;
   /** The kind of a Claude session: started in a terminal, or a background job. */
   kind?: "interactive" | "background";
+  /** The sbx sandbox of a Claude sandbox run (`idfx run --driver claude`). */
+  sandbox?: string;
+  /**
+   * The warning lines of the guard hits of a Claude sandbox run
+   * (`formatFinding` of `src/detect.ts`). The detail pane shows them.
+   */
+  attention?: string[];
 };
 
 /**

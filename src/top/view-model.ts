@@ -130,7 +130,8 @@ export function waitingLine(text: string): string {
 
 /** The second head line of a Claude session: the kind and the model. */
 function claudeInfoLine(detail: SessionRow): string {
-  return `claude ${detail.kind ?? "session"}  model ${detail.model ?? "-"}`;
+  const kind = detail.sandbox === undefined ? (detail.kind ?? "session") : `sandbox run in ${detail.sandbox}`;
+  return `claude ${kind}  model ${detail.model ?? "-"}`;
 }
 
 /** The subagent sessions as a tree, one line per session. */
@@ -152,7 +153,8 @@ function treeLines(children: readonly SessionDetail[], indent: string): DetailLi
  * cut at the end.
  *
  * A Claude session has a second head line with its kind and its model, the
- * `waitingFor` text as its pending line, and no log.
+ * `waitingFor` text as its pending line, and no log. A Claude sandbox run
+ * with a guard hit shows the warning lines of the hit after the head.
  */
 export function detailLines(detail: SessionDetail | undefined, maxLines: number): DetailLine[] {
   if (maxLines <= 0) return [];
@@ -160,6 +162,9 @@ export function detailLines(detail: SessionDetail | undefined, maxLines: number)
   const claude = detail.driver === "claude";
   const fixed: DetailLine[] = [{ text: headLine(detail), tone: "head" }];
   if (claude) fixed.push({ text: claudeInfoLine(detail), tone: "dim" });
+  if (detail.attention !== undefined && detail.attention.length > 0) {
+    for (const line of detail.attention) fixed.push({ text: line, tone: "error" });
+  }
   const pending = treePending(detail);
   if (pending.length > 0 || detail.waitingFor !== undefined) {
     fixed.push({ text: "pending:", tone: "section" });
@@ -226,6 +231,9 @@ export function claudeOpenAction(
   size: { columns: number; rows: number },
 ): ClaudeOpenAction {
   if (row.state === "ended") return { kind: "note", text: "open: session ended" };
+  if (row.sandbox !== undefined) {
+    return { kind: "note", text: `open: a sandbox run has no terminal; use idfx log ${row.sessionId}` };
+  }
   if (row.kind === "background") {
     if (row.jobId === undefined) return { kind: "note", text: "open: no job id for this background session" };
     const command = `claude attach ${row.jobId}`;

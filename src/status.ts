@@ -251,14 +251,14 @@ export type StatusRow = {
   sandbox?: string;
 };
 
-/** Loads the run records of a folder and of the state folder. */
-export type RunRecordsLoader = (cwd: string) => Promise<RunRecord[]>;
-
 /**
- * The default loader: `loadAllRunRecords` with the state folder from the
- * environment of the process.
+ * Loads the run records of a folder and of the state folder. `env` is the
+ * environment of `status`, so it decides the state folder.
  */
-export const defaultRunRecords: RunRecordsLoader = (cwd) => loadAllRunRecords(cwd, process.env as Env);
+export type RunRecordsLoader = (cwd: string, env: Env) => Promise<RunRecord[]>;
+
+/** The default loader: `loadAllRunRecords` with the state folder from `env`. */
+export const defaultRunRecords: RunRecordsLoader = (cwd, env) => loadAllRunRecords(cwd, env);
 
 /** The state of a Claude sandbox run in `status`: `running` shows as `busy`, `ok` as `idle`. Pure. */
 export function claudeRunState(status: string): string {
@@ -297,9 +297,14 @@ export function claudeRunRows(records: readonly RunRecord[], nowMs: number): Sta
 }
 
 /** The Claude sandbox run rows of `status`. A failure costs only these rows, with a warning on stderr. */
-async function claudeRunRowsSafe(loader: RunRecordsLoader, cwd: string, nowMs: number): Promise<StatusRow[]> {
+async function claudeRunRowsSafe(
+  loader: RunRecordsLoader,
+  cwd: string,
+  env: Env,
+  nowMs: number,
+): Promise<StatusRow[]> {
   try {
-    return claudeRunRows(await loader(cwd), nowMs);
+    return claudeRunRows(await loader(cwd, env), nowMs);
   } catch (error) {
     console.error(`warning: claude runs: ${error instanceof Error ? error.message : errorMessage(error)}`);
     return [];
@@ -553,7 +558,7 @@ export async function status(
     for (const row of claude) {
       rows.push(claudeStatusRow(row, projectNameOfRun(row.directory, deps.exists, deps.commonDirOf)));
     }
-    for (const row of await claudeRunRowsSafe(runRecords, path.resolve(args.dir ?? process.cwd()), nowMs)) {
+    for (const row of await claudeRunRowsSafe(runRecords, path.resolve(args.dir ?? process.cwd()), env, nowMs)) {
       if (listed.has(row.id) || rows.some((other) => other.id === row.id)) continue;
       rows.push({ ...row, project: projectNameOfRun(row.folder, deps.exists, deps.commonDirOf) });
     }
@@ -604,7 +609,7 @@ export async function status(
   }
   // The runs of `idfx run --driver claude`: their transcripts lie in the
   // state folder of the sandbox, so they come from the run records.
-  const runs = await claudeRunRowsSafe(runRecords, directory, nowMs);
+  const runs = await claudeRunRowsSafe(runRecords, directory, env, nowMs);
   if (runs.length > 0) {
     const scope = directories ?? projectDirectories(directory, env, deps);
     for (const row of runs) {

@@ -1214,6 +1214,27 @@ describe("Claude sandbox runs in status", () => {
     }
   });
 
+  test("the default run record loader reads the state folder of the env of status", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "idfx-status-claude-runs-"));
+    const runsDir = path.join(stateHome, "idfx", "runs");
+    mkdirSync(runsDir, { recursive: true });
+    writeFileSync(path.join(runsDir, "c4.json"), JSON.stringify(claudeRecord("c4", "/repo", { status: "running", endedAt: null })));
+    const captured = captureLog();
+    try {
+      const code = await status(
+        { url: "http://127.0.0.1:9", dir: "/repo", all: false },
+        { XDG_STATE_HOME: stateHome },
+        { ...testDeps, commonDirOf: () => null, now: () => now },
+        async () => [],
+      );
+      expect(code).toBe(0);
+      expect(captured.lines).toEqual(["no server on http://127.0.0.1:9", "c4 busy run c4"]);
+    } finally {
+      captured.restore();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
   test("status --all lists the runs of every project with their project", async () => {
     const stateHome = mkdtempSync(path.join(tmpdir(), "idfx-status-claude-runs-"));
     const captured = captureLog();

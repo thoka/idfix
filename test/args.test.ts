@@ -126,6 +126,37 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["run", "--agent", "a", "text"])).toThrow(UsageError);
   });
 
+  test("run --driver claude takes a Claude model and a sandbox", () => {
+    expect(
+      parseArgs(["run", "--driver", "claude", "--dir", "/w", "--brief", "b.md", "--model", "sonnet", "--sandbox", "claude-x"]),
+    ).toEqual({
+      command: "run",
+      agent: "claude",
+      dir: "/w",
+      briefFile: "b.md",
+      text: undefined,
+      title: undefined,
+      model: "sonnet",
+      driver: "claude",
+      sandbox: "claude-x",
+    });
+  });
+
+  test("run --driver opencode is the default form", () => {
+    const parsed = parseArgs(["run", "--driver", "opencode", "--agent", "a", "--dir", "/w", "t"]);
+    expect(parsed).toEqual(parseArgs(["run", "--agent", "a", "--dir", "/w", "t"]));
+    expect("driver" in parsed).toBe(false);
+  });
+
+  test("run --driver rejects bad combinations", () => {
+    expect(() => parseArgs(["run", "--driver", "codex", "--dir", "/w", "t"])).toThrow(/--driver must be/);
+    expect(() => parseArgs(["run", "--driver", "claude", "--agent", "coder", "--dir", "/w", "t"])).toThrow(/no --agent/);
+    expect(() => parseArgs(["run", "--driver", "claude", "--url", "http://x", "--dir", "/w", "t"])).toThrow(/no --url/);
+    expect(() => parseArgs(["run", "--agent", "a", "--sandbox", "s", "--dir", "/w", "t"])).toThrow(/only allowed with --driver claude/);
+    expect(() => parseArgs(["run", "--agent", "claude", "--dir", "/w", "t"])).toThrow(/--driver claude/);
+    expect(() => parseArgs(["run", "--driver", "claude", "t"])).toThrow(/--dir/);
+  });
+
   test("status, watch, log, abort", () => {
     expect(parseArgs(["status"])).toEqual({ command: "status", all: false, json: false });
     expect(parseArgs(["status", "--dir", "/w"])).toEqual({ command: "status", dir: "/w", all: false, json: false });

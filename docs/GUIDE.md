@@ -575,9 +575,9 @@ In clone mode, the worktree of a run lives only inside the sandbox clone, at `<r
 - `idfx worktree rm STEP` removes the worktree and deletes the branch `feature/STEP` inside the clone. It first disposes the opencode instance of the folder (so that the background package install of opencode stops writing into it), retries a failing `git worktree remove` once, falls back to `rm -rf` plus `git worktree prune`, and exits 1 with a message when a folder or a branch is left behind. `rm` deletes work that was not fetched. Run `idfx fetch` before you remove a worktree whose work you want to keep.
 - `idfx status` and `idfx top` also see the run worktrees in clone mode: for a sandbox server, and for a `--dir` project with a sandbox state file, they list the project root plus the worktrees that `git worktree list` shows inside the clone, so the sessions of clone-mode runs appear there.
 
-### The Claude Code state folder of a sandbox (in progress)
+### The Claude Code state folder of a sandbox
 
-This part is not wired into a command yet. A later step adds `idfx run --agent claude`. The code is in `src/claude/sandbox-state.ts`.
+`idfx run --driver claude` uses this folder. The code is in `src/claude/sandbox-state.ts` and `src/claude/run.ts`.
 
 A Claude Code sandbox does not read your Claude configuration from the host. So idfix gives each Claude sandbox one writable host folder, the state folder: `$XDG_STATE_HOME/idfx/sbx/<sandbox>/claude/`, default `~/.local/state/idfx/sbx/<sandbox>/claude/`, mode 700. The folder must not lie in `/tmp/claude-<uid>`: a mount there makes sbx create that folder as root inside the sandbox, and then Claude Code refuses to start. idfix refuses such a path.
 
@@ -585,6 +585,19 @@ A Claude Code sandbox does not read your Claude configuration from the host. So 
 - Sync before each run, on the host, with links followed. Stale files go away. The sync copies `CLAUDE.md` of your Claude config folder (`$CLAUDE_CONFIG_DIR`, else `~/.claude`), the `skills/` folder without dot folders such as `.trash`, and one folder `plugins-src/<name>/` for each enabled plugin (from its `installPath` in `plugins/installed_plugins.json`, user scope). It writes its own `settings.json`: `permissions.defaultMode: bypassPermissions`, `skipDangerousModePermissionPrompt: true`, and your `model` and `env`. Your hooks and your `statusLine` stay out, because their programs do not exist in the sandbox. Everything else in the folder belongs to Claude Code in the sandbox, for example `projects/` with the transcripts, and the sync leaves it alone.
 - Run: `sbx exec -e CLAUDE_CONFIG_DIR=<state folder> <sandbox> bash -lc '...'`. The command first copies the credentials file of the sbx claude kit into the state folder, once. That file holds only a static placeholder pair; sbx injects the real login outside the sandbox. idfix never reads your own `.credentials.json`. Then it runs `claude` in the worktree with one `--plugin-dir` per plugin folder.
 - Read: the transcripts appear live on the host under `<state folder>/projects/`. `CLAUDE_CONFIG_DIR=<state folder> ccusage` reads the cost of one sandbox.
+
+#### Run Claude Code in the sandbox: `idfx run --driver claude`
+
+```
+idfx run --driver claude --dir <folder in the clone> --brief brief.md --model sonnet
+```
+
+- The sandbox is `claude-<project>`. The first run creates it with the state folder as mount and checks the clone. `--sandbox NAME` takes another existing sandbox. A sandbox without the mount of its state folder is refused, because Claude Code there would get no configuration, and its transcripts would stay in the sandbox. Remove it with `sbx rm <name>`, and the next run creates it again.
+- The folder must exist in the clone of the sandbox. `idfx worktree` works only for the opencode sandbox so far. So create a worktree with `sbx exec <sandbox> git -C <root> worktree add <folder>`, or run in the root.
+- The run blocks until Claude Code ends. Then the command prints the session ID, the cost, the transcript path, the run record paths, and the answer.
+- The cost is an API-equivalent estimate (`total_cost_usd`). On a Max plan, the run costs nothing extra.
+- A failed run (an exit code other than 0, `is_error: true`, or a usage limit message) ends with exit code 1, a clear error line, and a run record with the error.
+- `watch`, `log`, `say`, and `abort` do not work for Claude runs yet.
 
 Known gaps:
 

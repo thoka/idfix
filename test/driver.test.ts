@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   DRIVERS,
+  claudeDriver,
   dispatchSession,
   lookupDriver,
   opencodeDriver,
   sessionDriver,
   unknownDriverLine,
+  unsupportedLine,
   type Driver,
   type DriverRegistry,
   type SessionDriverDeps,
@@ -66,11 +68,35 @@ describe("recordDriver", () => {
 });
 
 describe("driver registry", () => {
-  test("holds only the opencode driver", () => {
+  test("holds the opencode and the claude driver", () => {
     expect(lookupDriver(DRIVERS, "opencode")).toBe(opencodeDriver);
     expect(opencodeDriver.name).toBe("opencode");
-    expect(lookupDriver(DRIVERS, "claude")).toBeUndefined();
+    expect(lookupDriver(DRIVERS, "claude")).toBe(claudeDriver);
+    expect(claudeDriver.name).toBe("claude");
     expect(lookupDriver(DRIVERS, "claude-glm")).toBeUndefined();
+  });
+
+  test("the claude driver refuses the session commands of later steps", async () => {
+    const errors: string[] = [];
+    const spy = spyOn(console, "error").mockImplementation((line: unknown) => {
+      errors.push(String(line));
+    });
+    try {
+      const args = { session: "s" } as never;
+      expect(await claudeDriver.log(args)).toBe(1);
+      expect(await claudeDriver.watch(args)).toBe(1);
+      expect(await claudeDriver.abort(args)).toBe(1);
+      expect(await claudeDriver.say(args)).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors).toEqual([
+      unsupportedLine("claude", "log"),
+      unsupportedLine("claude", "watch"),
+      unsupportedLine("claude", "abort"),
+      unsupportedLine("claude", "say to"),
+    ]);
+    expect(errors[0]).toBe("idfx cannot log claude sessions yet");
   });
 
   test("ignores inherited object keys", () => {

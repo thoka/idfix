@@ -30,7 +30,23 @@ export type ParsedArgs =
     }
   /** The hidden watchdog that `up` spawns. */
   | { command: "idle-watch"; port: number; minutes: number }
-  | { command: "run"; url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string; model?: string }
+  /**
+   * `run`. `driver` is set only for `--driver claude`; then `agent` is
+   * `claude`, `model` is a Claude Code model name, and `sandbox` may name
+   * the sandbox.
+   */
+  | {
+      command: "run";
+      url?: string;
+      agent: string;
+      dir: string;
+      briefFile?: string;
+      text?: string;
+      title?: string;
+      model?: string;
+      driver?: "claude";
+      sandbox?: string;
+    }
   | { command: "status"; url?: string; dir?: string; all: boolean; json: boolean }
   | { command: "top"; url?: string; dir?: string; all: boolean; once: boolean; json: boolean }
   | { command: "attach"; url?: string; code: string }
@@ -256,10 +272,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "run": {
       const { flags, positionals, globals } = collectFlags(
         rest,
-        new Set(["agent", "dir", "brief", "title", "model", "url"]),
+        new Set(["agent", "dir", "brief", "title", "model", "url", "driver", "sandbox"]),
         new Set<string>(),
       );
-      const agent = requireString(flags, "agent", "run");
       const dir = requireString(flags, "dir", "run");
       const briefFile = optionalString(flags, "brief");
       const text = positionals.length > 0 ? positionals.join(" ") : undefined;
@@ -268,6 +283,31 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       }
       if (briefFile === undefined && text === undefined) {
         throw new UsageError("give the brief as --brief FILE or as TEXT");
+      }
+      const driver = optionalString(flags, "driver") ?? "opencode";
+      if (driver !== "opencode" && driver !== "claude") {
+        throw new UsageError(`--driver must be opencode or claude, got "${driver}"`);
+      }
+      if (driver === "claude") {
+        // --agent names an opencode agent, so a Claude run takes none.
+        if (flags.has("agent")) throw new UsageError("--driver claude takes no --agent");
+        if (globals.url !== undefined) throw new UsageError("--driver claude takes no --url, it runs in a Claude sandbox");
+        return {
+          command: "run",
+          agent: "claude",
+          dir,
+          briefFile,
+          text,
+          title: optionalString(flags, "title"),
+          model: optionalString(flags, "model"),
+          driver: "claude",
+          sandbox: optionalString(flags, "sandbox"),
+        };
+      }
+      if (flags.has("sandbox")) throw new UsageError("--sandbox is only allowed with --driver claude");
+      const agent = requireString(flags, "agent", "run");
+      if (agent === "claude") {
+        throw new UsageError("--agent names an opencode agent; for a Claude Code run use --driver claude");
       }
       const model = optionalString(flags, "model");
       if (model !== undefined && model.split("/").length < 2) {

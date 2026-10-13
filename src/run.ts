@@ -148,8 +148,21 @@ export function splitModel(model: string): { providerID: string; modelID: string
   return { providerID: model.slice(0, index), modelID: model.slice(index + 1) };
 }
 
-/** The arguments of `idfx run`. */
-export type RunArgs = { url?: string; agent: string; dir: string; briefFile?: string; text?: string; title?: string; model?: string };
+/**
+ * The arguments of `idfx run`. `driver` picks the agent CLI (default
+ * `opencode`); `sandbox` names the sandbox of a `claude` run.
+ */
+export type RunArgs = {
+  url?: string;
+  agent: string;
+  dir: string;
+  briefFile?: string;
+  text?: string;
+  title?: string;
+  model?: string;
+  driver?: "opencode" | "claude";
+  sandbox?: string;
+};
 
 export async function run(
   args: RunArgs,

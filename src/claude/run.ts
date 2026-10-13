@@ -1,0 +1,330 @@
+/**
+ * `idfx run --driver claude`: one headless Claude Code run in the Claude
+ * sandbox of the project (option D of the Claude sandbox design).
+ *
+ * The run finds or creates the sandbox `claude-<project>` in clone mode with
+ * the state folder as a writable mount, checks the clone after a create,
+ * syncs the host configuration into the state folder, and then runs
+ * `claude -p <brief> --output-format json` in the run folder through
+ * `sbx exec`. The run blocks until Claude Code ends. Then it writes a run
+ * record with the result of the run (`ClaudeRunInfo`).
+ *
+ * All `sbx` calls go through a runner, so the tests replace it with a fake
+ * and never call the real `sbx`.
+ */
+import { randomUUID } from "node:crypto";
+import path from "node:path";
+import type { Env } from "../config";
+import { projectNameOf, projectRootOfRun } from "../keys";
+import { makeRunRecord, writeRunRecord, writeStateRunRecord, type ClaudeRunInfo } from "../runs";
+import {
+  cloneStatus,
+  defaultRunner,
+  execFailedMessage,
+  listsMounts,
+  listsName,
+  missingCloneMessage,
+  printStderr,
+  safeSandboxPart,
+  sbxBin,
+  type Runner,
+} from "../sandbox";
+import {
+  claudeCreateArgs,
+  claudeExecArgs,
+  claudeStateDir,
+  ensureClaudeStateDir,
+  hostClaudeDir,
+  syncClaudeState,
+  type ClaudeStateSync,
+} from "./sandbox-state";
+
+/** The name of the Claude sandbox of a project: `claude-<project>`, sanitized. Pure. */
+export function claudeSandboxName(project: string): string {
+  return `claude-${safeSandboxPart(project)}`;
+}
+
+/** The arguments of a Claude run. */
+export type ClaudeRunArgs = {
+  dir: string;
+  briefFile?: string;
+  text?: string;
+  title?: string;
+  /** A Claude Code model name or alias, for example `sonnet`. */
+  model?: string;
+  /** An existing sandbox to use instead of `claude-<project>`. */
+  sandbox?: string;
+};
+
+/** The parts of a Claude run that the tests replace. */
+export type ClaudeRunDeps = {
+  /** Runs every `sbx` call, also the blocking Claude run. */
+  runner: Runner;
+  /** Syncs the host configuration into the state folder. */
+  sync: (hostDir: string, stateDir: string) => ClaudeStateSync;
+  /** Creates the state folder before `sbx create` mounts it. */
+  ensureStateDir: (stateDir: string) => void;
+  /** The transcript of a session in the state folder, or null. */
+  findTranscript: (stateDir: string, sessionId: string) => string | null;
+  /** Reads the brief file. */
+  readBrief: (file: string) => Promise<string>;
+  /** The folder of the run record copy `.opencode/runs/`. */
+  cwd: string;
+  now: () => Date;
+};
+
+/** A session ID that is safe in a glob and a file name. */
+const SAFE_SESSION = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+/**
+ * The transcript `<stateDir>/projects/<folder>/<sessionId>.jsonl`, or null.
+ * The agent in the sandbox can write the state folder, so the scan follows
+ * no links, and an unsafe session ID finds nothing.
+ */
+export function findClaudeTranscript(stateDir: string, sessionId: string): string | null {
+  if (!SAFE_SESSION.test(sessionId)) return null;
+  try {
+    const glob = new Bun.Glob(`projects/**/${sessionId}.jsonl`);
+    for (const match of glob.scanSync({ cwd: stateDir, followSymlinks: false, onlyFiles: true })) {
+      return path.join(stateDir, match);
+    }
+  } catch {
+    // No projects folder yet.
+  }
+  return null;
+}
+
+async function readBriefFile(file: string): Promise<string> {
+  try {
+    return await Bun.file(file).text();
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`cannot read brief file ${file}: ${reason}`);
+  }
+}
+
+export const defaultClaudeRunDeps: ClaudeRunDeps = {
+  runner: defaultRunner,
+  sync: (hostDir, stateDir) => syncClaudeState(hostDir, stateDir),
+  ensureStateDir: (stateDir) => ensureClaudeStateDir(stateDir),
+  findTranscript: findClaudeTranscript,
+  readBrief: readBriefFile,
+  cwd: process.cwd(),
+  now: () => new Date(),
+};
+
+/** The fields of the result JSON of `claude -p --output-format json` that idfx keeps. */
+export type ClaudeResult = {
+  sessionId: string | null;
+  isError: boolean | null;
+  subtype: string | null;
+  numTurns: number | null;
+  durationMs: number | null;
+  costUsd: number | null;
+  usage: Record<string, unknown> | null;
+  result: string | null;
+  model: string | null;
+};
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    return asObject(JSON.parse(text));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The result JSON in the stdout of a run, or null. The JSON is the whole
+ * stdout; else the last line that holds a JSON object. Pure.
+ */
+export function parseClaudeResult(stdout: string): ClaudeResult | null {
+  const trimmed = stdout.trim();
+  let object = parseJsonObject(trimmed);
+  if (object === null) {
+    const lines = trimmed.split("\n").reverse();
+    for (const line of lines) {
+      object = parseJsonObject(line.trim());
+      if (object !== null) break;
+    }
+  }
+  if (object === null) return null;
+  const str = (key: string) => (typeof object[key] === "string" ? (object[key] as string) : null);
+  const num = (key: string) => (typeof object[key] === "number" ? (object[key] as number) : null);
+  const modelUsage = asObject(object.modelUsage);
+  return {
+    sessionId: str("session_id"),
+    isError: typeof object.is_error === "boolean" ? object.is_error : null,
+    subtype: str("subtype"),
+    numTurns: num("num_turns"),
+    durationMs: num("duration_ms"),
+    costUsd: num("total_cost_usd"),
+    usage: asObject(object.usage),
+    result: str("result"),
+    model: modelUsage === null ? null : (Object.keys(modelUsage)[0] ?? null),
+  };
+}
+
+/**
+ * Whether a text is a usage limit message of Claude Code, for example
+ * `Claude AI usage limit reached|1760000000` or `You've hit your limit`.
+ * Only a short text counts: a long answer that mentions a limit is work, not
+ * a stop. The exact form of a real limit stop is not known yet. Pure.
+ */
+export function isLimitMessage(text: string | null): boolean {
+  if (text === null || text.length > 500) return false;
+  return /limit (?:reached|exceeded)|hit your (?:\w+ )?limit|out of (?:extra )?usage/i.test(text);
+}
+
+/** The outcome of a run: `ok`, or `failed` with a reason. Pure. */
+export function claudeOutcome(
+  exitCode: number,
+  result: ClaudeResult | null,
+  stderr: string,
+): { status: "ok" } | { status: "failed"; error: string } {
+  const detail = (result?.result ?? stderr.trim()).split("\n")[0]?.slice(0, 300) ?? "";
+  const suffix = detail.length > 0 ? `: ${detail}` : "";
+  if (isLimitMessage(result?.result ?? null) || (result === null && isLimitMessage(stderr.trim()))) {
+    return { status: "failed", error: `Claude Code hit a usage limit${suffix}` };
+  }
+  if (exitCode !== 0) return { status: "failed", error: `sbx exec ended with code ${exitCode}${suffix}` };
+  if (result === null) return { status: "failed", error: "the run printed no result JSON" };
+  if (result.isError === true) {
+    return { status: "failed", error: `Claude Code reported an error (${result.subtype ?? "no subtype"})${suffix}` };
+  }
+  if (result.sessionId === null) return { status: "failed", error: "the result JSON has no session_id" };
+  return { status: "ok" };
+}
+
+/** The cost line of a run. Pure. */
+export function claudeCostLine(costUsd: number | null): string {
+  if (costUsd === null) return "cost: unknown (the result JSON has no total_cost_usd)";
+  return `cost ~$${costUsd.toFixed(4)} (API-equivalent estimate; on a Max plan the run costs nothing extra)`;
+}
+
+function fail(message: string): number {
+  console.error(`error: ${message}`);
+  return 1;
+}
+
+/**
+ * Makes sure that the sandbox exists with the state folder mounted. A
+ * missing sandbox is created and its clone checked. Returns an error
+ * message, or null when the sandbox is ready.
+ */
+export function ensureClaudeSandbox(
+  input: { bin: string; name: string; root: string; stateDir: string },
+  deps: Pick<ClaudeRunDeps, "runner" | "ensureStateDir">,
+): string | null {
+  const { bin, name, root, stateDir } = input;
+  const ls = deps.runner([bin, "ls"]);
+  if (ls.exitCode !== 0) return `sbx ls failed with code ${ls.exitCode}: ${(ls.stderr ?? "").trim()}`;
+  if (listsName(ls.stdout, name)) {
+    if (!listsMounts(ls.stdout, name, [stateDir])) {
+      return [
+        `the sandbox ${name} does not mount the state folder ${stateDir}.`,
+        "Without it, Claude Code in the sandbox gets no host configuration, and its transcripts stay in the sandbox.",
+        `Remove the sandbox (sbx rm ${name}) and run again, so that idfx creates it with the mount.`,
+      ].join("\n");
+    }
+    return null;
+  }
+  deps.ensureStateDir(stateDir);
+  console.error(`creating the sandbox ${name} for ${root}`);
+  const created = deps.runner(claudeCreateArgs(bin, name, root, stateDir));
+  if (created.exitCode !== 0) {
+    printStderr(created);
+    return `sbx create of the sandbox ${name} failed with code ${created.exitCode}`;
+  }
+  const clone = cloneStatus(deps.runner, bin, name, root);
+  if (clone.state === "missing") return missingCloneMessage(name, root);
+  if (clone.state === "exec-failed") return execFailedMessage(name, clone.exitCode, clone.stderr);
+  return null;
+}
+
+/** `idfx run --driver claude`. Returns the exit code. */
+export async function claudeRun(
+  args: ClaudeRunArgs,
+  env: Env = process.env,
+  deps: ClaudeRunDeps = defaultClaudeRunDeps,
+): Promise<number> {
+  const directory = path.resolve(args.dir);
+  const root = projectRootOfRun(directory);
+  const name = args.sandbox ?? claudeSandboxName(projectNameOf(root));
+  const stateDir = claudeStateDir(env, name);
+  const bin = sbxBin(env);
+  const startedAt = deps.now();
+
+  const brief = args.briefFile !== undefined ? await deps.readBrief(args.briefFile) : (args.text ?? "");
+  if (brief.trim().length === 0) return fail("the brief is empty");
+
+  const notReady = ensureClaudeSandbox({ bin, name, root, stateDir }, deps);
+  if (notReady !== null) return fail(notReady);
+
+  const folder = deps.runner([bin, "exec", name, "test", "-d", directory]);
+  if (folder.exitCode !== 0) {
+    return fail(
+      `${directory} does not exist in the sandbox ${name}. The sandbox has its own clone of the repository; ` +
+        `create the folder inside it, for example with: sbx exec ${name} git -C ${root} worktree add ${directory}`,
+    );
+  }
+
+  const synced = deps.sync(hostClaudeDir(env), stateDir);
+  if (synced.missingPlugins.length > 0) {
+    console.error(`warning: enabled plugins without an install folder on the host: ${synced.missingPlugins.join(", ")}`);
+  }
+
+  const claudeArgs = ["-p", brief, "--output-format", "json", ...(args.model === undefined ? [] : ["--model", args.model])];
+  console.error(`running Claude Code in the sandbox ${name}, folder ${directory} (this blocks until the run ends)`);
+  const res = deps.runner(claudeExecArgs(bin, name, stateDir, directory, synced.pluginDirs, claudeArgs));
+  const result = parseClaudeResult(res.stdout);
+  const outcome = claudeOutcome(res.exitCode, result, res.stderr ?? "");
+  const sessionId = result?.sessionId ?? `claude-failed-${randomUUID()}`;
+
+  const info: ClaudeRunInfo = {
+    sandbox: name,
+    stateDir,
+    model: args.model ?? result?.model ?? null,
+    status: outcome.status,
+    error: outcome.status === "failed" ? outcome.error : null,
+    exitCode: res.exitCode,
+    isError: result?.isError ?? null,
+    subtype: result?.subtype ?? null,
+    numTurns: result?.numTurns ?? null,
+    durationMs: result?.durationMs ?? null,
+    costUsd: result?.costUsd ?? null,
+    costKind: "api-equivalent-estimate",
+    usage: result?.usage ?? null,
+    transcript: result?.sessionId == null ? null : deps.findTranscript(stateDir, result.sessionId),
+    endedAt: deps.now().toISOString(),
+  };
+  const record = makeRunRecord({
+    sessionId,
+    directory,
+    agent: "claude",
+    title: args.title,
+    startedAt,
+    driver: "claude",
+    claude: info,
+  });
+  const recordPath = await writeRunRecord(deps.cwd, record);
+  const stateRecordPath = await writeStateRunRecord(env, record);
+
+  if (outcome.status === "failed") {
+    printStderr(res);
+    console.error(`error: the Claude run failed: ${outcome.error}`);
+    console.error(`run record: ${recordPath}`);
+    return 1;
+  }
+  console.log(sessionId);
+  console.log(claudeCostLine(info.costUsd));
+  console.log(`transcript: ${info.transcript ?? "not found in the state folder"}`);
+  console.log(`run record: ${recordPath}`);
+  console.log(`run record (state): ${stateRecordPath}`);
+  if (result?.result != null) console.log(`\n${result.result}`);
+  return 0;
+}

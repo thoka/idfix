@@ -14,6 +14,7 @@
  */
 import type { Env } from "./config";
 import { abort } from "./abort";
+import { claudeRun } from "./claude/run";
 import { log } from "./log";
 import { run } from "./run";
 import { loadRunRecord, recordDriver, type RunRecord } from "./runs";
@@ -50,7 +51,34 @@ export const opencodeDriver: Driver = {
   log: (args) => log(args),
 };
 
-export const DRIVERS: DriverRegistry = { opencode: opencodeDriver };
+/** The error line of a command that a driver does not implement yet. */
+export function unsupportedLine(driver: DriverName, command: string): string {
+  return `idfx cannot ${command} ${driver} sessions yet`;
+}
+
+/** A driver member that prints `unsupportedLine` and returns 1. */
+function unsupported(driver: DriverName, command: string): () => Promise<number> {
+  return async () => {
+    console.error(unsupportedLine(driver, command));
+    return 1;
+  };
+}
+
+/**
+ * The `claude` driver: one blocking, headless Claude Code run in the Claude
+ * sandbox of the project (`src/claude/run.ts`). `say`, `abort`, `watch`,
+ * and `log` come in a later step.
+ */
+export const claudeDriver: Driver = {
+  name: "claude",
+  run: (args) => claudeRun(args),
+  say: unsupported("claude", "say to"),
+  abort: unsupported("claude", "abort"),
+  watch: unsupported("claude", "watch"),
+  log: unsupported("claude", "log"),
+};
+
+export const DRIVERS: DriverRegistry = { opencode: opencodeDriver, claude: claudeDriver };
 
 /** The driver of a name, or undefined when idfx cannot drive it yet. Pure function. */
 export function lookupDriver(registry: DriverRegistry, name: string): Driver | undefined {

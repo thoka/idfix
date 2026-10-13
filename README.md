@@ -205,9 +205,30 @@ The run record is a JSON file `.opencode/runs/<session-id>.json` in the current 
 
 The record also names the agent CLI of the run in `driver`. `run` writes `"opencode"`. A record without the field is an opencode record. The other names are `"claude-glm"` and `"claude"`.
 
+#### Claude Code runs: `run --driver claude`
+
+```
+bun run src/cli.ts run --driver claude --dir DIR (--brief FILE | TEXT) [--title T] [--model MODEL] [--sandbox NAME]
+```
+
+Runs Claude Code headless (`claude -p BRIEF --output-format json`) in the Docker Sandbox `claude-<project>`, in the folder DIR of its clone. The command blocks until the run ends; there is no background mode yet. `--driver` picks the agent CLI, because `--agent` names an opencode agent (and Claude Code has an `--agent` flag of its own). So `--driver claude` takes no `--agent` and no `--url`, and `--agent claude` without `--driver` gives a usage error that names `--driver claude`. `--model` takes a Claude Code model name or alias such as `sonnet`. `--sandbox NAME` uses an existing sandbox instead of `claude-<project>`.
+
+The steps:
+
+1. When `sbx ls` does not list the sandbox, `run` creates it in clone mode with the state folder of the sandbox as a writable mount. Then it checks with `git -C <root> rev-parse --git-dir` inside the sandbox that the clone exists. An existing sandbox must mount its state folder; else `run` stops and tells you to remove the sandbox, so that the next run creates it with the mount.
+2. It checks with `sbx exec NAME test -d DIR` that DIR exists in the clone.
+3. It syncs your Claude configuration into the state folder (see the guide, section "The Claude Code state folder of a sandbox").
+4. It runs Claude Code with `CLAUDE_CONFIG_DIR` set to the state folder.
+
+On success, it prints the session ID, the cost line, the transcript path, the two run record paths, and then the answer of Claude Code. The cost is `total_cost_usd` of the result JSON: the API price of the tokens. On a Max plan, the run costs nothing extra, so the cost line calls it an API-equivalent estimate.
+
+A run fails with exit code 1 when `sbx exec` ends with a code other than 0, when the result JSON is missing or has `is_error: true`, or when the answer is a short usage limit message (for example `usage limit reached`). The real form of a limit stop is not known yet. A failed run also writes a record. Without a session ID from Claude Code, its ID is `claude-failed-<uuid>`.
+
+The record of a Claude run has `driver: "claude"`, `agent: "claude"`, and a `claude` object: `sandbox`, `stateDir`, `model` (the `--model` value, else the first model of `modelUsage`), `status` (`ok` or `failed`), `error`, `exitCode`, `isError`, `subtype`, `numTurns`, `durationMs`, `costUsd`, `costKind` (always `api-equivalent-estimate`), `usage`, `transcript` (`<stateDir>/projects/<folder>/<session>.jsonl`, or null), and `endedAt`.
+
 #### Drivers
 
-A driver is the code that runs one agent CLI. `src/driver.ts` keeps the drivers in a registry. Each driver implements the commands `run`, `say`, `abort`, `watch`, and `log`. `run` always uses the `opencode` driver. `say`, `abort`, `watch`, and `log` load the run record of the session from the state folder or from `.opencode/runs/` of `--dir` (default: the current directory). They then call the driver that the record names. No record means `opencode`. Today only the `opencode` driver exists. A record that names `claude` or `claude-glm` gives the error `idfx cannot drive <name> sessions yet` and exit code 1. `top` and `status` read Claude Code sessions without a driver, from `src/claude/`. A new CLI adds its name and one driver object to the registry.
+A driver is the code that runs one agent CLI. `src/driver.ts` keeps the drivers in a registry. Each driver implements the commands `run`, `say`, `abort`, `watch`, and `log`. `run` uses the `opencode` driver, or the `claude` driver with `--driver claude`. `say`, `abort`, `watch`, and `log` load the run record of the session from the state folder or from `.opencode/runs/` of `--dir` (default: the current directory). They then call the driver that the record names. No record means `opencode`. The drivers are `opencode` and `claude`. The `claude` driver has only `run` so far: the other commands give the error `idfx cannot <command> claude sessions yet` and exit code 1. A record that names `claude-glm` gives the error `idfx cannot drive claude-glm sessions yet` and exit code 1. `top` and `status` read Claude Code sessions without a driver, from `src/claude/`. A new CLI adds its name and one driver object to the registry.
 
 ### idfx attach
 
@@ -495,7 +516,9 @@ A git hook sets repository-local git variables such as `GIT_DIR` and `GIT_INDEX_
 - `src/requests.ts` — pending questions and permissions: list, filter, format, answer
 - `src/keys.ts` — OpenRouter key handling: fingerprint, key sources, key check, shared-key refusal; the DeepInfra key path and placeholder
 - `src/runs.ts` — run records in `.opencode/runs/` and in the state folder, real-cost line
-- `src/driver.ts`: the driver registry and the `opencode` driver, which `run`, `say`, `abort`, `watch`, and `log` go through
+- `src/driver.ts`: the driver registry with the `opencode` and the `claude` driver, which `run`, `say`, `abort`, `watch`, and `log` go through
+- `src/claude/run.ts`: `run --driver claude`, one blocking Claude Code run in the Claude sandbox of a project, and its run record
+- `src/claude/sandbox-state.ts`: the state folder of a Claude sandbox, the sync of the host configuration, and the `sbx create` and `sbx exec` commands
 - `src/realcost.ts` — the real-cost output of `watch` and `log`
 - `src/settled.ts` — decides whether a session missing from the status map has ended (pure)
 - `src/units.ts`: the start and the stop of the `idfx-*` systemd user units (and of the old `ocsub-*` units), with the fallback to a detached process (`src/spawn.ts`)

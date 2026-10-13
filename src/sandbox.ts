@@ -146,10 +146,14 @@ export function providerEntries(
   return Object.keys(provider).length === 0 ? {} : { provider };
 }
 
+/** A project name as a part of a sandbox name: lower case, other characters as `-`. Pure. */
+export function safeSandboxPart(project: string): string {
+  return project.toLowerCase().replace(/[^a-z0-9_.-]/g, "-");
+}
+
 /** The name of the sandbox of a project: `oc-sub-<project>`, sanitized. */
 export function sandboxName(project: string): string {
-  const safe = project.toLowerCase().replace(/[^a-z0-9_.-]/g, "-");
-  return `oc-sub-${safe}`;
+  return `oc-sub-${safeSandboxPart(project)}`;
 }
 
 /** The folder of the main repository, or the directory itself without git. */

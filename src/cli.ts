@@ -17,7 +17,7 @@ import { doctor, gateForCommand } from "./doctor";
 import { fetch, worktree, worktreeRm } from "./clone";
 import { runIdleWatch } from "./idle";
 import { hostProxyCommand } from "./host-proxy";
-import { dispatchSession, opencodeDriver } from "./driver";
+import { claudeDriver, dispatchSession, opencodeDriver } from "./driver";
 
 /** The command name when the launcher does not pass one. */
 export const DEFAULT_PROG = "idfx";
@@ -45,6 +45,7 @@ Usage:
   ${prog} restart [--dir DIR] [--force] [--no-cost-proxy] [--idle-minutes N]
   ${prog} restart --no-sandbox [--port N] [--force] [--no-cost-proxy] [--idle-minutes N]
   ${prog} run --agent NAME --dir DIR (--brief FILE | TEXT) [--title T] [--model PROVIDER/MODEL]
+  ${prog} run --driver claude --dir DIR (--brief FILE | TEXT) [--title T] [--model MODEL] [--sandbox NAME]
   ${prog} attach CODE [--url URL]
   ${prog} status [--dir DIR | --all] [--json]
   ${prog} top [--dir DIR | --all]
@@ -93,6 +94,16 @@ Sandbox mode:
 
   worktree and fetch run only in sandbox mode: in clone mode, the worktree
   of a run lives inside the sandbox clone, not on the host.
+
+Claude Code runs:
+  run --driver claude runs Claude Code headless (claude -p) in the sandbox
+  claude-<project>, and blocks until the run ends. It creates the sandbox
+  when it is missing, syncs your Claude configuration into its state folder,
+  and writes a run record with the session ID, the cost estimate, and the
+  transcript path. It takes no --agent and no --url.
+  --model MODEL   a Claude Code model name or alias, for example sonnet.
+  --sandbox NAME  use this existing sandbox instead of claude-<project>.
+                  It must mount the state folder of that name.
 
 Environment:
   IDFX_URL                   default server URL
@@ -196,8 +207,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       return stopped === 0 ? up(args) : stopped;
     }
     case "run":
-      // `run` always starts an opencode session for now.
-      return opencodeDriver.run(args);
+      return (args.driver === "claude" ? claudeDriver : opencodeDriver).run(args);
     case "attach":
       return attach(args);
     case "status":

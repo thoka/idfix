@@ -29,10 +29,10 @@ function write(file: string, text: string): void {
 
 describe("claudeStateDir", () => {
   test("uses XDG_STATE_HOME when it is absolute", () => {
-    expect(claudeStateDir({ XDG_STATE_HOME: "/x/state" }, "claude-p", "/home/u")).toBe("/x/state/idfx/sbx/claude-p/claude");
+    expect(claudeStateDir({ XDG_STATE_HOME: "/x/state" }, "claude-p", "/users/u")).toBe("/x/state/idfx/sbx/claude-p/claude");
   });
   test("falls back to ~/.local/state", () => {
-    expect(claudeStateDir({ XDG_STATE_HOME: "rel" }, "claude-p", "/home/u")).toBe("/home/u/.local/state/idfx/sbx/claude-p/claude");
+    expect(claudeStateDir({ XDG_STATE_HOME: "rel" }, "claude-p", "/users/u")).toBe("/users/u/.local/state/idfx/sbx/claude-p/claude");
   });
 });
 
@@ -41,7 +41,7 @@ describe("inClaudeTmp and ensureClaudeStateDir", () => {
     expect(inClaudeTmp("/tmp/claude-1000", 1000)).toBe(true);
     expect(inClaudeTmp("/tmp/claude-1000/x/../y", 1000)).toBe(true);
     expect(inClaudeTmp("/tmp/claude-10000/x", 1000)).toBe(false);
-    expect(inClaudeTmp("/home/u/.local/state", 1000)).toBe(false);
+    expect(inClaudeTmp("/users/u/.local/state", 1000)).toBe(false);
   });
   test("refuses a folder in the Claude temp folder", () => {
     expect(() => ensureClaudeStateDir("/tmp/claude-42/state", 42)).toThrow(/claude-42/);
@@ -55,8 +55,8 @@ describe("inClaudeTmp and ensureClaudeStateDir", () => {
 
 describe("hostClaudeDir", () => {
   test("honors an absolute CLAUDE_CONFIG_DIR", () => {
-    expect(hostClaudeDir({ CLAUDE_CONFIG_DIR: "/c" }, "/home/u")).toBe("/c");
-    expect(hostClaudeDir({}, "/home/u")).toBe("/home/u/.claude");
+    expect(hostClaudeDir({ CLAUDE_CONFIG_DIR: "/c" }, "/users/u")).toBe("/c");
+    expect(hostClaudeDir({}, "/users/u")).toBe("/users/u/.claude");
   });
 });
 

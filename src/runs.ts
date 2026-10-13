@@ -21,6 +21,42 @@ export type RunRecord = {
   usageAtStart?: number | null;
   /** The agent CLI of the run. Missing on old records, which are opencode records. */
   driver?: DriverName;
+  /** The result of a run of the `claude` driver. Only on its records. */
+  claude?: ClaudeRunInfo;
+};
+
+/**
+ * The result of one run of the `claude` driver (`claude -p --output-format
+ * json` in an sbx sandbox). A field that the run did not report is null.
+ */
+export type ClaudeRunInfo = {
+  /** The sbx sandbox of the run. */
+  sandbox: string;
+  /** The state folder of the sandbox on the host (`CLAUDE_CONFIG_DIR` inside). */
+  stateDir: string;
+  /** The model: the `--model` value, else the first model of `modelUsage`. */
+  model: string | null;
+  /** `ok`, or `failed` with the reason in `error`. */
+  status: "ok" | "failed";
+  error: string | null;
+  /** The exit code of `sbx exec`. */
+  exitCode: number;
+  /** `is_error`, `subtype`, `num_turns`, and `duration_ms` of the result JSON. */
+  isError: boolean | null;
+  subtype: string | null;
+  numTurns: number | null;
+  durationMs: number | null;
+  /**
+   * `total_cost_usd` of the result JSON. It is the API price of the tokens,
+   * an estimate: on a Max plan, the run costs nothing extra.
+   */
+  costUsd: number | null;
+  costKind: "api-equivalent-estimate";
+  /** `usage` of the result JSON, as Claude Code reports it. */
+  usage: Record<string, unknown> | null;
+  /** The transcript on the host: `<stateDir>/projects/<folder>/<sessionId>.jsonl`. */
+  transcript: string | null;
+  endedAt: string;
 };
 
 /**
@@ -42,6 +78,7 @@ export function makeRunRecord(input: {
   keyFingerprint?: string;
   usageAtStart?: number | null;
   driver?: DriverName;
+  claude?: ClaudeRunInfo;
 }): RunRecord {
   return {
     sessionId: input.sessionId,
@@ -52,6 +89,7 @@ export function makeRunRecord(input: {
     ...(input.keyFingerprint === undefined ? {} : { keyFingerprint: input.keyFingerprint }),
     ...(input.usageAtStart === undefined ? {} : { usageAtStart: input.usageAtStart }),
     ...(input.driver === undefined ? {} : { driver: input.driver }),
+    ...(input.claude === undefined ? {} : { claude: input.claude }),
   };
 }
 

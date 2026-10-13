@@ -599,6 +599,13 @@ idfx run --driver claude --dir <folder in the clone> --brief brief.md --model so
 - The cost is an API-equivalent estimate (`total_cost_usd`). On a Max plan, the run costs nothing extra.
 - A failed run (an exit code other than 0, `is_error: true`, or a usage limit message) ends with exit code 1, a clear error line, and a run record with the error.
 - The run writes its record with `status: "running"` before it blocks. It passes its own session ID with `--session-id`, so `status` and `abort` from another terminal find the run.
+- On a Max plan, all Claude Code activity of the account shares one usage pool, and no API tells the remaining quota. Keep runs few and parallel runs small. On a usage limit, the run fails as above: stop and report it.
+
+Bring the work of a Claude run to the host:
+
+- The work stays in the clone of the sandbox. Claude cannot push, because the sandbox has no SSH access. So the brief must tell Claude to commit on a branch. Uncommitted work stays in the clone.
+- sbx adds the remote `sandbox-claude-<project>` to the host repository, as for every clone-mode sandbox. On the host, run `git fetch sandbox-claude-<project>`, then review `git diff alpha...sandbox-claude-<project>/<branch>` and run the tests. This flow has no live test for a Claude sandbox yet.
+- `idfx fetch` knows only the opencode sandbox so far, so it does not list the branches of a Claude sandbox.
 
 Follow up, stop, and read a Claude run:
 
@@ -635,6 +642,8 @@ Known gaps:
 - `log` shows the last answer and the totals, not the whole conversation.
 - The loop guard of `top` looks only at the end of the transcript. The mark goes away when the agent calls another tool, and a loop that ended unseen between two ticks leaves no trace. The opencode guard of `watch` keeps its mark until the next prompt.
 - The stall guard of `top` watches only the main transcript. A run that waits for a subagent, or for a long command such as a test run of more than 3 minutes, shows `stalled` too.
+- In a headless turn, Claude Code can move a long command into the background and end the turn before the command ends. The run then ends `ok` without the result of that command. Read the answer with `log`, and send a `say` to finish the work.
+- `idfx fetch` and `idfx worktree` work only for the opencode sandbox.
 
 ## Cost proxy
 

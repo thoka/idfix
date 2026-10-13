@@ -19,13 +19,14 @@ The routing rules of your user decide. idfix adds no policy of its own. The rule
 
 So:
 
-- A Claude step runs as a Claude Code subagent on the host in a worktree, or in the sandbox with `idfx run --driver claude --model opus`. Both use the same plan and the same model. The sandbox keeps the step away from the host checkout.
+- A Claude step runs as a Claude Code subagent on the host in a worktree. That is the default for your own cooperating subagents.
+- Use the sandbox (`idfx run --driver claude --model opus`) only in two cases: the agent is unknown to you, or the step is an experiment that can harm the whole infrastructure. The sandbox keeps the step away from the host checkout, but it costs start time.
 - An opencode step (GLM) follows [When to delegate to opencode](#when-to-delegate-to-opencode) and the [Workflow of an opencode run](#workflow-of-an-opencode-run) below. Without the agreement of the user or a plan limit, do not start it.
 - If your rules say otherwise, follow your rules.
 
 ## Claude Code in the sandbox
 
-Run every command in the host checkout of the project. The sandbox is `claude-<project>`, in clone mode: the run changes only the clone in the sandbox, never the host checkout.
+Use this only for the two sandbox cases in [Route the step](#route-the-step). Run every command in the host checkout of the project. The sandbox is `claude-<project>`, in clone mode: the run changes only the clone in the sandbox, never the host checkout.
 
 1. Write the brief into a file outside the checkout. Tell Claude to commit its work on a branch. It cannot push, because the sandbox has no SSH access.
 2. Start the run: `idfx run --driver claude --dir <host path of the checkout> --brief <scratch>/brief.md --model opus --title "<short title>"`. Inside the sandbox, the clone lies at the same path as the host checkout, so `--dir` names the host path. The command blocks until Claude Code ends, so start it as a background command. It prints the session ID, the cost, the transcript path, and the answer. For a worktree, create it in the clone first: `sbx exec claude-<project> git -C <checkout path> worktree add <folder>`. `idfx worktree` works only for the opencode sandbox so far.

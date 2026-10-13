@@ -613,7 +613,15 @@ idfx status                              # the run shows as busy, idle, failed, 
 - `abort` stops the `claude` process of the session inside the sandbox and marks the record `aborted`. The blocking `run` or `say` then ends with exit code 1. If no process is left but the record still says `running` (for example the host command was killed), `abort` fixes the record.
 - `log` reads the transcript in the state folder on the host. It treats the folder as untrusted: it follows no link and reads at most the last 32 MiB.
 - `status` shows a run while it runs and for 60 minutes after its end, with the folder of the run in the clone.
-- `watch` does not work for Claude runs yet. Use `status` or `log` instead.
+- `watch` does not work for Claude runs yet. Use `top`, `status`, or `log` instead.
+
+Claude runs in `top`, with guards:
+
+- `idfx top` shows each Claude run from its run record, with the same visibility and folder rule as `status`. The row has the icon `✳`, the state, the model, the tokens, and the API-equivalent cost, read from the transcript in the state folder. `top` reads the transcript like `log`: no link, at most the last 32 MiB. It reads the file again only when its size or its modification time changed. Without a transcript, the row shows the model and the cost of the record.
+- A running run is `busy`. A run that ended with `ok` is `idle` and inactive (a later `say` can resume it). A `failed` or `aborted` run is `ended`.
+- A run that is also a Claude Code session of the host (the same session ID or resume ID) shows only once, as the host row.
+- The detail pane names the sandbox (`claude sandbox run in <sandbox>`). The key `o` only shows a note, because a sandbox run has no terminal: use `idfx log <session>`.
+- Two guards watch a running run, with the thresholds of the opencode guards. Loop: the last 5 tool calls of the transcript have the same tool and the same input. Stall: the transcript did not change for 3 minutes (before the transcript exists, the start of the run counts). A hit turns the state into `looping` or `stalled` (red), and the detail pane shows the warning block, for example `needs attention: loop`. A guard never stops the run. Abort it with `idfx abort`, or send a correction with `idfx say` after the turn.
 
 Known gaps:
 
@@ -625,6 +633,8 @@ Known gaps:
 - `abort` matches the process by its command line (`[c]laude .*<session>`). A process of another program whose command line holds the same session ID would be stopped too.
 - When Claude Code answers a `--resume` with a new session ID, the record keeps its ID and stores the new one as `resumeId`. `log` then reads only the transcript of the new ID.
 - `log` shows the last answer and the totals, not the whole conversation.
+- The loop guard of `top` looks only at the end of the transcript. The mark goes away when the agent calls another tool, and a loop that ended unseen between two ticks leaves no trace. The opencode guard of `watch` keeps its mark until the next prompt.
+- The stall guard of `top` watches only the main transcript. A run that waits for a subagent, or for a long command such as a test run of more than 3 minutes, shows `stalled` too.
 
 ## Cost proxy
 

@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  claudeRunRows,
+  claudeRunState,
   cloneDirectories,
   defaultClaudeRows,
   displayFolder,
@@ -17,6 +19,7 @@ import {
   type StatusDeps,
 } from "../src/status";
 import type { Runner } from "../src/sandbox";
+import { makeRunRecord, type ClaudeRunInfo, type RunRecord } from "../src/runs";
 import { parsePriceFile } from "../src/claude/prices";
 import { createClaudeSource, loadClaudeRows } from "../src/claude/rows";
 import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, MINUTE, NOW, S1, S2, S5, S7 } from "./claude-fixture";
@@ -1139,5 +1142,96 @@ describe("Claude sessions in status", () => {
     // test/setup.ts points CLAUDE_CONFIG_DIR at an empty folder.
     const rows = await defaultClaudeRows(Date.now());
     expect(rows).toEqual([]);
+  });
+});
+
+describe("Claude sandbox runs in status", () => {
+  const now = Date.parse("2026-10-13T10:00:00Z");
+  function claudeRecord(id: string, directory: string, claude: Partial<ClaudeRunInfo>): RunRecord {
+    return makeRunRecord({
+      sessionId: id,
+      directory,
+      agent: "claude",
+      title: `run ${id}`,
+      driver: "claude",
+      claude: {
+        sandbox: "claude-repo",
+        stateDir: "/state",
+        model: "sonnet",
+        status: "ok",
+        error: null,
+        exitCode: 0,
+        isError: false,
+        subtype: "success",
+        numTurns: 1,
+        durationMs: 1,
+        costUsd: 0.123456,
+        costKind: "api-equivalent-estimate",
+        usage: null,
+        transcript: null,
+        endedAt: "2026-10-13T09:30:00.000Z",
+        ...claude,
+      },
+    });
+  }
+
+  test("claudeRunState maps the record status", () => {
+    expect(claudeRunState("running")).toBe("busy");
+    expect(claudeRunState("ok")).toBe("idle");
+    expect(claudeRunState("failed")).toBe("failed");
+    expect(claudeRunState("aborted")).toBe("aborted");
+  });
+
+  test("claudeRunRows keeps running runs and runs that ended in the last hour", () => {
+    const records = [
+      claudeRecord("c1", "/repo", { status: "running", endedAt: null }),
+      claudeRecord("c2", "/repo", { status: "failed" }),
+      claudeRecord("c3", "/repo", { endedAt: "2026-10-13T08:00:00.000Z" }),
+      makeRunRecord({ sessionId: "ses_x", directory: "/repo", agent: "coder" }),
+    ];
+    expect(claudeRunRows(records, now)).toEqual([
+      { id: "c1", state: "busy", title: "run c1", folder: "/repo", driver: "claude", sandbox: "claude-repo", model: "sonnet", apiEquivalentUsd: 0.1235 },
+      { id: "c2", state: "failed", title: "run c2", folder: "/repo", driver: "claude", sandbox: "claude-repo", model: "sonnet", apiEquivalentUsd: 0.1235 },
+    ]);
+  });
+
+  test("status lists the runs of the project without a server", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "idfx-status-claude-runs-"));
+    const captured = captureLog();
+    try {
+      const code = await status(
+        { url: "http://127.0.0.1:9", dir: "/repo", all: false },
+        { XDG_STATE_HOME: stateHome },
+        { ...testDeps, commonDirOf: () => null, now: () => now },
+        async () => [],
+        async () => [claudeRecord("c1", "/repo/.worktrees/a", { status: "running", endedAt: null }), claudeRecord("c9", "/other", {})],
+      );
+      expect(code).toBe(0);
+      expect(captured.lines).toEqual(["no server on http://127.0.0.1:9", "c1 busy run c1 (.worktrees/a)"]);
+    } finally {
+      captured.restore();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
+
+  test("status --all lists the runs of every project with their project", async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), "idfx-status-claude-runs-"));
+    const captured = captureLog();
+    try {
+      const code = await status(
+        { url: "http://127.0.0.1:9", all: true, json: true },
+        { XDG_STATE_HOME: stateHome },
+        { ...testDeps, commonDirOf: () => null, now: () => now },
+        async () => [],
+        async () => [claudeRecord("c9", "/other", { status: "aborted" })],
+      );
+      expect(code).toBe(0);
+      expect(parseItems(captured.lines)).toEqual([
+        { id: "c9", state: "aborted", title: "run c9", folder: "/other", driver: "claude", sandbox: "claude-repo", model: "sonnet", apiEquivalentUsd: 0.1235, project: "other" },
+      ]);
+    } finally {
+      captured.restore();
+      rmSync(stateHome, { recursive: true, force: true });
+    }
   });
 });

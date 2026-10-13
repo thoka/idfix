@@ -9,7 +9,8 @@ import { assertUsable, errorMessage, makeClient, probeServer, unwrap } from "./c
 import { listPendingRequests } from "./requests";
 import { listServers } from "./servers";
 import { readDirs, serveDirsPath } from "./state";
-import { claudeRowsLoader, inScope, type ClaudeRow, type ClaudeRowsLoader } from "./claude/rows";
+import { claudeRowsLoader, ENDED_VISIBLE_MS, inScope, type ClaudeRow, type ClaudeRowsLoader } from "./claude/rows";
+import { loadAllRunRecords, recordDriver, type RunRecord } from "./runs";
 import { hostname } from "node:os";
 import { CONDITION_TYPES, conditionKey, evaluate, noPlanCommit, restoreState, type ConditionType } from "./watch/conditions";
 import { noSessionNames, readTextSync, sessionNamesSource, type SessionNamesReader } from "./folder-config";
@@ -246,7 +247,64 @@ export type StatusRow = {
   turn?: "ended" | null;
   /** The count of background tasks that have no final report yet. */
   backgroundTasks?: number;
+  /** The sbx sandbox, only for a run of `idfx run --driver claude`. */
+  sandbox?: string;
 };
+
+/** Loads the run records of a folder and of the state folder. */
+export type RunRecordsLoader = (cwd: string) => Promise<RunRecord[]>;
+
+/**
+ * The default loader: `loadAllRunRecords` with the state folder from the
+ * environment of the process.
+ */
+export const defaultRunRecords: RunRecordsLoader = (cwd) => loadAllRunRecords(cwd, process.env as Env);
+
+/** The state of a Claude sandbox run in `status`: `running` shows as `busy`, `ok` as `idle`. Pure. */
+export function claudeRunState(status: string): string {
+  if (status === "running") return "busy";
+  if (status === "ok") return "idle";
+  return status;
+}
+
+/**
+ * The status rows of the Claude sandbox runs (`idfx run --driver claude`)
+ * from their run records: a running run, and an ended run for 60 minutes
+ * after its end, like the ended Claude Code sessions. The folder is the
+ * folder of the run in the clone of the sandbox. Pure.
+ */
+export function claudeRunRows(records: readonly RunRecord[], nowMs: number): StatusRow[] {
+  const rows: StatusRow[] = [];
+  for (const record of records) {
+    const info = record.claude;
+    if (recordDriver(record) !== "claude" || info === undefined) continue;
+    if (info.status !== "running") {
+      const ended = Date.parse(info.endedAt ?? "");
+      if (Number.isNaN(ended) || nowMs - ended > ENDED_VISIBLE_MS) continue;
+    }
+    rows.push({
+      id: record.sessionId,
+      state: claudeRunState(info.status),
+      title: record.title ?? "claude run",
+      folder: record.directory,
+      driver: "claude",
+      sandbox: info.sandbox,
+      model: info.model,
+      apiEquivalentUsd: info.costUsd === null ? null : round(info.costUsd, 4),
+    });
+  }
+  return rows;
+}
+
+/** The Claude sandbox run rows of `status`. A failure costs only these rows, with a warning on stderr. */
+async function claudeRunRowsSafe(loader: RunRecordsLoader, cwd: string, nowMs: number): Promise<StatusRow[]> {
+  try {
+    return claudeRunRows(await loader(cwd), nowMs);
+  } catch (error) {
+    console.error(`warning: claude runs: ${error instanceof Error ? error.message : errorMessage(error)}`);
+    return [];
+  }
+}
 
 export type { ClaudeRowsLoader };
 
@@ -444,13 +502,16 @@ async function allServerRows(
  * .plan/design/claude-sessions-top.md, sections 6 and 8): live and waiting
  * sessions, and ended sessions for 60 minutes. Without `--all`, only the
  * sessions whose folder is inside the directories of the project show.
- * They show also when no opencode server runs.
+ * They show also when no opencode server runs. The runs of
+ * `idfx run --driver claude` follow, from their run records
+ * (`claudeRunRows`), with the same folder rule.
  */
 export async function status(
   args: { url?: string; dir?: string; all: boolean; json?: boolean },
   env: Env = process.env,
   deps: StatusDeps = defaultDeps,
   claudeRows: ClaudeRowsLoader = defaultClaudeRows,
+  runRecords: RunRecordsLoader = defaultRunRecords,
 ): Promise<number> {
   const json = args.json === true;
   const nowMs = (deps.now ?? Date.now)();
@@ -491,6 +552,10 @@ export async function status(
     const claude = await claudeRowsSafe(claudeRows, nowMs);
     for (const row of claude) {
       rows.push(claudeStatusRow(row, projectNameOfRun(row.directory, deps.exists, deps.commonDirOf)));
+    }
+    for (const row of await claudeRunRowsSafe(runRecords, path.resolve(args.dir ?? process.cwd()), nowMs)) {
+      if (listed.has(row.id) || rows.some((other) => other.id === row.id)) continue;
+      rows.push({ ...row, project: projectNameOfRun(row.folder, deps.exists, deps.commonDirOf) });
     }
     if (!answered) {
       // No server means no opencode sessions. That is a normal state, not an error.
@@ -535,6 +600,15 @@ export async function status(
       if (!inScope(row.directory, scope)) continue;
       claude.push(row);
       rows.push(claudeStatusRow(row));
+    }
+  }
+  // The runs of `idfx run --driver claude`: their transcripts lie in the
+  // state folder of the sandbox, so they come from the run records.
+  const runs = await claudeRunRowsSafe(runRecords, directory, nowMs);
+  if (runs.length > 0) {
+    const scope = directories ?? projectDirectories(directory, env, deps);
+    for (const row of runs) {
+      if (inScope(row.folder, scope) && !rows.some((other) => other.id === row.id)) rows.push(row);
     }
   }
   if (json) {

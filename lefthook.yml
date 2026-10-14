@@ -10,8 +10,11 @@ pre-commit:
       run: if command -v public-check >/dev/null 2>&1; then public-check {staged_files}; else echo "public-check not found, skipped"; fi
 pre-push:
   jobs:
+    # git-autopush waits for a free test slot of the machine, so that at most
+    # DV_TEST_SLOTS full suites run at once, and skips a tree that passed
+    # before. Without git-autopush on the PATH, the plain command runs.
     - name: idfix tests
-      run: ${TEST_RUNNER:-mise run test}
+      run: if command -v git-autopush >/dev/null 2>&1; then git-autopush tests -- ${TEST_RUNNER:-mise run test}; else ${TEST_RUNNER:-mise run test}; fi
     # The doctor output must keep the doctor format of the shared tool
     # protocol. Without doctor-lint on the PATH, the job passes.
     - name: doctor format

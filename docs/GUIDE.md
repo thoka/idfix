@@ -774,7 +774,7 @@ Known gaps:
 
 ## Development
 
-Run `mise run hooks-install` once after clone. It installs the pre-push hook of `lefthook.yml`, which runs `mise run test` before each push. `mise run test` runs `bun install --frozen-lockfile` each time, so a fresh worktree and a package that a merge added to `bun.lock` both get installed, then runs `bun run typecheck` and `bun test`. `bun test` alone does not check types.
+Run `mise run hooks-install` once after clone. It installs the pre-push hook of `lefthook.yml`, which runs `mise run test` before each push. When `git-autopush` is on the PATH, the hook runs the tests through `git-autopush tests`, which limits how many test suites run at once on the machine. `mise run test` runs `bun install --frozen-lockfile` each time, so a fresh worktree and a package that a merge added to `bun.lock` both get installed, then runs `bun run typecheck` and `bun test`. `bun test` alone does not check types.
 
 ## Troubleshooting
 

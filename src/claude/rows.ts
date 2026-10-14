@@ -118,10 +118,21 @@ export function inScope(cwd: string, directories: readonly string[]): boolean {
   });
 }
 
-/** The state of a live session from its session file and its job. */
-export function liveState(session: SessionFile, job: JobState | undefined): SessionRowState {
+/**
+ * The state of a live session from its session file, its job, and its
+ * transcript. The status `busy` or `shell` is `busy` only while a turn runs.
+ * When the transcript shows that the last turn ended, the session takes a
+ * prompt, so it is `idle`: Claude Code keeps `busy` or `shell` after the
+ * turn end while a shell process of the session lives, for example a
+ * background task or a hung command that a finished subagent left behind.
+ */
+export function liveState(
+  session: SessionFile,
+  job: JobState | undefined,
+  summary?: Pick<TranscriptSummary, "turnEnded">,
+): SessionRowState {
   if (session.status === "waiting" || job?.state === "blocked") return "waiting";
-  if (session.status === "busy" || session.status === "shell") return "busy";
+  if (session.status === "busy" || session.status === "shell") return summary?.turnEnded === true ? "idle" : "busy";
   return "idle";
 }
 
@@ -129,7 +140,7 @@ export function liveState(session: SessionFile, job: JobState | undefined): Sess
  * `ended` for a live interactive session whose last turn ended while a
  * background task runs: the transcript has the turn end and a started task
  * without a final `task-notification`. Claude Code then may show the session
- * as busy, but it takes a prompt and queues it until the task reports. A
+ * as busy (`liveState` reads it as idle), but it takes a prompt and queues it until the task reports. A
  * session that waits for the user, a session without a process, and a
  * background job give undefined.
  */
@@ -221,12 +232,13 @@ export function createClaudeSource(root: string, fs: ClaudeFs = nodeClaudeFs): C
           (session.jobId === undefined ? undefined : jobById.get(session.jobId)) ?? jobBySession.get(session.sessionId);
         const transcript = transcripts.get(session.sessionId);
         const summary = transcript === undefined ? undefined : readTranscript(transcript.file);
-        const state = liveState(session, job);
+        const state = liveState(session, job, summary);
         const subagents = subagentsOf(transcript);
+        const sessionSinceMs = session.statusUpdatedAtMs ?? session.updatedAtMs;
+        // An idle state that the turn end gives starts at the turn end.
+        const turnSinceMs = state === "idle" && session.status !== "idle" ? summary?.turnEndedMs : undefined;
         const stateSinceMs =
-          session.status === "waiting" || job?.state !== "blocked"
-            ? (session.statusUpdatedAtMs ?? session.updatedAtMs)
-            : job.updatedAtMs;
+          session.status === "waiting" || job?.state !== "blocked" ? (turnSinceMs ?? sessionSinceMs) : job.updatedAtMs;
         result.push({
           sessionId: session.sessionId,
           kind: session.kind,

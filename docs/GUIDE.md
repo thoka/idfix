@@ -279,7 +279,7 @@ In JSON mode, nothing else goes to stdout: messages such as `no server on ...` g
 
 `status` also lists the Claude Code sessions of the machine, after the opencode sessions. It reads the files of Claude Code under `~/.claude` (or `$CLAUDE_CONFIG_DIR`) and changes nothing there. It needs no opencode server for this.
 
-- A live session always shows. Its state is `waiting` when Claude Code waits for the user (a permission dialog or a question), `busy` while it works, and `idle` else.
+- A live session always shows. Its state is `waiting` when Claude Code waits for the user (a permission dialog or a question), `busy` while it works, and `idle` else. The session file can keep the status `busy` or `shell` after the turn ended, while a shell process of the session lives (a background task, or a hung command that a finished subagent left behind). When the transcript shows that the last turn ended, the state is `idle` from the turn end, because the session takes a prompt. So such a session never counts as stalled.
 - A background session that is blocked shows as `waiting`, also when its process has stopped.
 - A session that ended shows as `ended` for 60 minutes after its last activity.
 - Without `--all`, only the sessions whose folder is inside the project or one of its worktrees show. With `--all`, every session shows.
@@ -294,7 +294,7 @@ With `--json`, a Claude entry of `items` also has these fields:
 - `contextTokens`, `contextWindow`, and `contextShare`: the size of the context of the last request, the window of the model, and the share of the window.
 - `lastActivity`: the time of the last activity (ISO format).
 - `apiEquivalentUsd`: the API price of the tokens of the session and its subagents. On a plan, this is not a real charge. It is `null` when idfix knows no price for a model, for example `z-ai/glm-5.3-flash` of a `claude-glm` session.
-- `turn`: `ended` when the last turn of a live interactive session ended while a background task of the session runs, else `null`. Claude Code can show such a session as `busy` until the task reports. But the session takes a prompt: Claude Code queues it and delivers it when the task reports. So a supervisor can send a notice to the session, the same as to an `idle` session. A session that waits for the user, a session without a process, and a background job always have `null`.
+- `turn`: `ended` when the last turn of a live interactive session ended while a background task of the session runs, else `null`. Claude Code can show such a session as `busy` until the task reports, and idfix shows it as `idle`. The session takes a prompt: Claude Code queues it and delivers it when the task reports. So a supervisor can send a notice to the session, the same as to an `idle` session. A session that waits for the user, a session without a process, and a background job always have `null`.
 - `backgroundTasks`: the count of background tasks of the session that have not reported yet.
 
 How idfix finds the turn and the tasks in the transcript:
@@ -331,7 +331,7 @@ sev: WARN
 reason: input_required, auth_required
 --
 type: SessionStalled
-true: the session is busy, and its transcript (with its subagents) did not grow for 15 minutes
+true: the session is busy (a turn runs), and its transcript (with its subagents) did not grow for 15 minutes
 sev: WARN
 reason: NoTranscriptGrowth
 --

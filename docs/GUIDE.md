@@ -299,9 +299,10 @@ With `--json`, a Claude entry of `items` also has these fields:
 
 How idfix finds the turn and the tasks in the transcript:
 
-- A turn ends with a `system` line with the subtype `turn_duration`. The next turn starts with a prompt, a delivered task report, or a new answer of the model.
+- A turn ends with a `system` line with the subtype `turn_duration`. The next turn starts with a delivered input (a `user` line with an `origin.kind`: a prompt, a task report, a message of another session or a subagent, or another kind) or a new answer of the model.
 - A background task starts with the result of a Bash call with `run_in_background`, an Agent call that runs in the background, or a Monitor call.
 - A task ends with its task report (`<task-notification>` with a `<status>`). The report names the task by its tool call ID and its task ID. An event of a Monitor has no status, so it does not end the Monitor.
+- A task also ends with the result of a `TaskStop` call (a `task_id` and a `task_type`). Claude Code writes no task report for a stopped task.
 - Known gap: when Claude Code writes no report for a task (for example when the task dies with its process, or for a kind of task that idfix does not know), the task counts as running until the session ends or starts a new turn. A persistent Monitor runs until it stops, so `turn` stays `ended` for that time.
 
 The prices and the model windows come from the LiteLLM file `model_prices_and_context_window.json`. idfix downloads it at most once per 24 hours into `$XDG_CACHE_HOME/idfix/litellm-prices.json` (default `~/.cache/idfix/`). Without network, it uses the cached copy. Without a copy, the prices stay empty. The design is `.plan/design/claude-sessions-top.md`.

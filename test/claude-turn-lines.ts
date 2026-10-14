@@ -40,6 +40,29 @@ export const turnLines = {
       content: `<task-notification>\n<task-id>${taskId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n${status === null ? "<event>FAKE EVENT</event>" : `<status>${status}</status>\n<summary>FAKE SUMMARY</summary>`}\n</task-notification>`,
       timestamp: at(second),
     }),
+  /** The result of a `TaskStop` call: Claude Code writes no task report for the stopped task. */
+  taskStop: (second: number, toolUseId: string, taskId: string): string =>
+    JSON.stringify({
+      type: "user",
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "FAKE STOP" }] },
+      toolUseResult: { message: `Successfully stopped task: ${taskId} (FAKE COMMAND)`, task_id: taskId, task_type: "local_bash", command: "FAKE COMMAND" },
+      timestamp: at(second),
+    }),
+  /** A message of another session or of a subagent, as Claude Code delivers it: the start of a new turn. */
+  peer: (second: number, from = "a0000000000000001"): string =>
+    JSON.stringify({
+      type: "user",
+      isMeta: true,
+      origin: { kind: "peer", from, body: "FAKE PEER MESSAGE" },
+      message: { role: "user", content: "Another Claude session sent a message:\nFAKE PEER MESSAGE" },
+      timestamp: at(second),
+    }),
+  /** The lines that close a turn after the last answer: a hook result, the stop hook summary, then the turn end. */
+  stopHookEnd: (second: number): string[] => [
+    JSON.stringify({ type: "attachment", attachment: { type: "hook_success" }, timestamp: at(second) }),
+    JSON.stringify({ type: "system", subtype: "stop_hook_summary", timestamp: at(second), cwd: "/home/user/src/proj" }),
+    JSON.stringify({ type: "system", subtype: "turn_duration", durationMs: 1000, timestamp: at(second), cwd: "/home/user/src/proj" }),
+  ],
   /** A task report as Claude Code delivers it: the start of a new turn. */
   delivered: (second: number, toolUseId: string, taskId: string): string =>
     JSON.stringify({

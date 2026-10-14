@@ -14,9 +14,10 @@
  *
  * The turn and the background tasks (Claude Code 2.1.x):
  * - A turn ends with a `system` line with subtype `turn_duration`.
- * - A new turn starts with a `user` line whose `origin.kind` is `human` (a
- *   prompt) or `task-notification` (a delivered task report), or with a real
- *   `assistant` line.
+ * - A new turn starts with a `user` line that has an `origin.kind`, the
+ *   delivered input of a turn: `human` (a prompt), `task-notification` (a
+ *   task report), `peer` (a message of another session or a subagent), or
+ *   another kind. A real `assistant` line also starts a turn.
  * - A background task starts with a `user` tool result line whose
  *   `toolUseResult` has a `backgroundTaskId` (Bash), the status
  *   `async_launched` (Agent), or a `taskId` and `persistent` (Monitor).
@@ -24,6 +25,9 @@
  *   `<status>` tag, in a `queue-operation` enqueue line or a `user` line.
  *   The text names the task by `<tool-use-id>` and `<task-id>`. A Monitor
  *   event has no `<status>` tag and does not end its task.
+ * - A background task also ends with the result of a `TaskStop` call: a
+ *   `user` tool result line whose `toolUseResult` has a `task_id` and a
+ *   `task_type`. Claude Code writes no task report for a stopped task.
  */
 
 /** The longest error text that the reader keeps of an `api_error` line. */
@@ -95,7 +99,7 @@ const WANTED_TYPES = new Set(["assistant", "system", "custom-title", "ai-title",
 
 /** A `user` line is parsed only when this text test finds a task start, a task report, or a turn start in it. */
 const USER_WANTED = /"type":"user"/;
-const USER_MARKERS = /"backgroundTaskId"|"async_launched"|"persistent"|"kind":"(human|task-notification)"/;
+const USER_MARKERS = /"backgroundTaskId"|"async_launched"|"persistent"|"task_type"|"origin":\{"kind":"/;
 
 /** The start of a task report text. */
 const NOTIFICATION = "<task-notification>";
@@ -218,6 +222,20 @@ export function taskStartOf(line: Pick<Line, "toolUseResult" | "message">): Task
   return { toolUseId, taskId };
 }
 
+/**
+ * The IDs of the background task that a `TaskStop` tool result line stops,
+ * or undefined: its `toolUseResult` has a string `task_id` and `task_type`
+ * (for example `local_bash`). The tool call ID of the line is the one of the
+ * stop call, not of the task, so only the task ID names the task.
+ */
+export function taskStopOf(line: Pick<Line, "toolUseResult">): TaskIds | undefined {
+  const result = line.toolUseResult;
+  if (result === null || typeof result !== "object") return undefined;
+  const r = result as { task_id?: unknown; task_type?: unknown };
+  if (typeof r.task_id !== "string" || typeof r.task_type !== "string" || r.task_id.length === 0) return undefined;
+  return { toolUseId: undefined, taskId: r.task_id };
+}
+
 const tag = (text: string, name: string): string | undefined => {
   const match = new RegExp(`<${name}>([^<]*)</${name}>`).exec(text);
   const value = match?.[1]?.trim();
@@ -311,7 +329,7 @@ export function createTranscriptReader(): TranscriptReader {
         return;
       case "user": {
         const kind = line.origin?.kind;
-        if (kind === "human" || kind === "task-notification") state.turnEnded = false;
+        if (typeof kind === "string") state.turnEnded = false;
         const content = line.message?.content;
         if (kind === "task-notification" && typeof content === "string") {
           const ids = taskEndOf(content);
@@ -319,6 +337,8 @@ export function createTranscriptReader(): TranscriptReader {
         }
         const start = taskStartOf(line);
         if (start !== undefined) startTask(start);
+        const stopped = taskStopOf(line);
+        if (stopped !== undefined) endTask(stopped);
         return;
       }
       case "system":

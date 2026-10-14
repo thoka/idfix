@@ -164,6 +164,18 @@ describe("the turn and the background tasks", () => {
     expect(read([...start, L.prompt(3), L.assistant(4), L.turnEnd(5)]).turnEnded).toBe(true);
   });
 
+  test("a TaskStop result ends the stopped task, which gets no report", () => {
+    const start = [L.prompt(0), L.bashStart(1, "toolu_a", "bash1"), L.agentStart(2, "toolu_b", "agent1")];
+    expect(read([...start, L.taskStop(3, "toolu_s", "bash1"), L.turnEnd(4)]).backgroundTasks).toBe(1);
+    expect(read([...start, L.taskStop(3, "toolu_s", "other"), L.turnEnd(4)]).backgroundTasks).toBe(2);
+  });
+
+  test("a delivered peer message starts a new turn", () => {
+    const start = [L.prompt(0), L.assistant(1), L.turnEnd(2)];
+    expect(read([...start, L.peer(3)]).turnEnded).toBe(false);
+    expect(read([...start, L.peer(3), L.assistant(4), ...L.stopHookEnd(5)]).turnEnded).toBe(true);
+  });
+
   test("a Monitor event does not end the Monitor task, its final report does", () => {
     const start = [L.prompt(0), L.monitorStart(1, "toolu_m", "mon1"), L.turnEnd(2)];
     expect(read([...start, L.enqueue(3, "toolu_m", "mon1", null)]).backgroundTasks).toBe(1);

@@ -52,6 +52,10 @@ The clone does not follow the host: it keeps the commit of its creation, so a ru
 - The stall guard also marks a run that waits more than 3 minutes for a long command or a subagent.
 - In a headless turn, Claude Code can move a long command into the background and end the turn before the command ends. Check the answer with `log`, and send a `say` to finish the work.
 
+## Ask Jev one question: `idfx decide`
+
+When your project needs a cheap typed answer from a model, for example to sort an item into one of a few classes, call `idfx decide --json` instead of a client of your own. Pipe one JSON object with `state`, `question`, `options` (name to criterion, at least 2), and an optional `title` into it. It prints one line with `choice`, `confidence`, and `cost`. On the error type `limit` or `auth`, stop and report; do not switch to another paid service. Details: the README section "idfx decide".
+
 ## When to delegate to opencode
 
 Use this section only when the routing above allows opencode with GLM.

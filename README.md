@@ -368,6 +368,25 @@ Prints the final assistant text of the session, one summary line with the cost a
 
 The real-cost line is the real charge at OpenRouter, not the estimate of opencode. `run` stores the key usage at the start in the run record, and `log` reads the usage now. The line shows the difference: `real cost $0.0512 at OpenRouter (key usage since the start of the run)`. The real cost is only exact when no other run used the project key during the run. Other runs with the same key that overlap in time add their cost to the same number, so the line names them: `, includes other runs: ses_a, ses_b`. OpenRouter counts a request a minute or two late, so a `log` some minutes later can show a slightly higher real cost. Without a run record or without the usage at the start, the line reads `real cost: unknown (no key usage at the start of the run)`.
 
+### idfx decide
+
+```
+echo '{"state":"The sky is blue today.","question":"What colour is the sky?","options":{"blue":"The sky is blue.","red":"The sky is red."},"title":"my-project"}' | idfx decide --json
+```
+
+Asks the pinned Jev model one choice question through the OpenRouter decisions endpoint. Another project uses it, so that it needs no model client and no key of its own. `--json` is required.
+
+The input is one JSON object on stdin:
+
+- `state`: an object or a string. As JSON, it has at most 4000 characters. A longer state is an input error; `decide` does not cut it.
+- `question`: the instructions of the question.
+- `options`: an object from the option name to its criterion text, with at least 2 options.
+- `title` (optional): the `X-Title` header of the request, so the OpenRouter activity shows the caller.
+
+On success, it prints one JSON line on stdout and exits 0: `choice`, `confidence`, `probabilities`, `model`, `cost` (USD), and `id`. A missing value is `null`. On a failure, it prints `{"error": {"type": ..., "message": ...}}` on stderr. The type is `limit` for HTTP 402 or 429, `auth` for HTTP 401 or 403 or a missing key, `input` for a bad stdin (exit 2), and `failed` for all other failures (exit 1). A 429 or 5xx gets one retry after two seconds. Stop on `limit` and `auth`; do not try another service.
+
+The key is `OPENROUTER_API_KEY`, else the key file of the project idfix (`~/.config/idfix/openrouter.key`), not the key of the folder of the caller. Each call that reached the API appends one JSON line to `decide.log` in the state folder (`$XDG_STATE_HOME/idfx/`): the time, the HTTP status, the model, the cost, the ID, the title, the choice, and the error type.
+
 ### idfx abort
 
 ```

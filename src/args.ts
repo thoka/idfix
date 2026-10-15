@@ -56,6 +56,8 @@ export type ParsedArgs =
   | { command: "watch-all"; json: boolean; once: boolean }
   | { command: "log"; url?: string; session: string; dir?: string }
   | { command: "trace"; url?: string; session: string; dir?: string; out?: string; tag: boolean; maxSteps?: number }
+  /** `decide --json`: one choice question to Jev, the input on stdin. */
+  | { command: "decide"; json: true }
   | { command: "abort"; url?: string; session: string; dir?: string }
   | {
       command: "answer";
@@ -427,6 +429,16 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         tag: flags.get("tag") === true,
         maxSteps,
       };
+    }
+    case "decide": {
+      const { flags, positionals } = collectFlags(rest, new Set(["json"]), new Set(["json"]));
+      if (positionals.length > 0) {
+        throw new UsageError(`decide takes no positional arguments, got "${positionals.join(" ")}"`);
+      }
+      if (flags.get("json") !== true) {
+        throw new UsageError("decide requires --json: it reads one JSON object on stdin and prints one JSON line");
+      }
+      return { command: "decide", json: true };
     }
     case "abort": {
       const { flags, positionals, globals } = collectFlags(rest, new Set(["dir", "url"]), new Set<string>());

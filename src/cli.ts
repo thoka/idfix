@@ -12,6 +12,7 @@ import { ping } from "./ping";
 import { pingRules } from "./rules";
 import { watchAll } from "./watch/run";
 import { trace } from "./trace";
+import { decide } from "./decide";
 import { answer } from "./answer";
 import { doctor, gateForCommand } from "./doctor";
 import { fetch, worktree, worktreeRm } from "./clone";
@@ -56,6 +57,7 @@ Usage:
   ${prog} watch --all [--json] [--once]
   ${prog} log SESSION [--dir DIR]
   ${prog} trace SESSION [--dir DIR] [--out FILE] [--tag] [--max-steps N]
+  ${prog} decide --json < QUESTION.json
   ${prog} abort SESSION [--dir DIR]
   ${prog} answer REQUEST_ID [--dir DIR] (--reply once|always|reject | --reject | ANSWER...)
   ${prog} say SESSION [--dir DIR] [--agent NAME] [--model PROVIDER/MODEL] TEXT
@@ -154,6 +156,21 @@ JSON output (tool protocol version 0):
                   cannot run.
   In JSON mode, stdout holds only the object; all other text goes to stderr.
 
+One question to Jev:
+  decide --json   reads one JSON object on stdin: state (an object or a
+                  string, at most 4000 characters as JSON), question (the
+                  instructions), options (option name to criterion text, at
+                  least 2), and an optional title (the X-Title header). It
+                  asks the pinned Jev model one choice question and prints
+                  one JSON line on stdout: choice, confidence,
+                  probabilities, model, cost, and id. On a failure it prints
+                  {"error": {"type", "message"}} on stderr. The types are
+                  limit (HTTP 402 or 429), auth (HTTP 401 or 403, or no
+                  key), input (bad stdin, exit 2), and failed (exit 1). The
+                  key is $OPENROUTER_API_KEY, else the key file of the
+                  project idfix. Each call that reached the API appends one
+                  line to $XDG_STATE_HOME/idfx/decide.log.
+
 Host cost proxy:
   proxy           runs the cost proxy in the foreground until SIGTERM, on
                   127.0.0.1:4090 by default. It appends a start marker and
@@ -236,6 +253,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return dispatchSession(args, (driver) => driver.log(args));
     case "trace":
       return trace(args);
+    case "decide":
+      return decide(process.env);
     case "abort":
       return dispatchSession(args, (driver) => driver.abort(args));
     case "answer":

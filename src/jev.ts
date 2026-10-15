@@ -145,17 +145,20 @@ function errorTextOf(body: unknown, status: number): string {
 
 /**
  * One decisions request, with one retry on HTTP 429 or 5xx after two
- * seconds. Returns the HTTP status and the parsed body.
+ * seconds. Returns the HTTP status and the parsed body. `extraHeaders`
+ * adds headers such as `X-Title`; they cannot replace the authorization or
+ * the content type.
  */
 export async function sendDecisionsRequest(
   body: object,
   key: string,
   doFetch: JevFetch,
   sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; body: unknown }> {
   const init = {
     method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    headers: { ...extraHeaders, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   };
   let response = await doFetch(OPENROUTER_DECISIONS_URL, init);

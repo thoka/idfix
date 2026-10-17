@@ -8,12 +8,10 @@
             "provider": {
               "order": [
                 "z-ai",
-                "parasail",
                 "together"
               ],
               "only": [
                 "z-ai",
-                "parasail",
                 "together"
               ],
               "allow_fallbacks": false

@@ -7,10 +7,13 @@
  *
  * A name in that list is a valid session name in that folder, next to the
  * naming rule of `SessionUnnamed` (`<project>` or `<project>-<step>`).
- * Unknown keys are ignored, so the file can grow later.
+ * An entry that ends in `*` is a prefix pattern: `planner-*` allows each
+ * name that starts with `planner-` and is longer than it. Other entries
+ * match exactly. Unknown keys are ignored, so the file can grow later.
  *
- * No file or no key gives an empty list. A bad TOML or a value that is not
- * an array of non-empty strings gives an empty list and a problem.
+ * No file or no key gives an empty list. A bad TOML, a value that is not
+ * an array of non-empty strings, or a lone `*` entry (it would allow every
+ * name) gives an empty list and a problem.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -41,6 +44,9 @@ export function readSessionNames(folder: string, readText: (file: string) => str
   if (value === undefined) return { names: [] };
   if (!Array.isArray(value) || !value.every((name) => typeof name === "string" && name.trim().length > 0)) {
     return { names: [], problem: `bad ${file}: session_names is not an array of non-empty strings` };
+  }
+  if (value.some((name) => (name as string).trim() === "*")) {
+    return { names: [], problem: `bad ${file}: session_names holds a lone "*", which would allow every name` };
   }
   return { names: value as string[] };
 }

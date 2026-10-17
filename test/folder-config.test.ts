@@ -42,6 +42,20 @@ describe("readSessionNames", () => {
       });
     }
   });
+
+  test("a prefix pattern is kept as written", () => {
+    const text = 'session_names = ["planner", "planner-*"]\n';
+    expect(readSessionNames(FOLDER, withFile(text))).toEqual({ names: ["planner", "planner-*"] });
+  });
+
+  test("a lone * gives an empty list and a problem", () => {
+    for (const value of ['["*"]', '["lead", "*"]', '[" * "]']) {
+      expect(readSessionNames(FOLDER, withFile(`session_names = ${value}\n`))).toEqual({
+        names: [],
+        problem: `bad ${FILE}: session_names holds a lone "*", which would allow every name`,
+      });
+    }
+  });
 });
 
 describe("sessionNamesSource", () => {

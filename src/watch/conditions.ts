@@ -342,11 +342,26 @@ function background(row: WatchRow): Wanted {
  * The naming rule: a session name is its
  * project, or `<project>-<step>` with a non-empty step. The name
  * `supervisor` is valid in every folder. A name in `extraNames` (the key
- * `session_names` of `.idfix.toml` in the main folder) is valid too.
+ * `session_names` of `.idfix.toml` in the main folder) is valid too. An
+ * entry that ends in `*` is a prefix pattern: `planner-*` allows each name
+ * that starts with `planner-` and is longer than it. Other entries match
+ * exactly.
  */
 export function nameFollowsRule(name: string, project: string, extraNames: readonly string[] = []): boolean {
-  if (name === SUPERVISOR_NAME || name === project || extraNames.includes(name)) return true;
-  const prefix = `${project}-`;
+  if (name === SUPERVISOR_NAME || name === project) return true;
+  if (extraNames.some((entry) => nameMatchesEntry(name, entry))) return true;
+  return startsWithLonger(name, `${project}-`);
+}
+
+/** True when `name` matches one entry of `session_names`. */
+function nameMatchesEntry(name: string, entry: string): boolean {
+  if (!entry.endsWith("*")) return name === entry;
+  const prefix = entry.slice(0, -1);
+  return prefix.length > 0 && startsWithLonger(name, prefix);
+}
+
+/** True when `name` starts with `prefix` and is longer than it. */
+function startsWithLonger(name: string, prefix: string): boolean {
   return name.startsWith(prefix) && name.length > prefix.length;
 }
 

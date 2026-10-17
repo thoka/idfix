@@ -360,6 +360,19 @@ describe("SessionUnnamed", () => {
     expect(nameFollowsRule("supervisor", "src", ["lead"])).toBe(true);
   });
 
+  test("an entry that ends in * is a prefix pattern, other entries stay exact", () => {
+    const names = ["planner", "planner-*"];
+    expect(nameFollowsRule("planner", "src", names)).toBe(true);
+    expect(nameFollowsRule("planner-cli", "src", names)).toBe(true);
+    expect(nameFollowsRule("planner-shorter-history", "src", names)).toBe(true);
+    expect(nameFollowsRule("planner-", "src", names)).toBe(false);
+    expect(nameFollowsRule("plannerx", "src", names)).toBe(false);
+    expect(nameFollowsRule("plannerx", "src", ["planner*"])).toBe(true);
+    expect(nameFollowsRule("planner", "src", ["planner*"])).toBe(false);
+    expect(nameFollowsRule("lead-1", "src", ["lead"])).toBe(false);
+    expect(nameFollowsRule("anything", "src", ["*"])).toBe(false);
+  });
+
   test("a role name listed for the main folder is False", () => {
     const folders: string[] = [];
     const sessionNames: SessionNamesReader = (folder) => {

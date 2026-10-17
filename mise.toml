@@ -1,6 +1,6 @@
 [tools]
 bun = "1.4.2"
-opencode = "1.18.32"
+opencode = "1.19.3"
 "github:docker/sbx-releases" = "0.45.1"
 claude = { version = "latest", minimum_release_age = "0" }
 # Git hooks: pre-push runs the tests (global rules, section Git).

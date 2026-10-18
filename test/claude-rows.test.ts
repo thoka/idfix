@@ -242,6 +242,7 @@ describe("helpers", () => {
         stateSinceMs: undefined,
         transcriptGrowthMs: undefined,
         summary: undefined,
+        shellRuns: false,
         subagents: [],
       },
       prices,
@@ -275,6 +276,7 @@ describe("the turn end while a background task runs", () => {
     stateSinceMs: undefined,
     transcriptGrowthMs: undefined,
     summary: running,
+    shellRuns: false,
     subagents: [],
     ...overrides,
   });
@@ -291,6 +293,18 @@ describe("the turn end while a background task runs", () => {
     expect(turnOf(session({ state: "waiting" }))).toBeUndefined();
     expect(turnOf(session({ live: false, state: "ended" }))).toBeUndefined();
     expect(turnOf(session({ kind: "background" }))).toBeUndefined();
+  });
+
+  test("the status shell after the turn end gives ended without a counted task", () => {
+    expect(turnOf(session({ summary: noTask, state: "idle", shellRuns: true }))).toBe("ended");
+    expect(turnOf(session({ summary: reported, state: "idle", shellRuns: true }))).toBe("ended");
+  });
+
+  test("the status shell while a turn runs, or while the session waits, gives undefined", () => {
+    const runs = summarizeTranscript(transcriptOf([L.prompt(0), L.assistant(1)]));
+    expect(turnOf(session({ summary: runs, shellRuns: true }))).toBeUndefined();
+    expect(turnOf(session({ summary: noTask, state: "waiting", shellRuns: true }))).toBeUndefined();
+    expect(turnOf(session({ summary: noTask, kind: "background", shellRuns: true }))).toBeUndefined();
   });
 
   test("the row and the status row carry the turn and the task count", () => {

@@ -3,8 +3,10 @@
  * Code still writes the status `shell` in its session file, is idle and does
  * not stall. Claude Code keeps `shell` after the turn end while a shell
  * process of the session lives, for example a hung command that a finished
- * subagent moved to the background. The transcript below has the shape of
- * the real end of such a session, with invented content.
+ * subagent moved to the background. That shell is a running background
+ * task, so the turn is `ended` (`SessionBackground`), also with no counted
+ * task. With the status `busy`, nothing shows a task. The transcript below
+ * has the shape of the real end of such a session, with invented content.
  */
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -72,8 +74,14 @@ async function rowAt(status: string, nowMs: number) {
 describe("a session whose turn ended while Claude Code shows the status shell", () => {
   const later = TURN_END + 20 * MINUTE;
 
-  test("is idle from its turn end, with no running task", async () => {
+  test("is idle from its turn end, and the status shell shows a background task", async () => {
     const row = await rowAt("shell", later);
+    expect(row).toMatchObject({ state: "idle", stateSinceMs: TURN_END, backgroundTasks: 0, turn: "ended" });
+    expect(claudeStatusRow(row)).toMatchObject({ turn: "ended", backgroundTasks: 0 });
+  });
+
+  test("with the status busy, it is idle with no background task", async () => {
+    const row = await rowAt("busy", later);
     expect(row).toMatchObject({ state: "idle", stateSinceMs: TURN_END, backgroundTasks: 0, turn: undefined });
     expect(claudeStatusRow(row)).toMatchObject({ turn: null, backgroundTasks: 0 });
   });

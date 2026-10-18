@@ -78,6 +78,12 @@ export type ClaudeSession = {
   /** The newest modification time of the transcript and of the transcripts of its subagents. */
   transcriptGrowthMs: number | undefined;
   summary: TranscriptSummary | undefined;
+  /**
+   * Whether the session file has the status `shell`: a shell process of the
+   * session lives. After the turn end, that is a background task, also one
+   * that a subagent started and that has no start line in this transcript.
+   */
+  shellRuns: boolean;
   subagents: ClaudeSubagent[];
 };
 
@@ -138,17 +144,24 @@ export function liveState(
 
 /**
  * `ended` for a live interactive session whose last turn ended while a
- * background task runs: the transcript has the turn end and a started task
- * without a final `task-notification`. Claude Code then may show the session
- * as busy (`liveState` reads it as idle), but it takes a prompt and queues it until the task reports. A
- * session that waits for the user, a session without a process, and a
- * background job give undefined.
+ * background task runs. Two sources show the task: the transcript has a
+ * started task without a final `task-notification`, or the session file has
+ * the status `shell` (`shellRuns`). The status covers what the transcript
+ * cannot see: a Bash task that a subagent started or that its timeout moved
+ * to the background, which keeps running after the subagent reported, and
+ * which writes no task report. Claude Code then may show the session as busy
+ * (`liveState` reads it as idle), but it takes a prompt and queues it until
+ * the task reports. A session that waits for the user, a session without a
+ * process, and a background job give undefined.
  */
-export function turnOf(session: Pick<ClaudeSession, "kind" | "live" | "state" | "summary">): "ended" | undefined {
+export function turnOf(
+  session: Pick<ClaudeSession, "kind" | "live" | "state" | "summary" | "shellRuns">,
+): "ended" | undefined {
   if (session.kind !== "interactive" || !session.live) return undefined;
   if (session.state === "waiting" || session.state === "ended") return undefined;
   const summary = session.summary;
-  if (summary === undefined || !summary.turnEnded || summary.backgroundTasks <= 0) return undefined;
+  if (summary === undefined || !summary.turnEnded) return undefined;
+  if (summary.backgroundTasks <= 0 && !session.shellRuns) return undefined;
   return "ended";
 }
 
@@ -256,6 +269,7 @@ export function createClaudeSource(root: string, fs: ClaudeFs = nodeClaudeFs): C
           stateSinceMs,
           transcriptGrowthMs: subagents.growthMs,
           summary,
+          shellRuns: session.status === "shell",
           subagents: subagents.agents,
         });
       }
@@ -288,6 +302,7 @@ export function createClaudeSource(root: string, fs: ClaudeFs = nodeClaudeFs): C
           stateSinceMs: job.updatedAtMs,
           transcriptGrowthMs: subagents.growthMs,
           summary,
+          shellRuns: false,
           subagents: subagents.agents,
         });
       }
@@ -316,6 +331,7 @@ export function createClaudeSource(root: string, fs: ClaudeFs = nodeClaudeFs): C
           stateSinceMs: newest(summary.lastActivityMs),
           transcriptGrowthMs: subagents.growthMs,
           summary,
+          shellRuns: false,
           subagents: subagents.agents,
         });
       }

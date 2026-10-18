@@ -329,12 +329,15 @@ function apiError(row: WatchRow, seen: SeenSession | undefined, watermarkMs: num
  * `SessionBackground`: True while the last turn of a live interactive
  * session ended and a background task runs (`turn` is `ended`). False when
  * the next turn starts or the last task reports. The session then takes a
- * prompt, and Claude Code queues it until the task reports.
+ * prompt, and Claude Code queues it until the task reports. With no counted
+ * task, the session file status `shell` alone showed the task, so the
+ * message names a shell process.
  */
 function background(row: WatchRow): Wanted {
   if (row.turn !== "ended") return FALSE;
-  const count = Math.max(1, row.backgroundTasks ?? 1);
-  const tasks = count === 1 ? "1 background task runs" : `${count} background tasks run`;
+  const count = row.backgroundTasks ?? 1;
+  const tasks =
+    count <= 0 ? "a shell process runs" : count === 1 ? "1 background task runs" : `${count} background tasks run`;
   return { status: "True", reason: REASON_TURN_ENDED, message: `turn ended, ${tasks}` };
 }
 

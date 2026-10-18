@@ -295,7 +295,7 @@ With `--json`, a Claude entry of `items` also has these fields:
 - `lastActivity`: the time of the last activity (ISO format).
 - `apiEquivalentUsd`: the API price of the tokens of the session and its subagents. On a plan, this is not a real charge. It is `null` when idfix knows no price for a model, for example `z-ai/glm-5.3-flash` of a `claude-glm` session.
 - `turn`: `ended` when the last turn of a live interactive session ended while a background task of the session runs, else `null`. Claude Code can show such a session as `busy` until the task reports, and idfix shows it as `idle`. The session takes a prompt: Claude Code queues it and delivers it when the task reports. So a supervisor can send a notice to the session, the same as to an `idle` session. A session that waits for the user, a session without a process, and a background job always have `null`.
-- `backgroundTasks`: the count of background tasks of the session that have not reported yet.
+- `backgroundTasks`: the count of background tasks of the session that have not reported yet. It counts only the tasks that start in the transcript of the session itself.
 
 How idfix finds the turn and the tasks in the transcript:
 
@@ -303,6 +303,7 @@ How idfix finds the turn and the tasks in the transcript:
 - A background task starts with the result of a Bash call with `run_in_background`, an Agent call that runs in the background, or a Monitor call.
 - A task ends with its task report (`<task-notification>` with a `<status>`). The report names the task by its tool call ID and its task ID. An event of a Monitor has no status, so it does not end the Monitor.
 - A task also ends with the result of a `TaskStop` call (a `task_id` and a `task_type`). Claude Code writes no task report for a stopped task.
+- The session file also shows a task: when the last turn ended and the status is still `shell`, a shell process of the session lives, so `turn` is `ended`, also when `backgroundTasks` is 0. This covers a Bash task that a subagent started, or that the timeout of a subagent moved to the background. Its start line is in the transcript of the subagent, and it runs on after the subagent reported, without a task report. The message of `SessionBackground` is then `turn ended, a shell process runs`. The status `busy` after the turn end shows no task.
 - Known gap: when Claude Code writes no report for a task (for example when the task dies with its process, or for a kind of task that idfix does not know), the task counts as running until the session ends or starts a new turn. A persistent Monitor runs until it stops, so `turn` stays `ended` for that time.
 
 The prices and the model windows come from the LiteLLM file `model_prices_and_context_window.json`. idfix downloads it at most once per 24 hours into `$XDG_CACHE_HOME/idfix/litellm-prices.json` (default `~/.cache/idfix/`). Without network, it uses the cached copy. Without a copy, the prices stay empty. The design is `.plan/design/claude-sessions-top.md`.

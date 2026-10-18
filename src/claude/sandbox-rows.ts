@@ -151,6 +151,7 @@ export function claudeRunRow(
       stateSinceMs: undefined,
       transcriptGrowthMs: transcript?.mtimeMs,
       summary,
+      shellRuns: false,
       subagents: [],
     },
     prices,

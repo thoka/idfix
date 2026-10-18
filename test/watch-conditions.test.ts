@@ -650,6 +650,11 @@ describe("SessionBackground", () => {
     expect(only(edges[0] ?? [], "SessionBackground")[0]?.message).toBe("turn ended, 3 background tasks run");
   });
 
+  test("the message names a shell process when only the status shell shows the task", () => {
+    const { edges } = polls([{ atMs: T0, rows: [row({ state: "idle", turn: "ended", backgroundTasks: 0 })] }]);
+    expect(only(edges[0] ?? [], "SessionBackground")[0]?.message).toBe("turn ended, a shell process runs");
+  });
+
   test("a row without the turn field gives no event", () => {
     const { edges } = polls([{ atMs: T0, rows: [row({ state: "busy", backgroundTasks: 1 })] }]);
     expect(only(edges[0] ?? [], "SessionBackground")).toEqual([]);

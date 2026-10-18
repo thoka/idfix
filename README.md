@@ -400,19 +400,29 @@ Aborts the session (`POST /session/:id/abort`). For a Claude run, see "Claude Co
 ```
 bun run src/cli.ts doctor [--dir DIR] [--json]
 bun run src/cli.ts doctor --fix [--force] [--dir DIR] [--json]
+bun run src/cli.ts doctor --renovate [--dir DIR] [--json]
+bun run src/cli.ts doctor --fix-as-root [--force] [--dir DIR] [--json]
 ```
 
 Runs the health checks of the project of `--dir` (default: the current folder) and of the host, prints one line per check (status, name, message, and the fix on the next line), and ends with a summary line. `--json` prints one object of the tool protocol, `{tool, version, status, checks}`, as the whole stdout. This is the doctor format of the shared tool protocol. Each check has `name`, `status`, `message`, a `fix` string (empty when the check has no hint), and a stable `type` `urn:dv:idfx:doctor:<name>`. A check that throws gets the status `error`. The top `status` is `fail` when a check fails or has the status `error`, else `warn` when a check warns, else `pass`. Exit code 0 when the doctor ran, also when a check fails. Read the JSON `status` for the result. Exit code 2 for a usage error or when the doctor itself cannot run. The task `mise run -q doctor -- --json` runs the doctor of a checkout. The slow checks (a git call, one `mise current opencode` call, and the `sbx` calls) run only here.
 
-With `--fix`, the command first runs the checks, then the fix action of every check in the registry order whose result is `warn` or `fail` and that has a fix action. It prints `fixing <name>: <fix text>` before each action and `fixed <name>: <note>` or `fix failed (<name>): <note>` after it. A failing action does not stop the other actions. Then it runs all checks again and prints their results. With `--json`, the fix lines go to stderr, and stdout holds the same object with `fixes`. The exit code is still 0 when the re-run has a `fail` or when a fix action failed. The JSON `status` and the `fixes` list say so. `--fix` never prompts. `--force` is only valid together with `--fix` and is reserved for the destructive fixes of later steps. With `--fix --json`, the object has `fixes` (`[{name, ok, note}]`), and `checks` holds the re-run results.
+With `--fix`, the command first runs the checks, then the fix action of every check in the registry order whose result is `warn` or `fail` and that has a fix action. It prints `fixing <name>: <fix text>` before each action and `fixed <name>: <note>` or `fix failed (<name>): <note>` after it. A failing action does not stop the other actions. Then it runs all checks again and prints their results. With `--json`, the fix lines go to stderr, and stdout holds the same object with `fixes`. The exit code is still 0 when the re-run has a `fail` or when a fix action failed. The JSON `status` and the `fixes` list say so. `--fix` never prompts and never calls sudo. `--force` is only valid together with `--fix`, `--renovate`, or `--fix-as-root`. Some fixes end sessions or processes, or remove content, so they run only with `--force`: `agent-copies`, `sandbox-mounts`, `top-memory`, `orphan-processes`, and `units`. Without `--force`, such a fix changes nothing, counts as a failed fix, and its note names the flag. The guards inside a fix still block with `--force`. `--renovate` lifts the project to the current standard: it implies `--fix` and `--force`. `--fix-as-root` implies `--fix` and also runs the root fixes, which call sudo (today only `kvm-access`). In a terminal, sudo can ask for the password. Without a terminal, it runs `sudo -n`. Without `--fix-as-root`, a root fix does not run, and the line `needs --fix-as-root (<name>): ...` names the flag. With `--fix --json`, the object has `fixes` (`[{name, ok, note}]`), and `checks` holds the re-run results.
 
 Which checks have a fix action:
 
-- `plugin-fresh`: runs `claude plugin marketplace update idfix` and, when that exited 0, `claude plugin update idfix@idfix`. A non-zero exit is a failed fix. When only the old key `opencode-subagents@opencode-subagents` is installed, the check warns and names the reinstall commands, and the fix runs nothing, because the reinstall changes the plugin configuration of the user.
+- `global-rules`: for each of the three rule paths, a copy whose content equals the shared `AGENTS.md` exactly becomes a symlink to it; a copy with different content is left alone (the fix fails and names it), so no edit is lost. A broken or wrong symlink is re-pointed. A missing path is not created. Without the shared file, the fix fails and changes nothing.
+- `agent-copies`: needs `--force`, because it removes content. It checks each project agent file that is not permission-only. It keeps only the `permission` block of the front matter. It drops the description, model, prompt, and other keys. It deletes a file without a `permission` block. Each file must be clean in git (tracked and unmodified), so git holds the old content. The fix does not touch a file that is not clean, and its note names the file, its state, and the step by hand.
 - `state-names`: moves the old state folder `$XDG_STATE_HOME/oc-sub/` into `$XDG_STATE_HOME/idfx/`. It stops when a `serve-<port>.lock` exists in the old folder, because then a run starts or the watchdog stops a server. It moves each entry with a rename, so a running server keeps writing its log. An entry whose name exists in both folders stays, and the fix fails and names it. When the old folder is empty, the fix removes it and links the old path to the new folder.
 - `project-config-name`: renames `.opencode/oc-sub.json` of the project to `.opencode/idfx.json`. It never overwrites a new file. Commit the rename yourself.
+- `opencode-version`: when the deciding pin is in the project `mise.toml`, it sets that pin to the tested version. It keeps the rest of the file and runs `mise install` in the project root. The file must be clean in git, else nothing changes. When the deciding pin is in the global mise configuration, nothing changes, because that file belongs to the user. Then the note names the line to set by hand. It needs no `--force`, because git holds the old file.
+- `plugin-fresh`: runs `claude plugin marketplace update idfix` and, when that exited 0, `claude plugin update idfix@idfix`. A non-zero exit is a failed fix. When only the old key `opencode-subagents@opencode-subagents` is installed, the check warns and names the reinstall commands, and the fix runs nothing, because the reinstall changes the plugin configuration of the user.
+- `server-plugin`: syncs the plugin folder of the servers from the plugin of this idfx, then restarts each running server that started with other plugin content. When all sessions of a server are idle, it restarts the server. A busy server stays as it is, and the fix fails with a note that names `idfx abort` and `idfx down`. It needs no `--force`, because an idle server loses no work.
+- `kvm-access`: a root fix. Only `--fix-as-root` runs it. It runs `sudo chmod 0666 /dev/kvm` (`sudo -n` without a terminal). The mode lasts until WSL creates `/dev/kvm` again at the next WSL restart. A permanent fix is a task of the machine setup.
+- `sandbox-mounts`: needs `--force`, because it ends all sessions of the sandbox. It recreates the sandbox with `sbx rm --force NAME` and `idfx up`. Two guards always block, also with `--force`: a busy session on the sandbox server, and unfetched or uncommitted work in the clone. When the sandbox does not start, a recreate does not help, and the note names `sbx diagnose`.
 - `host-proxy`: copies `contrib/systemd/idfx-proxy.service` to `~/.config/systemd/user/idfx-proxy.service` (or `$XDG_CONFIG_HOME/systemd/user/`) when the copy is missing or differs, then runs `systemctl --user daemon-reload` and `systemctl --user enable idfx-proxy.service`. Then it runs `restart` when the file changed or the unit is active, else `start`. It probes `HEAD http://127.0.0.1:4090/api/hello` up to 10 times, 500 ms apart. The fix is ok only when the proxy answers; else the note names the log. When another tool manages the user units, the fix changes nothing and runs no `systemctl` command. It counts as a failed fix, and its note names that tool (see the check `host-proxy`).
-- `global-rules`: for each of the three rule paths, a copy whose content equals the shared `AGENTS.md` exactly becomes a symlink to it; a copy with different content is left alone (the fix fails and names it), so no edit is lost. A broken or wrong symlink is re-pointed. A missing path is not created. Without the shared file, the fix fails and changes nothing.
+- `top-memory`: needs `--force`, because it ends a view of the user. It scans the processes again and sends SIGTERM to each `idfx top` process over 1 GiB, never to doctor itself.
+- `orphan-processes`: needs `--force`, because it ends processes. It sends SIGTERM to each orphaned process and to all its descendants of the current user. After 5 seconds, it sends SIGKILL to each process that still runs.
+- `units`: needs `--force`, because it stops processes. It lists the units again and stops each orphaned unit with `systemctl --user stop`, never the unit of doctor itself. A unit that is no longer loaded counts as done. When a stop fails, the fix fails.
 
 The checks:
 
@@ -443,27 +453,7 @@ fail-means: A skill is gone. Remove the broken link or point it back.
 --
 check: `agent-copies`
 what-it-checks: `.opencode/agents/coder.md`, `researcher.md`, and `reader.md` are permission-only files or absent (see `.plan/research/agent-merge.md`).
-fail-means: A project copy overrides the plugin agent. Delete it, or keep only a permission block.
---
-check: `opencode-version`
-what-it-checks: The opencode version that `mise current opencode` resolves in the project root equals the `opencode` pin in the `mise.toml` of idfx, the tested version, and the pin that decides it (the project `mise.toml`, else the global mise configuration) is that exact version. A pin such as `"latest"` warns even when it resolves to the tested version today, because the next release changes it.
-fail-means: Warn. Set the tested version in the project `mise.toml` (or in the global mise configuration when the project has no pin) and run `mise install`. No `--fix` action yet.
---
-check: `opencode-release`
-what-it-checks: The latest opencode release (`mise latest opencode`) is not newer than the tested version, or not newer than the reviewed version in `opencode-review.json` of the idfx repository. It reminds you to review a new release from time to time. A failed or empty `mise latest` call (no network) skips the check, and so does a missing tested pin.
-fail-means: Warn. Read the release notes of the new version, then either raise the pin in the `mise.toml` of idfx and run the tests, or record the decision in `opencode-review.json`. No `--fix` action.
---
-check: `plugin-fresh`
-what-it-checks: The installed plugin commit matches `origin/alpha` of the plugin repository.
-fail-means: Warn. `--fix` runs the plugin update commands that the fix names.
---
-check: `sandbox-mounts`
-what-it-checks: When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires (a folder inside the project root is not mounted, the clone holds it), the project has the `sandbox-<name>` git remote of clone mode, and the clone exists inside the sandbox (`git -C <root> rev-parse --git-dir`).
-fail-means: Run `sbx rm --force NAME` and then `idfx up`, which creates the sandbox again in clone mode.
---
-check: `deepinfra-key`
-what-it-checks: The optional DeepInfra key file `~/.config/<project>/deepinfra.key` has mode 600 or stricter. It only reads the mode, never the content. Without the file, it skips (DeepInfra is off).
-fail-means: Warn only. Other users may read the key. Run `chmod 600` on the file.
+fail-means: A project copy overrides the plugin agent. Delete it, or keep only a permission block. `--fix --force` keeps only the permission block.
 --
 check: `state-names`
 what-it-checks: The old state folder `$XDG_STATE_HOME/oc-sub/` is missing or is a link. While it is a real folder, idfx keeps its state there.
@@ -473,9 +463,53 @@ check: `project-config-name`
 what-it-checks: The project root has no old config file `.opencode/oc-sub.json`.
 fail-means: Warn. `--fix` renames it to `.opencode/idfx.json`. When both files exist, merge them by hand.
 --
+check: `opencode-version`
+what-it-checks: The opencode version that `mise current opencode` resolves in the project root equals the `opencode` pin in the `mise.toml` of idfx, the tested version, and the pin that decides it (the project `mise.toml`, else the global mise configuration) is that exact version. A pin such as `"latest"` warns even when it resolves to the tested version today, because the next release changes it.
+fail-means: Warn. Set the tested version in the project `mise.toml` (or in the global mise configuration when the project has no pin) and run `mise install`. When the pin is in the project `mise.toml`, `--fix` sets it.
+--
+check: `opencode-release`
+what-it-checks: The latest opencode release (`mise latest opencode`) is not newer than the tested version, or not newer than the reviewed version in `opencode-review.json` of the idfx repository. It reminds you to review a new release from time to time. A failed or empty `mise latest` call (no network) skips the check, and so does a missing tested pin.
+fail-means: Warn. Read the release notes of the new version, then either raise the pin in the `mise.toml` of idfx and run the tests, or record the decision in `opencode-review.json`. No `--fix` action.
+--
+check: `plugin-fresh`
+what-it-checks: The installed plugin commit matches `origin/alpha` of the plugin repository.
+fail-means: Warn. `--fix` runs the plugin update commands that the fix names.
+--
+check: `server-plugin`
+what-it-checks: Every server loads the synced plugin folder. That folder equals the plugin folder of this idfx, and each running server started with the content that the folder holds now. A server without a plugin record started with an older idfx and counts as stale. Without a running server, a missing synced folder passes, because the next `up` creates it. Without the plugin folder, it skips.
+fail-means: Warn. The plugin changed since the last `up`, or a server runs old plugin content. `--fix` syncs the folder and restarts each idle server. A busy server needs `idfx abort` or `idfx down` first.
+--
+check: `kvm-access`
+what-it-checks: The current user can read and write `/dev/kvm`. `idfx up` in sandbox mode runs the same check before its first `sbx` call. Off Linux, it skips.
+fail-means: `sbx` cannot start a sandbox. When `/dev/kvm` is missing, turn on KVM (on WSL: `nestedVirtualization=true` in `.wslconfig`) and restart. When the mode blocks the user, `--fix-as-root` runs `sudo chmod 0666 /dev/kvm`.
+--
+check: `sandbox-mounts`
+what-it-checks: When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires (a folder inside the project root is not mounted, the clone holds it), the project has the `sandbox-<name>` git remote of clone mode, and the clone exists inside the sandbox (`git -C <root> rev-parse --git-dir`).
+fail-means: Run `sbx rm --force NAME` and then `idfx up`, which creates the sandbox again in clone mode. When no session is busy and the clone holds no unfetched work, `--fix --force` runs these two steps.
+--
+check: `deepinfra-key`
+what-it-checks: The optional DeepInfra key file `~/.config/<project>/deepinfra.key` has mode 600 or stricter. It only reads the mode, never the content. Without the file, it skips (DeepInfra is off).
+fail-means: Warn only. Other users may read the key. Run `chmod 600` on the file.
+--
+check: `research-due`
+what-it-checks: No research report in `<plan_dir>/research/` of the project has a due recheck head (`checked`, `recheck`, `decisions`). The plan folder is `plan_dir` of `.handover.toml`, else `docs`. A report with a due date of today or earlier is due. A trigger such as `on ...` is never due by date. Reports without a head do not count.
+fail-means: Warn only. The message names each due report, its due date, and its decisions, and each report with an invalid head. Recheck the facts with a researcher run, then set `checked` to today. A bad `plan_dir` also warns. No `--fix` action.
+--
+check: `watch-running`
+what-it-checks: The holder of the lock `events.lock` of `idfx watch --all` lives: its PID exists and its start time matches.
+fail-means: Warn. No watcher runs, so the supervisor gets no wake-up. Link `contrib/systemd/idfx-watch.service` into `~/.config/systemd/user/` and run `systemctl --user enable --now idfx-watch.service`. No `--fix` action, because the user installs the unit.
+--
 check: `host-proxy`
 what-it-checks: The host cost proxy runs as the systemd user service `idfx-proxy.service`: the installed unit file equals the shipped `contrib/systemd/idfx-proxy.service`, and `systemctl --user show` gives `UnitFileState` `enabled` (or `enabled-runtime`) and `ActiveState` `active`. Without a user manager, it skips.
 fail-means: Warn. The unit is not installed, is outdated, is not enabled, or is not active (the message names the log `proxy-host.log` and `journalctl --user -u idfx-proxy`). `--fix` installs, enables, and starts the unit, and probes it. When `idfx-proxy.service` or `idfx-watch.service` in the user unit folder is a symbolic link, another tool manages the user units. Then the check also warns on a plain copy, and its hint names that tool or `systemctl --user enable --now idfx-proxy.service`. `--fix` changes nothing then.
+--
+check: `top-memory`
+what-it-checks: No `idfx top` process of the current user uses more than 1 GiB of RSS. A `top` that leaked keeps its whole table in memory. Without `/proc`, it skips.
+fail-means: Warn. The message names the PID and the RSS in MB of each process. `--fix --force` sends SIGTERM to each listed process, never to doctor itself.
+--
+check: `orphan-processes`
+what-it-checks: No process of the current user runs in a deleted folder with PID 1 or `/init` as its parent. Without `/proc`, it skips.
+fail-means: Warn. The message lists at most 10 processes with PID, command, and folder. `--fix --force` sends SIGTERM to each process and its descendants, then SIGKILL after 5 seconds.
 --
 check: `units`
 what-it-checks: Lists each loaded systemd user unit of idfx (`idfx-*`, and `ocsub-*` of older versions) with its owner and its reason (at most 10 entries and the total count). A unit is orphaned when its working folder is gone, or when it is a `proxy` or `idle` unit of a port without a `serve` or `holder` unit. It does not ask whether a named owner session still lives. Without a user manager, it skips.

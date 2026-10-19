@@ -42,6 +42,11 @@ function startFakeUpstream() {
   const release = () => {
     while (heldGates.length > 0) heldGates.pop()?.();
   };
+  const streamErrorGates: Array<() => void> = [];
+  /** Let `/stream-error` fail its stream now. */
+  const failStream = () => {
+    while (streamErrorGates.length > 0) streamErrorGates.pop()?.();
+  };
   const server = Bun.serve({
     port: 0,
     fetch: async (req) => {
@@ -95,8 +100,10 @@ function startFakeUpstream() {
         const stream = new ReadableStream({
           async start(controller) {
             controller.enqueue(encoder.encode(sseMessage(JSON.stringify(textChunk))));
-            // Error the stream after the response has started.
-            await Bun.sleep(10);
+            // Error the stream only after the client has read the first
+            // chunk. A timer here raced: when the error came before the
+            // proxy sent its response head, the client saw ECONNRESET.
+            await new Promise<void>((resolve) => streamErrorGates.push(resolve));
             controller.error(new Error("upstream blew up mid-stream"));
           },
         });
@@ -108,7 +115,7 @@ function startFakeUpstream() {
       return new Response("not found", { status: 404 });
     },
   });
-  return { server, release, close: () => server.stop(true) };
+  return { server, release, failStream, close: () => server.stop(true) };
 }
 
 const withProxy = (upstreamUrl: string) => {
@@ -348,6 +355,7 @@ describe("startProxy", () => {
     const reader = (res.body as ReadableStream<Uint8Array>).getReader();
     const first = await reader.read();
     expect(new TextDecoder().decode(first.value)).toContain(JSON.stringify(textChunk));
+    fake.failStream();
     let failure: unknown = null;
     try {
       await reader.read();

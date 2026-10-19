@@ -108,12 +108,21 @@
  * `process.env`. This also makes TMPDIR and the XDG folders below reach the
  * children. `node:child_process` already reads `process.env`.
  */
-import { afterAll, describe, mock, test } from "bun:test";
+import { afterAll, describe, mock, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { defaultUnitDeps, listUnits, stopUnit, type LoadedUnit } from "../src/units";
+
+/**
+ * The time limit of each test. Many tests start a fresh `bun run src/cli.ts`
+ * child, which takes about 0.2 s on an idle machine but more than the default
+ * 5 s when the heavy queue runs other suites beside this one (a doctor test
+ * failed so on 2026-10-19 after 6.8 s). A test with its own limit keeps it.
+ */
+export const TEST_TIMEOUT_MS = 30_000;
+setDefaultTimeout(TEST_TIMEOUT_MS);
 
 export const RUN_PREFIX = "oc-sub-test-run-";
 const STALE_MS = 6 * 60 * 60 * 1000;

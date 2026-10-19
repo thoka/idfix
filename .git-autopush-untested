@@ -1,0 +1,13 @@
+# Paths that no test reads. git-autopush leaves them out of the test key,
+# so a push that changes only these paths reuses an earlier pass.
+# One git pathspec glob per line. Check each new line with one suite run in
+# a throwaway clone without the listed files.
+# test/public.test.ts reads every tracked file for local paths; that does not
+# count, because the pre-commit hook public-check checks each staged file.
+AGENTS.md
+LICENSE
+.mark*.toml
+.git-autopush-untested
+probe/README.md
+probe/task.md
+probe/results

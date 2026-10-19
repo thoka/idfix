@@ -1,10 +1,16 @@
 /**
- * Integration test: runs against a real `opencode serve` on a free port from
- * 8790 upward. It exercises `up`, creates sessions over the SDK (without
- * sending any prompt, so no model is called and nothing costs money), checks
- * `status`, runs `watch` on an already finished session, runs `abort`, and
- * stops the server with `restart` and `down`. Skipped when the `opencode` command is not on the
- * PATH.
+ * Integration test: runs against a real `opencode serve` on a port from
+ * 8790 upward. `up` binds the port N for the server and N + 1 for the cost
+ * proxy. Each test reserves such a pair with a lock file in a folder that
+ * all test runs share (test/port-lock.ts), so two runs at the same time
+ * never get the same port or the proxy port of the other. The locks go at
+ * the end of the file and at the exit of the process.
+ *
+ * The tests exercise `up`, create sessions over the SDK (without sending any
+ * prompt, so no model is called and nothing costs money), check `status`,
+ * run `watch` on an already finished session, run `abort`, and stop the
+ * server with `restart` and `down`. They are skipped when the `opencode`
+ * command is not on the PATH.
  *
  * `up` starts the server, the cost proxy, and the idle watchdog the same way
  * as in production: as `idfx-<kind>-<port>` user units, or detached in
@@ -16,7 +22,7 @@
  * it and fails. The last test checks the same for all groups of the file,
  * and the reaper of test/setup.ts stops a test unit that a killed run left.
  */
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { createOpencodeClient, type Event, type OpencodeClient } from "@opencode-ai/sdk";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, existsSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,8 +30,8 @@ import { stopStartedGroups } from "../src/down";
 import { proxyPidPath, serveLogPath, servePidPath } from "../src/state";
 import { idlePidPath } from "../src/idle";
 import { defaultUnitDeps, PORT_UNIT_KINDS, stopPortUnits } from "../src/units";
-import { TEST_HOME, TEST_OWNER, isKeyVariable } from "./setup";
-import net from "node:net";
+import { INTEGRATION_PORTS, SYSTEM_TMP, TEST_HOME, TEST_OWNER, isKeyVariable } from "./setup";
+import { reservePortPair, type PortPair } from "./port-lock";
 import path from "node:path";
 
 const hasOpencode = Bun.which("opencode") !== null;
@@ -35,24 +41,22 @@ if (!hasOpencode) {
 
 const REPO_ROOT = path.resolve(import.meta.dir, "..");
 const CLI = path.join(REPO_ROOT, "src", "cli.ts");
-const FIRST_PORT = 8790;
-const LAST_PORT = 8900;
+/** The lock folder of the port pairs, shared by all test runs on this machine. */
+const PORT_LOCK_DIR = path.join(SYSTEM_TMP, "idfx-test-ports");
 
-function isPortFree(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once("error", () => resolve(false));
-    server.once("listening", () => server.close(() => resolve(true)));
-    server.listen(port, "127.0.0.1");
-  });
+/** The port pairs that this file reserved. afterAll releases them, and the exit of the process too. */
+const reserved: PortPair[] = [];
+
+/** Reserves a server port and its proxy port (port + 1) that no other test run uses. */
+async function reservePort(): Promise<number> {
+  const pair = await reservePortPair({ dir: PORT_LOCK_DIR, range: INTEGRATION_PORTS });
+  reserved.push(pair);
+  return pair.port;
 }
 
-async function findFreePort(): Promise<number> {
-  for (let port = FIRST_PORT; port <= LAST_PORT; port++) {
-    if (await isPortFree(port)) return port;
-  }
-  throw new Error(`no free port between ${FIRST_PORT} and ${LAST_PORT}`);
-}
+afterAll(() => {
+  for (const pair of reserved.splice(0)) pair.release();
+});
 
 /** The process groups (server, proxy, and watchdog) that the tests started. */
 const startedGroups = new Set<number>();
@@ -243,7 +247,7 @@ async function probeStream(
 test.skipIf(!hasOpencode)(
   "up, create session without prompt, status, abort, stop the server",
   async () => {
-    const port = await findFreePort();
+    const port = await reservePort();
     const mine = new Set<number>();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-"));
     // The fast health checks of `up` and `restart` warn without AGENTS.md,
@@ -382,7 +386,7 @@ test.skipIf(!hasOpencode)(
     // endpoints and the answer command against a server with no pending
     // requests. The pause-and-answer flow itself is covered by the fake
     // server tests in test/watch-pending.test.ts and test/answer.test.ts.
-    const port = await findFreePort();
+    const port = await reservePort();
     const mine = new Set<number>();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-questions-"));
     const dataDir = path.join(workDir, "data");
@@ -443,7 +447,7 @@ test.skipIf(!hasOpencode)(
 test.skipIf(!hasOpencode)(
   "a server with a password: a wrong password gives a clear error",
   async () => {
-    const port = await findFreePort();
+    const port = await reservePort();
     const mine = new Set<number>();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-auth-"));
     const stateHome = path.join(workDir, "state");
@@ -498,7 +502,7 @@ test.skipIf(!hasOpencode)(
   "a test that ends without down: the teardown still stops the server and the proxy loop",
   async () => {
     // This is the path of a failed test: no `down` runs, only the teardown.
-    const port = await findFreePort();
+    const port = await reservePort();
     const mine = new Set<number>();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-nodown-"));
     const env = {
@@ -549,7 +553,7 @@ test.skipIf(!hasOpencode)(
 test.skipIf(!hasOpencode)(
   "an idle server stops by itself after the idle limit",
   async () => {
-    const port = await findFreePort();
+    const port = await reservePort();
     const mine = new Set<number>();
     const workDir = mkdtempSync(path.join(tmpdir(), "oc-sub-it-idle-"));
     const { OPENCODE_CONFIG_DIR: _outer, ...baseEnv } = process.env as Record<string, string | undefined>;

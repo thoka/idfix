@@ -1,11 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { makeDoctorDeps } from "../src/doctor";
 import { HOST_PROXY_UNIT_SOURCE } from "../src/host-proxy";
 
 const UNIT = path.join(import.meta.dir, "..", "contrib", "systemd", "idfx-watch.service");
 const PROXY_UNIT = path.join(import.meta.dir, "..", "contrib", "systemd", "idfx-proxy.service");
+
+/**
+ * The units start `%h/.local/bin/idfx`, and `systemd-analyze verify` checks
+ * that it is executable. A test has the test home of the preload, so it gets
+ * a stub there and never depends on the install of the machine.
+ */
+function stubInstalledIdfx(): void {
+  const bin = path.join(process.env.HOME ?? "", ".local", "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(path.join(bin, "idfx"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+}
 
 /** A small INI reader for a systemd unit: sections, `key=value` lines, and `#` or `;` comments. */
 function parseUnit(text: string): Record<string, Record<string, string[]>> {
@@ -53,6 +64,7 @@ describe("contrib/systemd/idfx-watch.service", () => {
 
   const analyze = Bun.which("systemd-analyze");
   test.skipIf(analyze === null)("systemd-analyze --user verify accepts it", () => {
+    stubInstalledIdfx();
     const result = Bun.spawnSync([analyze as string, "--user", "verify", UNIT]);
     expect(result.stderr.toString()).toBe("");
     expect(result.exitCode).toBe(0);
@@ -95,6 +107,7 @@ describe("contrib/systemd/idfx-proxy.service", () => {
 
   const analyze = Bun.which("systemd-analyze");
   test.skipIf(analyze === null)("systemd-analyze --user verify accepts it", () => {
+    stubInstalledIdfx();
     const result = Bun.spawnSync([analyze as string, "--user", "verify", PROXY_UNIT]);
     expect(result.stderr.toString()).toBe("");
     expect(result.exitCode).toBe(0);

@@ -18,13 +18,13 @@
  */
 import { expect, test } from "bun:test";
 import { createOpencodeClient, type Event, type OpencodeClient } from "@opencode-ai/sdk";
-import { mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, existsSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { stopStartedGroups } from "../src/down";
 import { proxyPidPath, serveLogPath, servePidPath } from "../src/state";
 import { idlePidPath } from "../src/idle";
 import { defaultUnitDeps, PORT_UNIT_KINDS, stopPortUnits } from "../src/units";
-import { TEST_OWNER } from "./setup";
+import { TEST_HOME, TEST_OWNER, isKeyVariable } from "./setup";
 import net from "node:net";
 import path from "node:path";
 
@@ -137,6 +137,22 @@ async function teardown(env: Record<string, string>, port: number, mine: Set<num
   expect(left).toEqual([]);
 }
 
+/**
+ * A home folder in `workDir` with the three global rule links to the shared
+ * AGENTS.md. The test home of the preload has none, and the check
+ * `global-rules` of `restart` warns without them.
+ */
+function homeWithRuleLinks(workDir: string): string {
+  const home = path.join(workDir, "home");
+  const shared = process.env.IDFX_SHARED_DIR;
+  for (const link of [".claude/CLAUDE.md", ".config/opencode/AGENTS.md", ".codex/AGENTS.md"]) {
+    const file = path.join(home, link);
+    mkdirSync(path.dirname(file), { recursive: true });
+    if (shared !== undefined) symlinkSync(path.join(shared, "AGENTS.md"), file);
+  }
+  return home;
+}
+
 type CliResult = { code: number; stdout: string; stderr: string };
 
 function runCli(cwd: string, args: string[], env: Record<string, string>): CliResult {
@@ -239,7 +255,13 @@ test.skipIf(!hasOpencode)(
     // checkout of this plugin). Drop it, so that `up` serves the agents of
     // this checkout and prints no warning.
     const { OPENCODE_CONFIG_DIR: _outer, ...baseEnv } = process.env as Record<string, string | undefined>;
-    const env = { ...baseEnv, ...TEST_ENV, XDG_DATA_HOME: dataDir, XDG_STATE_HOME: stateHome } as Record<string, string>;
+    const env = {
+      ...baseEnv,
+      ...TEST_ENV,
+      HOME: homeWithRuleLinks(workDir),
+      XDG_DATA_HOME: dataDir,
+      XDG_STATE_HOME: stateHome,
+    } as Record<string, string>;
     const pidFile = path.join(stateHome, "idfx", `serve-${port}.pid`);
 
     try {
@@ -498,6 +520,20 @@ test.skipIf(!hasOpencode)(
           { env: defaultUnitDeps.busEnv() },
         );
         expect(show.stdout.trim()).toStartWith(`owner=${TEST_OWNER} `);
+      }
+      // The server, a unit or not, gets the guarded env of the test: the
+      // test home, the moved config folder, and no key (test/setup.ts).
+      if (existsSync("/proc/self/environ")) {
+        const servePid = Number(readFileSync(servePidPath(env, port), "utf8").trim());
+        const serveVars = new Map(
+          readFileSync(`/proc/${servePid}/environ`, "utf8")
+            .split("\0")
+            .filter((entry) => entry.includes("="))
+            .map((entry) => [entry.slice(0, entry.indexOf("=")), entry.slice(entry.indexOf("=") + 1)] as const),
+        );
+        expect(serveVars.get("HOME")).toBe(TEST_HOME);
+        expect(serveVars.get("XDG_CONFIG_HOME")).toBe(process.env.XDG_CONFIG_HOME);
+        expect([...serveVars.keys()].filter(isKeyVariable)).toEqual([]);
       }
     } finally {
       try {

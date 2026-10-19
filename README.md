@@ -568,6 +568,15 @@ The preload `test/setup.ts` gives each test run one temporary folder, `oc-sub-te
 
 A git hook sets repository-local git variables such as `GIT_DIR` and `GIT_INDEX_FILE`. A git command in a temporary folder would then act on the idfix repository. So the preload removes every variable that `git rev-parse --local-env-vars` names. Bun 1.4 has a trap here: `Bun.spawn` and `Bun.spawnSync` without an `env` option pass the environment of the process start, not the current `process.env`. So the preload wraps both, and a call without `env` passes `process.env`. `test/git-env.test.ts` checks this. To prove it, run `GIT_DIR=$PWD/.git GIT_INDEX_FILE=$PWD/.git/index mise run test` and check that `git status` does not change.
 
+No test may cause inference costs. So the preload also guards each test and each child of a test:
+
+- A fake `claude` and `claude-glm` come first on the PATH. They print `idfx test guard: ...` on stderr and exit with code 97. The fake `opencode` refuses `opencode run` the same way and runs the real opencode for every other command.
+- The preload drops each key variable, for example `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENROUTER_API_KEY`, and each other name that ends in `_API_KEY`, `_TOKEN`, `_SECRET`, or `_ACCESS_KEY`.
+- `HOME`, the XDG folders, and `CLAUDE_CONFIG_DIR` point into the run folder. So no test reads the real login or a key file. git gets a test identity from `GIT_CONFIG_GLOBAL`. The shared bun install cache stays, so no npm package downloads again.
+- A `fetch` of the test process to a model provider throws.
+
+`test/inference-guard.test.ts` checks the guard. `test/no-inference.test.ts` reads each test file and fails on a model provider host or a command that starts a model CLI. A file may name a host only as data that a fake records, and its entry in the allow list names the reason. A test that must call a model is a live test: it uses `liveTest` or `liveDescribe` of the preload and runs only with `IDFX_LIVE=1 bun test <file>`. The push gate never sets `IDFX_LIVE`. The guard does not block the network of a child process.
+
 ## Layout
 
 - `src/cli.ts` — entry point and command dispatch

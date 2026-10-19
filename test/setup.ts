@@ -325,6 +325,12 @@ defaultUnitDeps.run = (cmd, opts) => {
 };
 
 const systemTmp = tmpdir();
+/**
+ * The temporary folder of the system, before the move of TMPDIR below. Each
+ * run gets its own TMPDIR, so a folder that two runs share, like the port
+ * locks of test/port-lock.ts, lives here.
+ */
+export const SYSTEM_TMP = systemTmp;
 
 for (const name of readdirSync(systemTmp)) {
   if (!name.startsWith(RUN_PREFIX)) continue;

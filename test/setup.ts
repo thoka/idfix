@@ -22,8 +22,43 @@
  * the start of the process, so a change of `process.env.HOME` does not reach
  * `homedir()`. So the preload replaces `homedir` of `node:os` with
  * `<run folder>/home` (`TEST_HOME`). No test then reads or writes
- * `~/.local/state/idfx` or another folder in the real home. A child process
- * still gets the real `HOME`, so git keeps the identity of the user.
+ * `~/.local/state/idfx` or another folder in the real home. `HOME` of the
+ * process points there too, so a child process also gets the test home.
+ *
+ * The inference guard: no test may cause inference costs. Before, a child
+ * got the real `HOME`, `PATH`, and keys, so it could reach the real
+ * `claude`, its login, or a paid model route. Now the preload:
+ *
+ * - puts the folder `<run folder>/guard-bin` (`GUARD_BIN`) first on PATH.
+ *   Its fake `claude` and `claude-glm` print `idfx test guard: ...` on
+ *   stderr and exit with 97. Its `opencode` refuses `opencode run` the same
+ *   way and runs the real opencode for every other command, so
+ *   `opencode serve` of the integration tests still works.
+ * - drops each key variable from the environment (`isKeyVariable`: a fixed
+ *   list and each name that ends in `_API_KEY`, `_TOKEN`, `_SECRET`, or
+ *   `_ACCESS_KEY`).
+ * - points `HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME`,
+ *   `XDG_CACHE_HOME`, and `CLAUDE_CONFIG_DIR` into the run folder. A key
+ *   file such as `~/.config/idfix/openrouter.key` is then out of reach.
+ * - gives git a test identity: `GIT_CONFIG_GLOBAL` names
+ *   `<run folder>/gitconfig`, and no test reads the real `~/.gitconfig`.
+ * - keeps the shared bun install cache (`BUN_INSTALL_CACHE_DIR`, computed
+ *   before the move of `HOME`), so bun and opencode download no npm
+ *   package again.
+ * - makes a `fetch` of the test process to a model provider host
+ *   (`MODEL_PROVIDER_HOSTS`) throw.
+ *
+ * A unit that `up` starts under the user manager gets the environment of
+ * the CLI as `--setenv` names (`src/units.ts`), so it also gets the test
+ * home and no key. The user manager itself holds no key variable.
+ *
+ * A test that must call a model is `live`: it uses `liveTest` or
+ * `liveDescribe` and runs only when the run starts with `IDFX_LIVE=1`. The
+ * push gate never sets it. The preload deletes `IDFX_LIVE`, so no child
+ * sees it, and `LIVE_ENV` gives a live test the environment of the start.
+ * The static check test/no-inference.test.ts fails on a provider host or a
+ * model CLI command in a test file without a reason. The guard does not
+ * block the network of a child at the kernel level.
  *
  * The preload also changes the current folder of the process to
  * `<run folder>/cwd` (`TEST_CWD`). Code that falls back to
@@ -73,7 +108,7 @@
  * `process.env`. This also makes TMPDIR and the XDG folders below reach the
  * children. `node:child_process` already reads `process.env`.
  */
-import { afterAll, mock } from "bun:test";
+import { afterAll, describe, mock, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import { tmpdir } from "node:os";
@@ -303,6 +338,140 @@ afterAll(() => {
   rmSync(runDir, { recursive: true, force: true });
 });
 
+/** Whether this run was started with `IDFX_LIVE=1`, the opt-in for the `live` tests. */
+export const LIVE = process.env.IDFX_LIVE === "1";
+/**
+ * The environment of the start of the run, for a `live` test only. It is
+ * undefined unless the run was started with `IDFX_LIVE=1`, so no other test
+ * can reach the real home, PATH, or keys through it.
+ */
+export const LIVE_ENV: Readonly<Record<string, string | undefined>> | undefined = LIVE
+  ? Object.freeze({ ...process.env })
+  : undefined;
+delete process.env.IDFX_LIVE;
+
+/** A test that calls a real model and costs money. It runs only with `IDFX_LIVE=1`, never in the push gate. */
+export const liveTest = test.if(LIVE);
+/** A group of `live` tests, see `liveTest`. */
+export const liveDescribe = describe.if(LIVE);
+
+/** The text that every refusal of the inference guard starts with. */
+export const GUARD_MESSAGE = "idfx test guard";
+
+/** The hosts of paid model providers. A test reaches none of them (test/no-inference.test.ts). */
+export const MODEL_PROVIDER_HOSTS: readonly string[] = [
+  "api.anthropic.com",
+  "openrouter.ai",
+  "api.z.ai",
+  "open.bigmodel.cn",
+  "api.deepinfra.com",
+  "api.together.xyz",
+  "generativelanguage.googleapis.com",
+  "aiplatform.googleapis.com",
+  "api.openai.com",
+  "api.groq.com",
+  "api.mistral.ai",
+  "api.fireworks.ai",
+  "api.x.ai",
+];
+
+/** Whether `url` names a host of a paid model provider (or a subdomain of one). Pure. */
+export function isProviderUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return MODEL_PROVIDER_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
+/** The key variables that the guard always drops, also when the pattern of `isKeyVariable` misses one. */
+const KEY_VARIABLES: ReadonlySet<string> = new Set([
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "OPENROUTER_API_KEY",
+  "ZAI_API_KEY",
+  "Z_AI_API_KEY",
+  "OPENAI_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_API_KEY",
+  "DEEPINFRA_API_KEY",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+]);
+
+/** Whether an env variable holds a key, a token, or a secret. Pure. */
+export function isKeyVariable(name: string): boolean {
+  return KEY_VARIABLES.has(name) || /(_API_KEY|_TOKEN|_SECRET|_SECRET_KEY|_ACCESS_KEY|_ACCESS_KEY_ID)$/.test(name);
+}
+
+/**
+ * The bun install cache of the start of the run, by the order of bun:
+ * `BUN_INSTALL_CACHE_DIR`, `$BUN_INSTALL/install/cache`,
+ * `$XDG_CACHE_HOME/.bun/install/cache`, `$HOME/.bun/install/cache`. Pure.
+ */
+export function bunCacheDir(env: Record<string, string | undefined>, home: string): string {
+  if (env.BUN_INSTALL_CACHE_DIR) return env.BUN_INSTALL_CACHE_DIR;
+  if (env.BUN_INSTALL) return path.join(env.BUN_INSTALL, "install", "cache");
+  if (env.XDG_CACHE_HOME) return path.join(env.XDG_CACHE_HOME, ".bun", "install", "cache");
+  return path.join(home, ".bun", "install", "cache");
+}
+
+// The moved HOME and XDG_CACHE_HOME must not make bun or opencode download
+// the npm packages again: keep the shared bun cache of the user.
+process.env.BUN_INSTALL_CACHE_DIR = bunCacheDir(process.env, process.env.HOME ?? os.homedir());
+
+for (const name of Object.keys(process.env)) if (isKeyVariable(name)) delete process.env[name];
+
+/** The folder of the fake model CLIs, first on PATH. */
+export const GUARD_BIN = path.join(runDir, "guard-bin");
+mkdirSync(GUARD_BIN);
+
+/** A shell script that refuses with the guard message and exit code 97. */
+function refusal(name: string): string {
+  return (
+    `echo "${GUARD_MESSAGE}: a test ran the real ${name} ($*). No test may cause inference costs. ` +
+    `Pass a fake, or mark the test live (liveTest of test/setup.ts, IDFX_LIVE=1)." >&2\nexit 97\n`
+  );
+}
+
+for (const name of ["claude", "claude-glm"]) {
+  writeFileSync(path.join(GUARD_BIN, name), `#!/bin/sh\n${refusal(name)}`, { mode: 0o755 });
+}
+// `opencode serve` and the other commands stay real, only `opencode run` sends a prompt.
+const realOpencode = Bun.which("opencode");
+if (realOpencode !== null) {
+  writeFileSync(
+    path.join(GUARD_BIN, "opencode"),
+    `#!/bin/sh\nif [ "$1" = run ]; then\n${refusal("opencode run")}fi\nexec ${JSON.stringify(realOpencode)} "$@"\n`,
+    { mode: 0o755 },
+  );
+}
+process.env.PATH = `${GUARD_BIN}:${process.env.PATH ?? ""}`;
+// Like Bun.spawn, Bun.which reads the PATH of the process start by default.
+const realWhich = Bun.which;
+Bun.which = ((command: string, options?: { PATH?: string; cwd?: string }) =>
+  realWhich(command, { PATH: process.env.PATH, ...options })) as typeof Bun.which;
+
+// A fetch of the test process to a model provider throws. A child is not
+// covered; the fake CLIs and the dropped keys guard it.
+const realFetch = globalThis.fetch;
+const guardedFetch = (input: string | URL | Request, init?: RequestInit) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  if (isProviderUrl(url)) {
+    return Promise.reject(new Error(`${GUARD_MESSAGE}: a test fetched the model provider ${url}. Pass a fake fetch.`));
+  }
+  return realFetch(input, init);
+};
+globalThis.fetch = Object.assign(guardedFetch, { preconnect: realFetch.preconnect }) as typeof fetch;
+
+// git of a child reads a test identity, never the real ~/.gitconfig.
+process.env.GIT_CONFIG_GLOBAL = path.join(runDir, "gitconfig");
+writeFileSync(process.env.GIT_CONFIG_GLOBAL, "[user]\n\tname = idfx test\n\temail = idfx-test@example.invalid\n");
+
+process.env.XDG_CONFIG_HOME = path.join(runDir, "xdg-config");
+mkdirSync(process.env.XDG_CONFIG_HOME);
 process.env.XDG_DATA_HOME = path.join(runDir, "xdg-data");
 process.env.XDG_STATE_HOME = path.join(runDir, "xdg-state");
 process.env.XDG_CACHE_HOME = path.join(runDir, "xdg-cache");
@@ -318,6 +487,7 @@ export const TEST_HOME = path.join(runDir, "home");
 export const TEST_CWD = path.join(runDir, "cwd");
 mkdirSync(TEST_HOME);
 mkdirSync(TEST_CWD);
+process.env.HOME = TEST_HOME;
 const realOs = { ...os };
 mock.module("node:os", () => ({
   ...realOs,

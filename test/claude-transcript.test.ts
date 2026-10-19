@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { API_ERROR_TEXT_LENGTH, apiErrorText, createTranscriptReader, summarizeTranscript, tokensOf } from "../src/claude/transcript";
+import { API_ERROR_TEXT_LENGTH, apiErrorText, createTranscriptReader, runningTasks, summarizeTranscript, tokensOf } from "../src/claude/transcript";
 import { FIXTURE_ROOT, S1 } from "./claude-fixture";
 import { transcriptOf, turnLines, turnTime } from "./claude-turn-lines";
 
@@ -180,6 +180,26 @@ describe("the turn and the background tasks", () => {
     const start = [L.prompt(0), L.monitorStart(1, "toolu_m", "mon1"), L.turnEnd(2)];
     expect(read([...start, L.enqueue(3, "toolu_m", "mon1", null)]).backgroundTasks).toBe(1);
     expect(read([...start, L.enqueue(3, "toolu_m", "mon1", "killed")]).backgroundTasks).toBe(0);
+  });
+
+  test("the expiry notice of a Monitor ends its task, queued or delivered", () => {
+    const start = [L.prompt(0), L.monitorStart(1, "toolu_m", "mon1"), L.turnEnd(2)];
+    expect(read([...start, L.monitorExpired(61, "mon1")]).backgroundTasks).toBe(0);
+    expect(read([...start, L.monitorExpiredDelivered(61, "mon1")]).backgroundTasks).toBe(0);
+    expect(read([...start, L.monitorExpired(61, "other")]).backgroundTasks).toBe(1);
+  });
+
+  test("a non-persistent Monitor has a deadline at its start plus its timeout, a persistent one has none", () => {
+    const summary = read([L.prompt(0), L.monitorStart(1, "toolu_m", "mon1"), L.bashStart(2, "toolu_a", "bash1"), L.turnEnd(3)]);
+    expect(summary.backgroundTasks).toBe(2);
+    expect(summary.taskDeadlinesMs).toEqual([turnTime(1) + 60000]);
+    expect(runningTasks(summary, turnTime(60))).toBe(2);
+    expect(runningTasks(summary, turnTime(61))).toBe(1);
+    const persistent = read([L.prompt(0), L.monitorStart(1, "toolu_m", "mon1", true), L.turnEnd(2)]);
+    expect(persistent.taskDeadlinesMs).toEqual([]);
+    expect(runningTasks(persistent, turnTime(100000))).toBe(1);
+    const ended = read([L.prompt(0), L.monitorStart(1, "toolu_m", "mon1"), L.monitorExpired(61, "mon1")]);
+    expect(ended.taskDeadlinesMs).toEqual([]);
   });
 
   test("a report before its start line keeps the task from counting", () => {

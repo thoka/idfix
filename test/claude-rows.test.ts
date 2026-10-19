@@ -15,7 +15,7 @@ import {
 } from "../src/claude/rows";
 import { summarizeTranscript } from "../src/claude/transcript";
 import { claudeStatusRow, statusConditions } from "../src/status";
-import { transcriptOf, turnLines as L } from "./claude-turn-lines";
+import { transcriptOf, turnLines as L, turnTime } from "./claude-turn-lines";
 import { FIXTURE_DIR, FIXTURE_ROOT, fixtureFs, MINUTE, NOW, S1, S2, S5, S6, S7, S8 } from "./claude-fixture";
 
 const prices = parsePriceFile(readFileSync(path.join(FIXTURE_DIR, "litellm-prices.json"), "utf8"));
@@ -312,6 +312,14 @@ describe("the turn end while a background task runs", () => {
     expect(row).toMatchObject({ turn: "ended", backgroundTasks: 1 });
     expect(claudeStatusRow(row)).toMatchObject({ turn: "ended", backgroundTasks: 1 });
     expect(claudeStatusRow(claudeRow(session({ summary: noTask }), undefined, NOW))).toMatchObject({ turn: null, backgroundTasks: 0 });
+  });
+
+  test("a Monitor past its deadline counts in no row, a persistent one still counts", () => {
+    const monitor = (persistent: boolean) =>
+      session({ summary: summarizeTranscript(transcriptOf([L.prompt(0), L.monitorStart(1, "toolu_m", "mon1", persistent), L.turnEnd(2)])) });
+    expect(claudeRow(monitor(false), undefined, turnTime(30))).toMatchObject({ turn: "ended", backgroundTasks: 1 });
+    expect(claudeRow(monitor(false), undefined, turnTime(61))).toMatchObject({ turn: undefined, backgroundTasks: 0 });
+    expect(claudeRow(monitor(true), undefined, turnTime(61))).toMatchObject({ turn: "ended", backgroundTasks: 1 });
   });
 
   test("status --json lists the True condition SessionBackground", () => {

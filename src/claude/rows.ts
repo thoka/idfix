@@ -31,6 +31,7 @@ import { apiEquivalentUsd, contextWindowOf, loadPrices, type PriceTable } from "
 import {
   createTranscriptReader,
   mergeUsage,
+  runningTasks,
   totalTokens,
   type TokenCounts,
   type TranscriptReader,
@@ -152,16 +153,19 @@ export function liveState(
  * which writes no task report. Claude Code then may show the session as busy
  * (`liveState` reads it as idle), but it takes a prompt and queues it until
  * the task reports. A session that waits for the user, a session without a
- * process, and a background job give undefined.
+ * process, and a background job give undefined. With `nowMs`, a task whose
+ * deadline is past (an expired Monitor, `runningTasks`) does not count.
  */
 export function turnOf(
   session: Pick<ClaudeSession, "kind" | "live" | "state" | "summary" | "shellRuns">,
+  nowMs?: number,
 ): "ended" | undefined {
   if (session.kind !== "interactive" || !session.live) return undefined;
   if (session.state === "waiting" || session.state === "ended") return undefined;
   const summary = session.summary;
   if (summary === undefined || !summary.turnEnded) return undefined;
-  if (summary.backgroundTasks <= 0 && !session.shellRuns) return undefined;
+  const tasks = nowMs === undefined ? summary.backgroundTasks : runningTasks(summary, nowMs);
+  if (tasks <= 0 && !session.shellRuns) return undefined;
   return "ended";
 }
 
@@ -481,8 +485,8 @@ export function claudeRow(session: ClaudeSession, prices: PriceTable | undefined
     apiErrors: session.summary?.apiErrors ?? 0,
     lastApiErrorText: session.summary?.lastApiErrorText,
     lastApiErrorMs: session.summary?.lastApiErrorMs,
-    turn: turnOf(session),
-    backgroundTasks: session.summary?.backgroundTasks ?? 0,
+    turn: turnOf(session, nowMs),
+    backgroundTasks: session.summary === undefined ? 0 : runningTasks(session.summary, nowMs),
     children,
   };
 }

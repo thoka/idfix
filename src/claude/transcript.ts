@@ -25,6 +25,15 @@
  *   `<status>` tag, in a `queue-operation` enqueue line or a `user` line.
  *   The text names the task by `<tool-use-id>` and `<task-id>`. A Monitor
  *   event has no `<status>` tag and does not end its task.
+ * - A Monitor also ends with its expiry notice: a `<task-notification>`
+ *   without `<status>` whose `<event>` text starts with
+ *   `[Monitor expired after`. It names the task only by `<task-id>`.
+ * - A non-persistent Monitor with a numeric `timeoutMs` has a deadline: the
+ *   time of its start line plus `timeoutMs`. The reader has no clock, so the
+ *   summary keeps the deadlines of the running tasks (`taskDeadlinesMs`),
+ *   and the caller counts with `runningTasks(summary, nowMs)`. This covers
+ *   an expiry notice that is missing or that changed its text. A persistent
+ *   Monitor never expires by time.
  * - A background task also ends with the result of a `TaskStop` call: a
  *   `user` tool result line whose `toolUseResult` has a `task_id` and a
  *   `task_type`. Claude Code writes no task report for a stopped task.
@@ -81,7 +90,21 @@ export type TranscriptSummary = {
   turnEndedMs: number | undefined;
   /** The count of background tasks that started and have no final `task-notification` yet. */
   backgroundTasks: number;
+  /**
+   * The deadlines in ms of the running tasks that have one (a non-persistent
+   * Monitor), a part of `backgroundTasks`. `runningTasks` drops the past ones.
+   */
+  taskDeadlinesMs: number[];
 };
+
+/**
+ * The count of the background tasks that still run at `nowMs`:
+ * `backgroundTasks` without the tasks whose deadline is past.
+ */
+export function runningTasks(summary: Pick<TranscriptSummary, "backgroundTasks" | "taskDeadlinesMs">, nowMs: number): number {
+  const expired = (summary.taskDeadlinesMs ?? []).filter((deadline) => deadline <= nowMs).length;
+  return Math.max(0, summary.backgroundTasks - expired);
+}
 
 export type TranscriptReader = {
   /** Feed the next bytes of the file. */
@@ -223,6 +246,21 @@ export function taskStartOf(line: Pick<Line, "toolUseResult" | "message">): Task
 }
 
 /**
+ * The deadline in ms of the task that a `user` tool result line starts, or
+ * undefined: only a Monitor with `persistent: false` and a numeric
+ * `timeoutMs` has one, the time of the line plus `timeoutMs`.
+ */
+export function taskDeadlineOf(line: Pick<Line, "toolUseResult" | "timestamp">): number | undefined {
+  const result = line.toolUseResult;
+  if (result === null || typeof result !== "object") return undefined;
+  const r = result as { taskId?: unknown; persistent?: unknown; timeoutMs?: unknown };
+  if (typeof r.taskId !== "string" || r.persistent !== false) return undefined;
+  if (typeof r.timeoutMs !== "number" || !Number.isFinite(r.timeoutMs) || r.timeoutMs <= 0) return undefined;
+  const start = typeof line.timestamp === "string" ? Date.parse(line.timestamp) : Number.NaN;
+  return Number.isFinite(start) ? start + r.timeoutMs : undefined;
+}
+
+/**
  * The IDs of the background task that a `TaskStop` tool result line stops,
  * or undefined: its `toolUseResult` has a string `task_id` and `task_type`
  * (for example `local_bash`). The tool call ID of the line is the one of the
@@ -242,14 +280,19 @@ const tag = (text: string, name: string): string | undefined => {
   return value === undefined || value.length === 0 ? undefined : value;
 };
 
+/** The start of the `<event>` text of the expiry notice of a Monitor. */
+const MONITOR_EXPIRED = "[Monitor expired after";
+
 /**
  * The IDs of the task that a `<task-notification>` text ends, or undefined
- * when the text ends no task: it is no report, or it has no `<status>` tag
- * (a Monitor event).
+ * when the text ends no task. A text with a `<status>` tag ends its task. A
+ * text without it ends its task only when its `<event>` text starts with
+ * `[Monitor expired after` (the expiry notice of a Monitor). Every other
+ * text without status is a Monitor event, or no report, and ends nothing.
  */
 export function taskEndOf(text: string): TaskIds | undefined {
   if (!text.includes(NOTIFICATION)) return undefined;
-  if (tag(text, "status") === undefined) return undefined;
+  if (tag(text, "status") === undefined && !(tag(text, "event") ?? "").startsWith(MONITOR_EXPIRED)) return undefined;
   const ids = { toolUseId: tag(text, "tool-use-id"), taskId: tag(text, "task-id") };
   return ids.toolUseId === undefined && ids.taskId === undefined ? undefined : ids;
 }
@@ -265,14 +308,14 @@ export function createTranscriptReader(): TranscriptReader {
   let anonymousToolUses = 0;
   // The running background tasks, and the IDs of the tasks that ended. An
   // ID that ended before its start line (never seen so far) does not start.
-  const running: TaskIds[] = [];
+  const running: Array<TaskIds & { deadlineMs: number | undefined }> = [];
   const ended = new Set<string>();
   const sameTask = (a: TaskIds, b: TaskIds): boolean =>
     (a.toolUseId !== undefined && a.toolUseId === b.toolUseId) || (a.taskId !== undefined && a.taskId === b.taskId);
-  const startTask = (ids: TaskIds): void => {
+  const startTask = (ids: TaskIds, deadlineMs: number | undefined): void => {
     if ((ids.toolUseId !== undefined && ended.has(ids.toolUseId)) || (ids.taskId !== undefined && ended.has(ids.taskId))) return;
     if (running.some((task) => sameTask(task, ids))) return;
-    running.push(ids);
+    running.push({ ...ids, deadlineMs });
   };
   const endTask = (ids: TaskIds): void => {
     if (ids.toolUseId !== undefined) ended.add(ids.toolUseId);
@@ -336,7 +379,7 @@ export function createTranscriptReader(): TranscriptReader {
           if (ids !== undefined) endTask(ids);
         }
         const start = taskStartOf(line);
-        if (start !== undefined) startTask(start);
+        if (start !== undefined) startTask(start, taskDeadlineOf(line));
         const stopped = taskStopOf(line);
         if (stopped !== undefined) endTask(stopped);
         return;
@@ -414,6 +457,7 @@ export function createTranscriptReader(): TranscriptReader {
         steps: messages.size,
         toolCalls: toolUseIds.size + anonymousToolUses,
         backgroundTasks: running.length,
+        taskDeadlinesMs: running.flatMap((task) => (task.deadlineMs === undefined ? [] : [task.deadlineMs])),
       };
     },
     offset: () => bytes,

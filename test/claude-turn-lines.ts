@@ -4,6 +4,9 @@
  */
 const at = (second: number): string => new Date(Date.parse("2026-10-06T12:00:00.000Z") + second * 1000).toISOString();
 
+const monitorExpiredText = (taskId: string): string =>
+  `<task-notification>\n<task-id>${taskId}</task-id>\n<summary>Monitor event: "FAKE WATCH"</summary>\n<event>[Monitor expired after 1m with no events delivered. FAKE HINT.]</event>\n</task-notification>`;
+
 export const turnLines = {
   prompt: (second: number, text = "FAKE PROMPT"): string =>
     JSON.stringify({ type: "user", origin: { kind: "human" }, message: { role: "user", content: text }, timestamp: at(second), cwd: "/home/user/src/proj" }),
@@ -25,11 +28,11 @@ export const turnLines = {
       toolUseResult: { isAsync: true, status: "async_launched", agentId, description: "FAKE TASK", prompt: "FAKE BRIEF", outputFile: "/tmp/x" },
       timestamp: at(second),
     }),
-  monitorStart: (second: number, toolUseId: string, taskId: string): string =>
+  monitorStart: (second: number, toolUseId: string, taskId: string, persistent = false): string =>
     JSON.stringify({
       type: "user",
       message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "FAKE MONITOR" }] },
-      toolUseResult: { taskId, timeoutMs: 60000, persistent: false },
+      toolUseResult: { taskId, timeoutMs: 60000, persistent },
       timestamp: at(second),
     }),
   /** A task report as Claude Code queues it. With a null `status`, it is a Monitor event. */
@@ -38,6 +41,22 @@ export const turnLines = {
       type: "queue-operation",
       operation: "enqueue",
       content: `<task-notification>\n<task-id>${taskId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n${status === null ? "<event>FAKE EVENT</event>" : `<status>${status}</status>\n<summary>FAKE SUMMARY</summary>`}\n</task-notification>`,
+      timestamp: at(second),
+    }),
+  /** The expiry notice of a Monitor as Claude Code queues it: no `<status>` and no `<tool-use-id>`. */
+  monitorExpired: (second: number, taskId: string): string =>
+    JSON.stringify({
+      type: "queue-operation",
+      operation: "enqueue",
+      content: monitorExpiredText(taskId),
+      timestamp: at(second),
+    }),
+  /** The expiry notice of a Monitor as Claude Code delivers it: the start of a new turn. */
+  monitorExpiredDelivered: (second: number, taskId: string): string =>
+    JSON.stringify({
+      type: "user",
+      origin: { kind: "task-notification", producer: "session-task" },
+      message: { role: "user", content: monitorExpiredText(taskId) },
       timestamp: at(second),
     }),
   /** The result of a `TaskStop` call: Claude Code writes no task report for the stopped task. */

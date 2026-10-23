@@ -24,3 +24,18 @@ pre-push:
     # protocol. Without doctor-lint on the PATH, the job passes.
     - name: doctor format
       run: if command -v doctor-lint >/dev/null 2>&1; then doctor-lint --run; else echo "doctor-lint not found, skipped"; fi
+
+post-commit:
+  jobs:
+    - name: push at once
+      # Rule push-after-each-commit: the remote is the backup. git-autopush of meta pushes the current branch in a
+      # detached process and returns at once; a failure goes into .git/push-failed. Without git-autopush on the
+      # PATH, the job does nothing.
+      run: if command -v git-autopush >/dev/null 2>&1; then git-autopush post-commit; fi
+
+post-merge:
+  jobs:
+    - name: push a merge at once
+      # A merge, a fast-forward, or a pull fires no post-commit hook. So the merge of a step into the trunk
+      # pushes itself. The pull inside git-autopush sets GIT_AUTOPUSH=0, so it starts no second push.
+      run: if command -v git-autopush >/dev/null 2>&1; then git-autopush post-merge; fi

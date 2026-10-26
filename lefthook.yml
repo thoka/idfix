@@ -9,6 +9,11 @@ pre-commit:
       # has a sub-lease. On a deny, lease-gate names the holder and the way. A commit with no agent
       # session passes, and without lease-gate on the PATH the job passes too.
       run: command -v lease-gate >/dev/null 2>&1 || exit 0; lease-gate
+    needs-conditions:
+      # Meta step Jj83J1aS (check of meta step cw9krRTw): a Needs line that the commit adds or changes must hold a
+      # reference {>id}, a node ID, or an ISO date, or say none. A missing needs-condition-check passes.
+      # No glob: the script reads only the staged *.md files itself.
+      run: command -v needs-condition-check >/dev/null 2>&1 || exit 0; needs-condition-check --staged
     # This repository is public: the staged files name no local path and no
     # private project. Without public-check on the PATH, the hook passes, and
     # test/public.test.ts still checks the paths before each push.

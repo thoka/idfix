@@ -45,3 +45,12 @@ post-merge:
       # A merge, a fast-forward, or a pull fires no post-commit hook. So the merge of a step into the trunk
       # pushes itself. The pull inside git-autopush sets GIT_AUTOPUSH=0, so it starts no second push.
       run: if command -v git-autopush >/dev/null 2>&1; then git-autopush post-merge; fi
+
+pre-rebase:
+  jobs:
+    - name: no rebase of main that drops a merge
+      # Meta step Ms5Hz9f5: a rebase of main replays the merge of a step-done close as a plain commit, so the merge
+      # leaves main and the push wait of the close never sees it on origin. pre-rebase-guard of meta refuses a rebase
+      # of main or stable whose local commits hold a merge commit, and names git pull --no-rebase --ff or git-autopush.
+      # Git passes the upstream and the branch; lefthook hands both on with {0}. A missing guard passes.
+      run: command -v pre-rebase-guard >/dev/null 2>&1 || exit 0; pre-rebase-guard {0}

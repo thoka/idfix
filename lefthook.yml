@@ -19,6 +19,11 @@ pre-commit:
     # test/public.test.ts still checks the paths before each push.
     public-check:
       run: if command -v public-check >/dev/null 2>&1; then public-check {staged_files}; else echo "public-check not found, skipped"; fi
+    commit-gate:
+      # Step G5XloMgj of the factory: git reads HEAD before this hook, so a commit in a main checkout marks itself in flight
+      # (a close waits for it) or waits while a close of another process moves HEAD; a commit of the close itself
+      # passes. A missing commit-gate passes, and so does exit code 2 (an old gate).
+      run: command -v commit-gate >/dev/null 2>&1 || exit 0; commit-gate; s=$?; [ "$s" -eq 2 ] && exit 0; exit $s
 pre-push:
   jobs:
     # git-autopush waits for a free test slot of the machine, so that at most

@@ -16,7 +16,8 @@ description = "Install the locked packages, then type-check and run the tests"
 run = [
   "bun install --frozen-lockfile",
   "bun run typecheck",
-  "bun test",
+  # The card prints last: exit code, counters, duration, first failure, path of the full output (scripts/test-card.ts).
+  "bun scripts/test-card.ts",
 ]
 
 [tasks.hooks-install]

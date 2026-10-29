@@ -52,7 +52,7 @@ The project gives only its start script `bin/idfx`. It does not link it into a f
 `mise.toml` pins `bun`, `opencode`, and `lefthook`. Check the setup with:
 
 ```
-mise run test       # bun install --frozen-lockfile, then typecheck and bun test
+mise run test       # bun install --frozen-lockfile, typecheck, then bun scripts/test-card.ts (bun test, ends with a verdict card)
 ```
 
 `mise run test` is also the pre-push hook. `lefthook.yml` defines it, and `mise run hooks-install` (`lefthook install`) installs it into `.git/hooks`. A push runs the tests on your machine first, and a failed test stops the push. If `git-autopush` is on the PATH, the hook runs the tests through `git-autopush tests`: it waits for a free test slot of the machine and skips a tree that passed before. The task first runs `bun install --frozen-lockfile` each time. A fresh git worktree has no `node_modules`, and a merge can add a package to `bun.lock`. With no change, the install takes a few milliseconds. Without this step, a test can leave a partial `node_modules`, and the Ink tests then fail with two copies of React.

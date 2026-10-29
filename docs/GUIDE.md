@@ -776,7 +776,7 @@ Known gaps:
 
 ## Development
 
-Run `mise run hooks-install` once after clone. It installs the pre-push hook of `lefthook.yml`, which runs `mise run test` before each push. When `git-autopush` is on the PATH, the hook runs the tests through `git-autopush tests`, which limits how many test suites run at once on the machine. `mise run test` runs `bun install --frozen-lockfile` each time, so a fresh worktree and a package that a merge added to `bun.lock` both get installed, then runs `bun run typecheck` and `bun test`. `bun test` alone does not check types.
+Run `mise run hooks-install` once after clone. It installs the pre-push hook of `lefthook.yml`, which runs `mise run test` before each push. When `git-autopush` is on the PATH, the hook runs the tests through `git-autopush tests`, which limits how many test suites run at once on the machine. `mise run test` runs `bun install --frozen-lockfile` each time, so a fresh worktree and a package that a merge added to `bun.lock` both get installed, then runs `bun run typecheck` and `bun scripts/test-card.ts`. The script runs `bun test` and ends with one verdict card: the exit code, the counters, the duration, the first failure with file and line, the path of the full output (folder `DV_TEST_CARD_DIR`, default `$XDG_STATE_HOME/idfix/test-runs`), and a note when it cut anything. An agent needs no `tail` or `head`. `bun test` alone does not check types.
 
 ## Troubleshooting
 

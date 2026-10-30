@@ -320,7 +320,7 @@ It reads the first line that starts with `# ` in `<shared>/AGENTS.md` on the hos
 
 ### idfx watch
 
-The help document of `idfx watch` is `src/help/watch.md`: a graph of units that the pre-commit checks with `mg commit-check`.
+The help document of `idfx watch` is {>41sHW68C} (`mg get 41sHW68C`): a graph of units that the pre-commit checks with `mg commit-check`.
 
 ```
 bun run src/cli.ts watch SESSION [--dir DIR] [--json]

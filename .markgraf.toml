@@ -1,3 +1,10 @@
+# The help documents (step 3y189RRB): watched so that mg fill-ids gives their temporary ids, and of the kind help, so
+# that mg commit-check checks each one as a graph.
+watch = ["src/help/*.md"]
+
+[kinds]
+"src/help/*.md" = ["help"]
+
 [penalties]
 file-link = 8
 term-marker = 0

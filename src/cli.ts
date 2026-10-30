@@ -142,6 +142,7 @@ Watch all Claude Code sessions:
   --json          also prints each new event on stdout, one JSON line each.
   --once          polls one time and exits.
   watch SESSION follows one opencode run and cannot be combined with --all.
+  More: src/help/watch.md, the help document of idfx watch.
 
 JSON output (tool protocol version 0):
   status --json   prints one object: tool, version, time, source, sequence

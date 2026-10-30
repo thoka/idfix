@@ -7,6 +7,11 @@ pre-commit:
     fill-ids:
       # Fills the temporary ids of the staged watched Markdown files.
       run: mg fill-ids --staged
+    help-graph-check:
+      # The help documents src/help/*.md are of the kind help (the kinds of the mg config): mg commit-check checks each staged one
+      # as a graph, so that each unit reaches from the head. It ignores other files. It passes with a message when mg
+      # is not on the PATH.
+      run: if command -v mg >/dev/null 2>&1; then mg commit-check {staged_files}; else echo "mg not found, skipped"; fi
     lease:
       # A session commits only to a repository that is free, whose lease it holds, or on which it
       # has a sub-lease. On a deny, lease-gate names the holder and the way. A commit with no agent

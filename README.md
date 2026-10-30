@@ -320,6 +320,8 @@ It reads the first line that starts with `# ` in `<shared>/AGENTS.md` on the hos
 
 ### idfx watch
 
+The help document of `idfx watch` is `src/help/watch.md`: a graph of units that the pre-commit checks with `mg commit-check`.
+
 ```
 bun run src/cli.ts watch SESSION [--dir DIR] [--json]
 ```
@@ -582,6 +584,7 @@ No test may cause inference costs. So the preload also guards each test and each
 ## Layout
 
 - `src/cli.ts` — entry point and command dispatch
+- `src/help/` — the help documents, one per command, of the kind help
 - `src/args.ts` — argument parsing (pure)
 - `src/config.ts` — server URL and basic-auth resolution (pure)
 - `src/client.ts` — SDK client, health check, result handling

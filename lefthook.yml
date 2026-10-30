@@ -4,6 +4,9 @@
 rc: ./.lefthook.rc
 pre-commit:
   commands:
+    fill-ids:
+      # Fills the temporary ids of the staged watched Markdown files.
+      run: mg fill-ids --staged
     lease:
       # A session commits only to a repository that is free, whose lease it holds, or on which it
       # has a sub-lease. On a deny, lease-gate names the holder and the way. A commit with no agent
@@ -35,6 +38,12 @@ pre-push:
     # protocol. Without doctor-lint on the PATH, the job passes.
     - name: doctor format
       run: if command -v doctor-lint >/dev/null 2>&1; then doctor-lint --run; else echo "doctor-lint not found, skipped"; fi
+
+commit-msg:
+  commands:
+    fill-ids-trailer:
+      # Fills the temporary ids of the commit message trailers.
+      run: mg fill-ids --trailer {1}
 
 post-commit:
   jobs:

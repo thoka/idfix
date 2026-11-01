@@ -12,11 +12,10 @@ pre-commit:
       # as a graph, so that each unit reaches from the head. It ignores other files. It passes with a message when mg
       # is not on the PATH.
       run: if command -v mg >/dev/null 2>&1; then mg commit-check {staged_files}; else echo "mg not found, skipped"; fi
-    lease:
-      # A session commits only to a repository that is free, whose lease it holds, or on which it
-      # has a sub-lease. On a deny, lease-gate names the holder and the way. A commit with no agent
-      # session passes, and without lease-gate on the PATH the job passes too.
-      run: command -v lease-gate >/dev/null 2>&1 || exit 0; lease-gate
+    core-writer:
+      # Only one writer commits to this repository; core-writer-gate on the PATH decides. A commit with no
+      # Claude Code session passes, and without core-writer-gate on the PATH the job passes too.
+      run: command -v core-writer-gate >/dev/null 2>&1 || exit 0; core-writer-gate
     needs-conditions:
       # Meta step Jj83J1aS (check of meta step cw9krRTw): a Needs line that the commit adds or changes must hold a
       # reference {>id}, a node ID, or an ISO date, or say none. A missing needs-condition-check passes.

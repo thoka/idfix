@@ -1,0 +1,36 @@
+# Review Fx5queue: Review queue
+
+Decisions that a session made from the canon of values. Newest entry first.
+
+## Entry 7uc2U4kc: 2026-10-25
+2026-10-25: the old steps move to the heading form of a step (notice mgi6gcbv)
+
+- Decision: the old list of PLAN.md becomes eleven sections.
+- Gap: the step ids came from a random generator.
+- Values: one state in one place, decide by the canon. Conditions: none. Way back: git revert.
+
+## Entry GC5gBNpr: 2026-10-15
+2026-10-15: answer to the proposal `2026-10-15-idfix-idfx-decide.md` (tvb7ygfc, from a project):
+
+Consent. The way back is one revert.
+
+- Values: one state in one place.
+
+## Entry JOJ6NvMO: 2026-10-06
+2026-10-06: open points of w3
+
+- Decision: the watcher wakes the supervisor at most once per 60 seconds.
+
+## Entry P3ZlsaXf: hand fix: core-writer-gate replaces lease-gate
+
+2026-11-02 (master-builder, hand fix): an entry in the heading form stays as it is.
+
+## Entry k8Kik1fk: 2026-10-26
+Decision: in force
+Values: fix-structure
+
+2026-10-26: an entry with lines stays as it is.
+
+### Conditions
+
+- if the gate moves, decide again

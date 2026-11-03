@@ -502,6 +502,17 @@ export const TEST_HOME = path.join(runDir, "home");
 export const TEST_CWD = path.join(runDir, "cwd");
 mkdirSync(TEST_HOME);
 mkdirSync(TEST_CWD);
+// The one place that names the schema folder of meta (step vKdE25Cb): read before HOME moves. Tests read it through
+// test/meta-schemas.ts.
+process.env.IDFIX_META_SCHEMAS ??= path.join(os.homedir(), "dv", "meta", "declarations", "schema");
+// The tool folders of mise stay real, so that the mise wrapper of mg finds its tools with the sealed HOME.
+{
+  const real = os.homedir();
+  process.env.MISE_DATA_DIR ??= path.join(real, ".local", "share", "mise");
+  process.env.MISE_CONFIG_DIR ??= path.join(real, ".config", "mise");
+  process.env.MISE_CACHE_DIR ??= path.join(real, ".cache", "mise");
+  process.env.MISE_STATE_DIR ??= path.join(real, ".local", "state", "mise");
+}
 process.env.HOME = TEST_HOME;
 const realOs = { ...os };
 mock.module("node:os", () => ({

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { metaSchemas } from "./meta-schemas";
 
 // Step 4sWEeYpu (phase 0 item 4 of the switch of the data tool): the review queue moves its dated headings to the heading
 // form of an entry, `## Entry <id>: <date>`, through `mg migrate --to entry-headings`. A fixture copy with dated headings
@@ -13,7 +14,7 @@ const FIXTURES = join(import.meta.dir, "fixtures", "review-queue");
 function mg(args: string[], cwd: string) {
   const found = Bun.which("mg");
   if (found === null) return null;
-  const result = Bun.spawnSync([found, ...args], { cwd, env: { ...process.env, MARKGRAF_ROOTS: cwd } });
+  const result = Bun.spawnSync([found, ...args], { cwd, env: { ...process.env, MARKGRAF_ROOTS: cwd, MARKGRAF_SCHEMAS: metaSchemas() } });
   return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
 }
 

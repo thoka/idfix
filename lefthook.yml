@@ -26,6 +26,10 @@ pre-commit:
     # test/public.test.ts still checks the paths before each push.
     public-check:
       run: if command -v public-check >/dev/null 2>&1; then public-check {staged_files}; else echo "public-check not found, skipped"; fi
+    step-done-lock:
+      # Step WI44luCc of meta: a live step-done lock of another close of this checkout refuses the commit, unless the
+      # commit frees what the close waits on (phase mark-wait, or phase push with a staged plan file). A missing gate passes.
+      run: command -v step-done-lock-gate >/dev/null 2>&1 || exit 0; step-done-lock-gate
     commit-gate:
       # Step G5XloMgj of the factory: git reads HEAD before this hook, so a commit in a main checkout marks itself in flight
       # (a close waits for it) or waits while a close of another process moves HEAD; a commit of the close itself

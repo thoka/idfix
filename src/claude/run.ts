@@ -16,6 +16,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Env } from "../config";
+import { noSandboxRefusal } from "../env-names";
 import { gitCommonDir } from "../keys";
 import { loadRunRecord, makeRunRecord, writeRunRecord, writeStateRunRecord, type ClaudeRunInfo } from "../runs";
 import {
@@ -295,6 +296,8 @@ export async function claudeRun(
   env: Env = process.env,
   deps: ClaudeRunDeps = defaultClaudeRunDeps,
 ): Promise<number> {
+  const refused = noSandboxRefusal(env);
+  if (refused !== null) return fail(refused);
   // `--dir` is a path inside the sandbox, for example its workspace, and
   // usually does not exist on the host. So the project and the host
   // repository of the create come from the working folder, never from it.

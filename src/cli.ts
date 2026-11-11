@@ -5,6 +5,7 @@ import { up } from "./up";
 import { down } from "./down";
 import { downAll } from "./down-all";
 import { upSandbox, downSandbox } from "./sandbox";
+import { noSandboxRefusal } from "./env-names";
 import { attach } from "./attach";
 import { status } from "./status";
 import { top } from "./top/load";
@@ -124,6 +125,9 @@ Environment:
                              (default: the project)
   OPENCODE_SERVER_PASSWORD   enables basic auth (never printed)
   OPENCODE_SERVER_USERNAME   basic-auth user (default: opencode)
+  IDFX_NO_SANDBOX            the host runs no sandbox; the value is the reason
+                             (doctor skips kvm-access and sandbox-mounts, and
+                             each sandbox start refuses; blank means unset)
   SBX_BIN                    the sbx binary (default: sbx on PATH)
   CLAUDE_BIN                 the claude binary for doctor --fix
                              (default: claude on PATH)
@@ -230,6 +234,11 @@ export async function main(argv: readonly string[]): Promise<number> {
       return args.sandbox ? downSandbox(args, process.env) : down(args);
     case "restart": {
       if (args.sandbox) {
+        const refused = noSandboxRefusal(process.env);
+        if (refused !== null) {
+          console.error(`error: ${refused}`);
+          return 1;
+        }
         const stoppedSandbox = await downSandbox(args, process.env);
         return stoppedSandbox === 0 ? upSandbox(args, process.env) : stoppedSandbox;
       }

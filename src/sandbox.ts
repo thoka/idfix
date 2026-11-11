@@ -15,7 +15,7 @@ import type { CheckResult } from "./doctor";
 import { busySessions, formatBusyLine, isAlive, signalGroup, stopGroup } from "./down";
 import { assertUsable, probeServer } from "./client";
 import { resolveServerUrl } from "./config";
-import { idfxEnv } from "./env-names";
+import { idfxEnv, noSandboxRefusal, noSandboxSkipText } from "./env-names";
 import { DEEPINFRA_HOST, DEEPINFRA_PLACEHOLDER, deepinfraKeyPath, gitCommonDir, PLACEHOLDER_KEY, projectKeyPath, projectNameOfRun } from "./keys";
 import { stateDir, serveDirsPath, serveLogPath, servePidPath, servePluginPath, readPid, readDirs, removeFiles, appendLogMarker, readLogTail } from "./state";
 import { SHARED_DIR_HINT, SHARED_DIR_UNSET, sharedAgentsDir, sharedConfigEntries } from "./shared";
@@ -343,6 +343,8 @@ export type KvmDeps = {
   statDevice: (file: string) => KvmStat | null;
   /** Whether the current process can read and write the path. */
   canReadWrite: (file: string) => boolean;
+  /** The reason text of the declaration `IDFX_NO_SANDBOX`, or undefined when the host declares nothing. */
+  noSandbox?: string;
 };
 
 /** The real dependencies of the `kvm-access` check. */
@@ -374,6 +376,9 @@ export const defaultKvmDeps: KvmDeps = {
  */
 export function kvmAccessCheck(deps: KvmDeps = defaultKvmDeps): CheckResult {
   const name = "kvm-access";
+  if (deps.noSandbox !== undefined) {
+    return { name, status: "skip", message: noSandboxSkipText(deps.noSandbox) };
+  }
   if (deps.platform !== "linux") {
     return { name, status: "skip", message: `not on Linux (${deps.platform})` };
   }
@@ -1127,6 +1132,11 @@ export async function upSandbox(
   env: Env = process.env,
   depsOverrides: Partial<SandboxDeps> = {},
 ): Promise<number> {
+  const refused = noSandboxRefusal(env);
+  if (refused !== null) {
+    console.error(`error: ${refused}`);
+    return 1;
+  }
   const deps = mergeDeps(depsOverrides);
   const dir = path.resolve(args.dir ?? process.cwd());
   const project = deps.projectName(dir);

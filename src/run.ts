@@ -4,7 +4,7 @@ import path from "node:path";
 import { appendCriticalFooter, readCriticalFooter } from "./critical-footer";
 import { assertOk, errorMessage, makeClient, probeServer, requireServer, unwrap, type ServerState } from "./client";
 import { resolvePort, type Env } from "./config";
-import { idfxEnv } from "./env-names";
+import { idfxEnv, noSandboxRefusal } from "./env-names";
 import {
   checkOpenRouterKey,
   keyFingerprint,
@@ -169,6 +169,13 @@ export async function run(
   env: Env = process.env,
   deps: RunDeps = defaultDeps,
 ): Promise<number> {
+  // A run that would use the sandbox of the project may start it, so a
+  // declaring host refuses before the first `sbx` call.
+  const refused = noSandboxRefusal(env);
+  if (refused !== null && sandboxTarget(args, env, deps.projectName) !== null) {
+    console.error(`error: ${refused}`);
+    return 1;
+  }
   const baseUrl = resolveCommandUrl(args.url, env, args.dir, deps.projectName);
   const port = resolvePort(undefined, baseUrl);
   // The lock keeps the idle watchdog from stopping the server between the

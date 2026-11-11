@@ -14,6 +14,7 @@
 import path from "node:path";
 import { assertOk, errorMessage, makeClient } from "./client";
 import type { Env } from "./config";
+import { noSandboxRefusal } from "./env-names";
 import { projectRootOfRun, projectNameOf } from "./keys";
 import { projectSetupCommand } from "./project-config";
 import {
@@ -138,6 +139,8 @@ export async function worktree(
   env: Env = process.env,
   depsOverrides: Partial<CloneDeps> = {},
 ): Promise<number> {
+  const refused = noSandboxRefusal(env);
+  if (refused !== null) return fail(refused);
   const deps = mergeDeps(depsOverrides);
   const found = stateFor(args, env, deps);
   if (found === null) return fail(HOST_MODE_ERROR);
@@ -297,6 +300,8 @@ export async function worktreeRm(
   env: Env = process.env,
   depsOverrides: Partial<CloneDeps> = {},
 ): Promise<number> {
+  const refused = noSandboxRefusal(env);
+  if (refused !== null) return fail(refused);
   const deps = mergeDeps(depsOverrides);
   const found = stateFor(args, env, deps);
   if (found === null) return fail(HOST_MODE_ERROR);
@@ -370,6 +375,8 @@ export function fetch(
   env: Env = process.env,
   depsOverrides: Partial<CloneDeps> = {},
 ): number {
+  const refused = noSandboxRefusal(env);
+  if (refused !== null) return fail(refused);
   const deps = mergeDeps(depsOverrides);
   const found = stateFor(args, env, deps);
   if (found === null) return fail(HOST_MODE_ERROR);

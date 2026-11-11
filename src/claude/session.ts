@@ -13,6 +13,7 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { Env } from "../config";
+import { noSandboxRefusal } from "../env-names";
 import { loadRunRecord, runRecordPath, writeRunRecord, writeStateRunRecord, type ClaudeRunInfo, type RunRecord } from "../runs";
 import { listsMounts, listsName, printStderr, sbxBin } from "../sandbox";
 import {
@@ -124,6 +125,8 @@ export async function claudeSay(
   env: Env = process.env,
   deps: ClaudeSessionDeps = defaultClaudeSessionDeps,
 ): Promise<number> {
+  const refused = noSandboxRefusal(env);
+  if (refused !== null) return fail(refused);
   const loaded = await claudeRecord(args.session, env, deps);
   if (typeof loaded === "string") return fail(loaded);
   const { record, info } = loaded;

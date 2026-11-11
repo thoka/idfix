@@ -101,7 +101,9 @@ old-name: `oc-sub-cost-proxy`
 
 idfx reads the new name first and the old name second. It writes only the new names. `idfx doctor` warns about each old name that is still in use (checks `state-names` and `project-config-name`), and `idfx doctor --fix` moves the state folder and renames the project file. Some names stay: the data folder `$XDG_DATA_HOME/oc-sub/`, because each sandbox mounts it by its path, the sandbox name `oc-sub-<project>`, its clone remote, and the label variables `OCSUB_OWNER` and `OCSUB_REASON`.
 
-The environment variables are `IDFX_URL`, `IDFX_OWNER`, and `IDFX_SHARED_DIR`. Their old names with the prefix `OC_SUB` do not work any more. A blank value counts as unset.
+The environment variables are `IDFX_URL`, `IDFX_OWNER`, `IDFX_SHARED_DIR`, and `IDFX_NO_SANDBOX`. Their old names with the prefix `OC_SUB` do not work any more. A blank value counts as unset.
+
+`IDFX_NO_SANDBOX` declares that this host runs no sandbox. Its value is a free reason text, for example `no KVM on this machine`. With the declaration, `idfx doctor` gives the checks `kvm-access` and `sandbox-mounts` the result skip ("skipped: host declares no sandbox"), and their fixes do nothing. Each command that creates or starts a sandbox (`up`, `restart`, `run`, `say`, `worktree`) stops with an error that names the variable, exits non-zero, and runs no `sbx` call. It never falls back to a run without a sandbox. Without the declaration, a Linux host with no `/dev/kvm` stays a fail. A blank or absent value declares nothing.
 
 ### idfx up
 

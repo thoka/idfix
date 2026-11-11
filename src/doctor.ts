@@ -23,6 +23,7 @@ import { idfxVersion, TOOL } from "./protocol";
 import { defaultUnitDeps, listUnits, orphanedUnits, parseUnitLabel, stopUnit, type LoadedUnit, type UnitDeps } from "./units";
 import { hostProxyLogPath, legacyStateDir, migrateStateDir, newStateDir, type StateMigration } from "./state";
 import { HOST_PROXY_PORT, HOST_PROXY_UNIT, HOST_PROXY_UNIT_SOURCE, probeHello, systemdUserDir } from "./host-proxy";
+import { noSandboxReason, noSandboxSkipText } from "./env-names";
 import { oldProjectConfigFile, projectConfigFile } from "./project-config";
 import { busyCheck, busyCheckNote, findRunningServers, restartServer, serverLabel, type BusyCheck, type RunningServer } from "./server-plugin";
 
@@ -370,7 +371,7 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     miseRunner: defaultRunner,
     globalMiseConfig: globalMiseConfigPath(env),
     replaceWithSymlink: defaultReplaceWithSymlink,
-    kvm: defaultKvmDeps,
+    kvm: { ...defaultKvmDeps, noSandbox: noSandboxReason(env) },
     rootRunner: defaultRootRunner,
     stdinIsTTY: process.stdin.isTTY === true,
     pluginDigest,
@@ -835,6 +836,7 @@ export function globalRulesFix(deps: DoctorDeps, _result: CheckResult, _ctx: { f
 }
 
 function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
+  if (deps.kvm.noSandbox !== undefined) return result("sandbox-mounts", "skip", noSandboxSkipText(deps.kvm.noSandbox));
   const state = deps.sandboxState();
   if (state === null) return result("sandbox-mounts", "skip", "no sandbox state file for this project");
   const name = sandboxName(deps.projectName);
@@ -956,6 +958,7 @@ function sandboxUnfetchedWorkGuard(deps: DoctorDeps, name: string, root: string)
  * `ok: false` with its exit code.
  */
 export async function sandboxMountsFix(deps: DoctorDeps, _result: CheckResult, ctx: { force: boolean }): Promise<FixOutcome> {
+  if (deps.kvm.noSandbox !== undefined) return { ok: true, note: "nothing changed: the host declares no sandbox" };
   const state = deps.sandboxState();
   if (state === null) return { ok: false, note: "no sandbox state file for this project, nothing changed" };
   const name = sandboxName(deps.projectName);
@@ -1011,6 +1014,7 @@ export async function sandboxMountsFix(deps: DoctorDeps, _result: CheckResult, c
  * of the machine setup.
  */
 export function kvmAccessRootFix(deps: DoctorDeps, _result: CheckResult, _ctx: { force: boolean }): FixOutcome {
+  if (deps.kvm.noSandbox !== undefined) return { ok: true, note: "nothing changed: the host declares no sandbox" };
   const plain = ["sudo", ...KVM_CHMOD_COMMAND];
   const cmd = deps.stdinIsTTY ? plain : ["sudo", "-n", ...KVM_CHMOD_COMMAND];
   const { exitCode } = deps.rootRunner(cmd);

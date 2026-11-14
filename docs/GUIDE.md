@@ -817,3 +817,5 @@ cause-and-fix: The server still runs the plugin content that it got at start. Ru
 problem: `idfx down` or `restart` says `opencode serve ... did not stop within 15s, also not after SIGKILL`
 cause-and-fix: A server that runs as the unit `idfx-serve-<port>` stops through `systemctl --user stop`, and the manager sends SIGKILL after 15 seconds (`TimeoutStopSec=15`). For a server without a unit, `down` sends SIGTERM to the process group of the server, sends it again each second while the server runs, and sends SIGKILL after 15 seconds. The repeat is necessary: for a few seconds after a session opens a new folder, opencode installs the dependencies of its config folder with npm, and the npm library catches one SIGTERM, ends only the install, and the server keeps running. A server that needed SIGKILL gives the warning `ignored SIGTERM for 15s; it was killed`. A server that outlives SIGKILL is stuck in the kernel. Look at it with `ps -o pid,stat,wchan -p <PID>`.
 ```
+
+The row is of one color: green.

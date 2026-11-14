@@ -9,3 +9,8 @@ watch = ["src/help/*.md"]
 file-link = 8
 term-marker = 0
 direct-access = 0
+color-word = 21
+
+[color-exceptions]
+"src/top/view-model.ts" = "display code of idfx top: it maps each state to the Ink color of its row"
+"src/top/view.tsx" = "display code of idfx top: it draws the rows in their Ink colors"

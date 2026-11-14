@@ -60,6 +60,8 @@ import {
   doctorReport,
   overallStatus,
   runCheck,
+  isSbxAuthError,
+  SBX_LOGIN_FIX,
   type DoctorReport,
 } from "../src/doctor";
 import { fakeUnits } from "./fake-units";
@@ -68,6 +70,7 @@ import addFormats from "ajv-formats";
 import type { BusyCheck, RunningServer } from "../src/server-plugin";
 import {
   cloneCheckCommand,
+  defaultRunner,
   kvmAccessCheck,
   hostRefsKeepingCommit,
   missingCloneMessage,
@@ -131,6 +134,8 @@ function makeDeps(fs: Partial<FakeFs> = {}, overrides: Partial<DoctorDeps> = {})
     sandboxState: () => null,
     sandboxBin: "sbx",
     runner: () => ({ stdout: "", exitCode: 0 }),
+    // No sbx on PATH by default, so sbx-login skips before it calls the runner.
+    whichBin: () => null,
     claudeBin: "claude",
     claudeRunner: () => ({ stdout: "", exitCode: 0 }),
     // No test may call the real mise. Without /plugin/mise.toml in the fake
@@ -3460,5 +3465,83 @@ describe("the stored names of step 24.3", () => {
       expect(files.get(NEW)?.content).toBe("new");
       expect(files.get(OLD)?.content).toBe("old");
     });
+  });
+});
+
+describe("sbx-login with a fake sbx on PATH", () => {
+  const check = ALL_CHECKS.find((c) => c.name === "sbx-login") as Check;
+
+  /**
+   * Put a fake `sbx` first on PATH for the body. The fake prints `out` to
+   * stderr and exits with `code` for each call, and it logs its arguments.
+   * The real sbx never runs.
+   */
+  function withFakeSbx(out: string, code: number, body: (callsFile: string) => void): void {
+    const dir = tempDir();
+    const callsFile = path.join(dir, "calls");
+    writeFileSync(
+      path.join(dir, "sbx"),
+      `#!/bin/sh\necho "$@" >> ${JSON.stringify(callsFile)}\nprintf '%s\\n' ${JSON.stringify(out)} >&2\nexit ${code}\n`,
+      { mode: 0o755 },
+    );
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${dir}:${oldPath ?? ""}`;
+    try {
+      body(callsFile);
+    } finally {
+      process.env.PATH = oldPath;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  /** The deps with the real PATH lookup and the real runner. */
+  function realDeps(): DoctorDeps {
+    return makeDeps({}, { whichBin: (bin) => Bun.which(bin), runner: defaultRunner });
+  }
+
+  test("fails with the fix sbx login when sbx ls answers an auth error", () => {
+    withFakeSbx("ERROR: request failed: 401 Unauthorized", 1, (callsFile) => {
+      const res = runCheck(check, realDeps());
+      expect(res.status).toBe("fail");
+      expect(res.fix).toBe(SBX_LOGIN_FIX);
+      expect(res.message).toContain("401 Unauthorized");
+      expect(readFileSync(callsFile, "utf8")).toBe("ls\n");
+    });
+  });
+
+  test("passes when sbx ls answers", () => {
+    withFakeSbx("", 0, () => {
+      expect(runCheck(check, realDeps()).status).toBe("pass");
+    });
+  });
+
+  test("warns and names sbx diagnose on another failure of sbx ls", () => {
+    withFakeSbx("ERROR: daemon not running", 2, () => {
+      const res = runCheck(check, realDeps());
+      expect(res.status).toBe("warn");
+      expect(res.message).toContain("exited with code 2");
+      expect(res.fix).toBe("run sbx diagnose for the cause");
+    });
+  });
+
+  test("skips without sbx and never calls the runner", () => {
+    const deps = makeDeps({}, {
+      sandboxBin: "sbx-missing-for-this-test",
+      whichBin: (bin) => Bun.which(bin),
+      runner: () => {
+        throw new Error("the sbx runner must not run without sbx");
+      },
+    });
+    const res = runCheck(check, deps);
+    expect(res.status).toBe("skip");
+    expect(res.message).toContain("no sbx-missing-for-this-test on PATH");
+  });
+
+  test("isSbxAuthError names the auth errors and no other error", () => {
+    expect(isSbxAuthError("401 Unauthorized")).toBe(true);
+    expect(isSbxAuthError("You are not logged in. Run sbx login.")).toBe(true);
+    expect(isSbxAuthError("authentication required")).toBe(true);
+    expect(isSbxAuthError("daemon not running")).toBe(false);
+    expect(isSbxAuthError("port 4010 in use")).toBe(false);
   });
 });

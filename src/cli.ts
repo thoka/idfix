@@ -181,6 +181,12 @@ Host cost proxy:
                   idfx-proxy.service runs it; idfx doctor --fix installs
                   and starts that unit (check host-proxy).
 
+Doctor checks:
+  The README section idfx doctor lists all checks. Two examples:
+  kvm-access      the current user can read and write /dev/kvm.
+  sbx-login       sbx ls answers. On an auth error (for example 401) it
+                  fails with the fix sbx login. Without sbx, it skips.
+
 Doctor fixes:
   --fix           runs the safe fixes, then all checks again. It never
                   calls sudo.

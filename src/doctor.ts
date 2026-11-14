@@ -81,6 +81,8 @@ export type DoctorDeps = {
   sandboxBin: string;
   /** The runner for the `sbx` calls. */
   runner: Runner;
+  /** The full path of a binary on PATH, or null when PATH has none. */
+  whichBin: (bin: string) => string | null;
   /** The name of the `claude` binary, for the plugin update commands. */
   claudeBin: string;
   /** The runner for the `claude` calls of the fix actions. */
@@ -363,6 +365,7 @@ export function makeDoctorDeps(env: Env, dir: string, overrides: Partial<DoctorD
     originAlphaSha: () => defaultOriginAlphaSha(path.resolve(import.meta.dir, "..")),
     sandboxState: () => readSandboxState(sandboxStatePath(env, path.basename(root))),
     sandboxBin: env.SBX_BIN !== undefined && env.SBX_BIN.length > 0 ? env.SBX_BIN : "sbx",
+    whichBin: (bin) => Bun.which(bin),
     runner: defaultRunner,
     claudeBin: env.CLAUDE_BIN !== undefined && env.CLAUDE_BIN.length > 0 ? env.CLAUDE_BIN : "claude",
     claudeRunner: defaultRunner,
@@ -832,6 +835,41 @@ export function globalRulesFix(deps: DoctorDeps, _result: CheckResult, _ctx: { f
     ok: true,
     note: replaced.length > 0 ? `replaced with symlinks to ${sharedFile}: ${replaced.join(", ")}` : "already up to date",
   };
+}
+
+/** The fix of `sbx-login`. */
+export const SBX_LOGIN_FIX = "sbx login";
+
+/**
+ * Whether the output of a failed `sbx` call names an auth error: HTTP 401,
+ * "unauthorized", "not logged in", or a hint to log in.
+ */
+export function isSbxAuthError(text: string): boolean {
+  return /\b401\b|unauthori[sz]ed|not logged in|\blog ?in\b|authenticat/i.test(text);
+}
+
+/**
+ * The `sbx-login` check: `sbx ls` answers, so Docker is logged in to sbx.
+ * Without the login, each `sbx` call answers 401, and a sandboxed run fails
+ * late. Without `sbx` on PATH (or `$SBX_BIN`), it skips.
+ */
+function sbxLoginCheck(deps: DoctorDeps): CheckResult {
+  const bin = deps.whichBin(deps.sandboxBin);
+  if (bin === null) return result("sbx-login", "skip", `no ${deps.sandboxBin} on PATH (sandbox mode is not set up)`);
+  const res = deps.runner([bin, "ls"]);
+  if (res.exitCode === 0) return result("sbx-login", "pass", `${deps.sandboxBin} ls answers, so sbx is logged in`);
+  const output = `${res.stderr ?? ""}\n${res.stdout}`.trim();
+  const firstLine = output.split("\n")[0] ?? "";
+  const detail = firstLine.length > 0 ? `: ${firstLine}` : "";
+  if (isSbxAuthError(output)) {
+    return result("sbx-login", "fail", `${deps.sandboxBin} ls answered an auth error${detail}; sbx is not logged in`, SBX_LOGIN_FIX);
+  }
+  return result(
+    "sbx-login",
+    "warn",
+    `${deps.sandboxBin} ls exited with code ${res.exitCode}${detail}`,
+    `run ${deps.sandboxBin} diagnose for the cause`,
+  );
 }
 
 function sandboxMountsCheck(deps: DoctorDeps): CheckResult {
@@ -1884,6 +1922,8 @@ export const SLOW_CHECKS: Check[] = [
   { name: "server-plugin", run: serverPluginCheck, fix: serverPluginFix },
   // Before sandbox-mounts: without KVM access, the sandbox cannot start.
   { name: "kvm-access", run: (deps) => kvmAccessCheck(deps.kvm), rootFix: kvmAccessRootFix },
+  // Before sandbox-mounts: without the login, each sbx call answers 401.
+  { name: "sbx-login", run: sbxLoginCheck },
   { name: "sandbox-mounts", run: sandboxMountsCheck, fix: sandboxMountsFix },
   { name: "deepinfra-key", run: deepinfraKeyCheck },
   { name: "research-due", run: researchDueCheck },

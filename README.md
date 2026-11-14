@@ -487,6 +487,10 @@ check: `kvm-access`
 what-it-checks: The current user can read and write `/dev/kvm`. `idfx up` in sandbox mode runs the same check before its first `sbx` call. Off Linux, it skips.
 fail-means: `sbx` cannot start a sandbox. When `/dev/kvm` is missing, turn on KVM (on WSL: `nestedVirtualization=true` in `.wslconfig`) and restart. When the mode blocks the user, `--fix-as-root` runs `sudo chmod 0666 /dev/kvm`.
 --
+check: `sbx-login`
+what-it-checks: `sbx ls` answers, so Docker is logged in to sbx. Without `sbx` on PATH (or `$SBX_BIN`), it skips. When `sbx ls` fails with another error, it warns and names `sbx diagnose`.
+fail-means: `sbx ls` answered an auth error (for example 401), so each `sbx` call fails and a sandboxed run fails late. Run `sbx login`.
+--
 check: `sandbox-mounts`
 what-it-checks: When a sandbox state file exists, `sbx ls` lists all mounts that `up` requires (a folder inside the project root is not mounted, the clone holds it), the project has the `sandbox-<name>` git remote of clone mode, and the clone exists inside the sandbox (`git -C <root> rev-parse --git-dir`).
 fail-means: Run `sbx rm --force NAME` and then `idfx up`, which creates the sandbox again in clone mode. When no session is busy and the clone holds no unfetched work, `--fix --force` runs these two steps.

@@ -43,9 +43,13 @@ pre-push:
   jobs:
     # git-autopush waits for a free test slot of the machine, so that at most
     # DV_TEST_SLOTS full suites run at once, and skips a tree that passed
-    # before. Without git-autopush on the PATH, the plain command runs.
+    # before. --snapshot runs the suite in a temporary detached worktree of the
+    # pushed commit, so a dirty file of another session in this checkout cannot
+    # change the result. The suite needs no ignored folder: mise run test runs
+    # bun install --frozen-lockfile in the snapshot first. Without git-autopush
+    # on the PATH, the plain command runs.
     - name: idfix tests
-      run: if command -v git-autopush >/dev/null 2>&1; then git-autopush tests -- ${TEST_RUNNER:-mise run test}; else ${TEST_RUNNER:-mise run test}; fi
+      run: if command -v git-autopush >/dev/null 2>&1; then git-autopush tests --snapshot -- ${TEST_RUNNER:-mise run test}; else ${TEST_RUNNER:-mise run test}; fi
     # The doctor output must keep the doctor format of the shared tool
     # protocol. Without doctor-lint on the PATH, the job passes.
     - name: doctor format

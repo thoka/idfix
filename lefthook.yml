@@ -47,7 +47,7 @@ pre-push:
     # pushed commit, so a dirty file of another session in this checkout cannot
     # change the result. The suite needs no ignored folder: mise run test runs
     # bun install --frozen-lockfile in the snapshot first. Without git-autopush
-    # on the PATH, the plain command runs.
+    # on the PATH, the plain command runs. The snapshot copy adds about 20 s to a run.
     - name: idfix tests
       run: if command -v git-autopush >/dev/null 2>&1; then git-autopush tests --snapshot -- ${TEST_RUNNER:-mise run test}; else ${TEST_RUNNER:-mise run test}; fi
     # The doctor output must keep the doctor format of the shared tool

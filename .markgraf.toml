@@ -12,6 +12,9 @@ direct-access = 0
 color-word = 21
 no-check = 0
 
+# The exceptions hide 7 hits of the kind color-word (step dxfybGA0, 2026-11-15): 5 in src/top/view-model.ts and
+# 2 in src/top/view.tsx. Count them with `mg penalties --kind color-word --config <file>`, where the file holds
+# only [penalties], so that no exception applies.
 [color-exceptions]
 "src/top/view-model.ts" = "display code of idfx top: it maps each state to the Ink color of its row"
 "src/top/view.tsx" = "display code of idfx top: it draws the rows in their Ink colors"

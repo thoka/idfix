@@ -70,4 +70,12 @@ describe("the test job of the pre-push hook", () => {
     fakeTool("git-autopush");
     expect(runJob({ TEST_RUNNER: "bun test" }).lines).toEqual(["git-autopush tests --snapshot -- bun test"]);
   });
+
+  test("without git-autopush, TEST_RUNNER replaces the plain suite command", () => {
+    fakeTool("bun");
+    fakeTool("mise");
+    const { lines } = runJob({ TEST_RUNNER: "bun test" });
+    expect(lines[0]).toContain("git-autopush not found");
+    expect(lines.slice(1)).toEqual(["bun test"]);
+  });
 });

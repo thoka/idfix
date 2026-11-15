@@ -71,11 +71,16 @@ describe("the test job of the pre-push hook", () => {
     expect(runJob({ TEST_RUNNER: "bun test" }).lines).toEqual(["git-autopush tests --snapshot -- bun test"]);
   });
 
-  test("without git-autopush, TEST_RUNNER replaces the plain suite command", () => {
-    fakeTool("bun");
+  test("without git-autopush, TEST_RUNNER replaces the plain suite command and gives its exit code", () => {
+    // The fake suite prints a line that differs from its command, so an echo
+    // of TEST_RUNNER cannot pass for a run of it.
+    const suite = join(bin, "suite");
+    writeFileSync(suite, `#!${sh}\necho "suite ran with $*"\nexit "\${FAKE_EXIT:-0}"\n`);
+    chmodSync(suite, 0o755);
     fakeTool("mise");
-    const { lines } = runJob({ TEST_RUNNER: "bun test" });
+    const { code, lines } = runJob({ TEST_RUNNER: "suite fast", FAKE_EXIT: "5" });
+    expect(code).toBe(5);
     expect(lines[0]).toContain("git-autopush not found");
-    expect(lines.slice(1)).toEqual(["bun test"]);
+    expect(lines.slice(1)).toEqual(["suite ran with fast"]);
   });
 });
